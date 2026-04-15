@@ -4662,9 +4662,8 @@ app.get('/api/lifts', async (req, res) => {
   try {
     const lifts = await Lift.findAll({
       include: [
-        { model: ServiceLog },
-        {
-          model: ProjectLift,
+  {
+    model: ProjectLift,
           include: [
             { model: Contract }, // ✅ moved here
             {
@@ -4733,15 +4732,8 @@ app.get('/api/lifts', async (req, res) => {
         : null;
       const amcNotes = hasValidAmc ? (amc.amcNotes || amc.amc_notes || null) : null;
 
-      const amcLogs = (j.ServiceLogs || []).filter(
-        (l) => String(l.workDone || '').toUpperCase() === 'AMC SERVICE'
-      );
-
-      let amcLastServiceDate = null;
-      if (amcLogs.length) {
-        amcLogs.sort((a, b) => new Date(b.serviceDate) - new Date(a.serviceDate));
-        amcLastServiceDate = amcLogs[0].serviceDate || null;
-      }
+      const amcLogs = [];
+let amcLastServiceDate = null;
 
       let amcNextServiceDue = null;
       let amcOverdueDays = 0;
@@ -4773,7 +4765,7 @@ app.get('/api/lifts', async (req, res) => {
               ? 'AMC EXPIRED'
               : 'NO AMC';
 
-      const totalCost = (j.ServiceLogs || []).reduce((sum, x) => sum + Number(x.cost || 0), 0);
+      const totalCost = 0;
 
       return {
         id: j.id,
