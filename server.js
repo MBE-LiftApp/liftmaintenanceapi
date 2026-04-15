@@ -2793,39 +2793,69 @@ app.get('/api/projects', async (req, res) => {
 // Create project (serial code from backend)
 app.post('/api/projects', async (req, res) => {
   try {
-    const { projectName, customerName, building, notes } = req.body || {};
+    const {
+      projectName,
+      customerName,
+      building,
+      notes,
+      customerId,
+      siteId,
+    } = req.body || {};
 
-    if (!projectName) {
-      return res.status(400).json({ error: 'Project name required' });
+    if (!projectName || !String(projectName).trim()) {
+      return res.status(400).json({ error: 'Project name is required' });
     }
 
-    // 1. Find or create customer
-    let customer = await Customer.findOne({ where: { name: customerName } });
+    let customer = null;
+    let site = null;
 
-    if (!customer) {
-      customer = await Customer.create({ name: customerName });
+    // 1. Resolve customer
+    if (customerId) {
+      customer = await Customer.findByPk(Number(customerId));
     }
 
-    // 2. Find or create site
-    let site = await Site.findOne({ where: { name: building } });
+    if (!customer && customerName && String(customerName).trim()) {
+      customer = await Customer.findOne({
+        where: { name: String(customerName).trim() },
+      });
+    }
 
-    if (!site) {
-      site = await Site.create({ name: building });
+    if (!customer && customerName && String(customerName).trim()) {
+      customer = await Customer.create({
+        name: String(customerName).trim(),
+      });
+    }
+
+    // 2. Resolve site
+    if (siteId) {
+      site = await Site.findByPk(Number(siteId));
+    }
+
+    if (!site && building && String(building).trim()) {
+      site = await Site.findOne({
+        where: { name: String(building).trim() },
+      });
+    }
+
+    if (!site && building && String(building).trim()) {
+      site = await Site.create({
+        name: String(building).trim(),
+      });
     }
 
     // 3. Create project
     const project = await Project.create({
-      project_name: projectName,
-      customer_id: customer.id,
-      site_id: site.id,
-      notes: notes || ''
+      project_name: String(projectName).trim(),
+      customer_id: customer ? customer.id : null,
+      site_id: site ? site.id : null,
+      status: 'OPEN',
+      notes: notes ? String(notes).trim() : '',
     });
 
     res.json(project);
-
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to create project' });
+    console.error('POST /api/projects error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create project' });
   }
 });
 
