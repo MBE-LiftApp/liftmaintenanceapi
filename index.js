@@ -1,11 +1,16 @@
-const express = require('express');
+const express = require("express");
+
 const app = express();
-const port = process.env.PORT || 3000;
+app.use(express.json());
 
-app.get('/', (req, res) => {
-  res.send('Hello, World!');
+// Health check (for browser + Heroku)
+app.get("/", (req, res) => res.send("LiftMaintenanceAPI is running ✅"));
+app.get("/health", (req, res) => res.json({ ok: true }));
+
+// Example API route
+app.get("/api/hello", (req, res) => {
+  res.json({ message: "Hello from LiftMaintenanceAPI" });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server listening on ${PORT}`));

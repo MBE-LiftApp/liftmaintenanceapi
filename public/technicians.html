@@ -1,0 +1,218 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Technicians</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{background:#fff;border:1px solid #e7e7ef;border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.03)}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .row > *{flex:1}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono','Courier New', monospace}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px;border-bottom:1px solid #eee;text-align:left;font-size:14px}
+    th{font-weight:600;color:#444}
+    .btn{background:#111827;color:#fff;border:none;border-radius:10px;padding:10px 14px;cursor:pointer}
+    .btn.secondary{background:#fff;color:#111827;border:1px solid #ddd}
+    .muted{color:#6b7280}
+    .err{color:#b91c1c;font-size:13px;margin-top:10px}
+    .ok{color:#15803d;font-size:13px;margin-top:10px}
+    input,select{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px}
+    label{display:block;font-size:12px;color:#6b7280;margin-bottom:6px}
+  </style>
+</head>
+<body>
+  <div class="page" style="max-width:1100px;margin:40px auto;padding:0 20px;">
+    <div class="row" style="justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <h1 style="margin:0;">Technicians</h1>
+        <div class="muted">Create technicians, set PIN, and view the list.</div>
+      </div>
+      <div class="row" style="justify-content:flex-end;gap:8px;flex:0 0 auto;">
+        <a class="btn secondary" href="/index.html">Back to Dashboard</a>
+        <button class="btn" id="btnRefresh" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3 style="margin-top:0;">Add Technician</h3>
+        <div class="row">
+          <div>
+            <label>Name</label>
+            <input id="name" placeholder="e.g., Sonam" />
+          </div>
+          <div>
+            <label>Phone</label>
+            <input id="phone" placeholder="17123456" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div>
+            <label>Email (optional)</label>
+            <input id="email" placeholder="name@example.com" />
+          </div>
+          <div>
+            <label>Role</label>
+            <select id="role">
+              <option value="">(blank)</option>
+              <option value="INSTALLATION">INSTALLATION</option>
+              <option value="TESTING">TESTING</option>
+              <option value="MAINTENANCE">MAINTENANCE</option>
+              <option value="SUPERVISOR">SUPERVISOR</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;align-items:flex-end;">
+          <div>
+            <label>Initial PIN (optional)</label>
+            <input id="pin" placeholder="1234" />
+            <div class="muted" style="font-size:12px;margin-top:6px;">If you set a PIN now, the tech can login immediately.</div>
+          </div>
+          <div style="flex:0 0 auto;">
+            <button class="btn" id="btnCreate" type="button">Create Technician</button>
+          </div>
+        </div>
+        <div id="msg" class="err" style="display:none;"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">Set / Reset PIN</h3>
+        <div class="muted" style="margin-bottom:10px;">Pick a technician from the list, then set a new PIN.</div>
+        <div class="row">
+          <div>
+            <label>Technician</label>
+            <select id="techSelect"></select>
+          </div>
+          <div>
+            <label>New PIN</label>
+            <input id="newPin" placeholder="1234" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;justify-content:flex-end;">
+          <button class="btn" id="btnSetPin" type="button">Set PIN</button>
+        </div>
+        <div id="msg2" class="err" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="row" style="justify-content:space-between;">
+        <h3 style="margin:0;">Technicians List</h3>
+        <div class="muted mono" id="count"></div>
+      </div>
+      <div style="overflow:auto;margin-top:10px;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th>Role</th><th>Active</th><th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const api = (p)=>p;
+
+  async function fetchJson(url, options){
+    const res = await fetch(url, options);
+    const ct = res.headers.get("content-type") || "";
+    const raw = await res.text();
+    let data = null;
+    try { data = ct.includes("application/json") ? JSON.parse(raw) : { raw }; } catch(e) { data = { raw }; }
+    if(!res.ok){
+      const msg = (data && (data.error || data.message)) ? (data.error || data.message) : raw;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  function show(id, text, ok=false){
+    const el = document.getElementById(id);
+    el.style.display = "block";
+    el.className = ok ? "ok" : "err";
+    el.textContent = text;
+    setTimeout(()=>{ el.style.display="none"; }, 4000);
+  }
+
+  async function load(){
+    const list = await fetchJson(api("/api/technicians"));
+    document.getElementById("count").textContent = `${list.length} technicians`;
+    const body = document.getElementById("rows");
+    body.innerHTML = "";
+    list.forEach(t=>{
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="mono">${t.id}</td>
+        <td>${t.name||""}</td>
+        <td class="mono">${t.phone||""}</td>
+        <td>${t.email||""}</td>
+        <td>${t.role||""}</td>
+        <td>${t.isActive ? "Yes" : "No"}</td>
+        <td class="mono">${t.createdAt ? String(t.createdAt).slice(0,19).replace("T"," ") : ""}</td>`;
+      body.appendChild(tr);
+    });
+
+    const sel = document.getElementById("techSelect");
+    sel.innerHTML = "";
+    list.forEach(t=>{
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = `${t.name} (${t.phone || "no phone"}) [id=${t.id}]`;
+      sel.appendChild(opt);
+    });
+  }
+
+  document.getElementById("btnRefresh").addEventListener("click", ()=>load().catch(e=>show("msg", e.message || String(e))));
+
+  document.getElementById("btnCreate").addEventListener("click", async ()=>{
+    try{
+      const payload = {
+        name: document.getElementById("name").value.trim(),
+        phone: document.getElementById("phone").value.trim(),
+        email: document.getElementById("email").value.trim() || null,
+        role: document.getElementById("role").value || null,
+        pin: document.getElementById("pin").value.trim() || null
+      };
+      if(!payload.name) return show("msg","Name is required.");
+      await fetchJson(api("/api/technicians"), {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload)
+      });
+      show("msg","Technician created.", true);
+      ["name","phone","email","pin"].forEach(id=>document.getElementById(id).value="");
+      document.getElementById("role").value="";
+      await load();
+    }catch(e){
+      show("msg", e.message || String(e));
+    }
+  });
+
+  document.getElementById("btnSetPin").addEventListener("click", async ()=>{
+    try{
+      const techId = document.getElementById("techSelect").value;
+      const pin = document.getElementById("newPin").value.trim();
+      if(!techId) return show("msg2","Select a technician.");
+      if(!pin) return show("msg2","Enter a PIN.");
+      await fetchJson(api(`/api/technicians/${techId}/pin`), {
+        method:"PUT",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ pin })
+      });
+      show("msg2","PIN updated.", true);
+      document.getElementById("newPin").value="";
+    }catch(e){
+      show("msg2", e.message || String(e));
+    }
+  });
+
+  load().catch(e=>show("msg", e.message || String(e)));
+</script>
+</body>
+</html>

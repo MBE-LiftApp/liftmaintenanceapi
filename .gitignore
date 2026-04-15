@@ -3,7 +3,8 @@ node_modules/
 
 # Env files (secrets)
 .env
-
+*.log
+models.zip
 # Logs
 *.log
 npm-debug.log*
@@ -12,3 +13,6 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 test-db.js
+*.env
+*_before*
+*_old*

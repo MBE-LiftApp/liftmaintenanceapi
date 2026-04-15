@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Projects • Lift Lifecycle</title>
+  <link rel="icon" href="data:,"/>
+  <style>
+    :root{
+      --bg:#f6f8fc; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
+      --primary:#0f172a; --primaryText:#fff; --chip:#eef2ff; --shadow:0 10px 30px rgba(2,6,23,.08);
+      --radius:16px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}
+    .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+    .top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    h1{margin:0;font-size:34px;letter-spacing:-.02em}
+    .sub{margin-top:6px;color:var(--muted)}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+    .pad{padding:16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .spacer{flex:1}
+    input, textarea{
+      width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px;background:#fff;
+    }
+    textarea{min-height:90px;resize:vertical}
+    .btn{background:var(--primary);color:var(--primaryText);border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
+    .btn.secondary{background:#fff;color:var(--text);border:1px solid var(--line)}
+    .btn.small{padding:8px 10px;border-radius:10px;font-size:13px}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:var(--chip);font-size:12px;color:#3730a3;font-weight:700}
+    .tableWrap{overflow:auto}
+    table{width:100%;border-collapse:separate;border-spacing:0 10px}
+    th{color:var(--muted);font-size:12px;text-align:left;padding:0 10px}
+    td{background:#fff;border:1px solid var(--line);padding:10px;border-left:0;border-right:0;vertical-align:top}
+    tr td:first-child{border-left:1px solid var(--line);border-top-left-radius:12px;border-bottom-left-radius:12px}
+    tr td:last-child{border-right:1px solid var(--line);border-top-right-radius:12px;border-bottom-right-radius:12px}
+    .muted{color:var(--muted)}
+    .search{min-width:260px;flex:1}
+    /* modal */
+    .backdrop{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;padding:16px}
+    .modal{max-width:720px;width:100%}
+    .modalHeader{display:flex;align-items:center;gap:10px}
+    .modalHeader h3{margin:0}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media (max-width:720px){.grid2{grid-template-columns:1fr}}
+    .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;
+      padding:10px 12px;border-radius:999px;box-shadow:var(--shadow);display:none;font-weight:700}
+    a{color:inherit}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>Projects</h1>
+        <div class="sub">Create or search projects, then open one to manage lifts, jobs, and milestones.</div>
+      </div>
+      <div class="row">
+        <a class="btn secondary small" href="/" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">← Dashboard</a>
+        <button class="btn secondary small" id="btnRefresh">Refresh</button>
+        <button class="btn small" id="btnNew">New Project</button>
+      </div>
+    </div>
+
+    <div class="card pad" style="margin-top:14px">
+      <div class="row">
+        <input id="q" class="search" placeholder="Search by project, code, customer..." />
+        <div class="spacer"></div>
+        <span class="muted" id="count"></span>
+      </div>
+
+      <div class="tableWrap" style="margin-top:10px">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:80px">ID</th>
+              <th>Project</th>
+              <th>Customer</th>
+              <th style="width:120px">Status</th>
+              <th style="width:110px">Lifts</th>
+              <th style="width:130px"></th>
+            </tr>
+          </thead>
+          <tbody id="tb"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Project Modal -->
+  <div class="backdrop" id="bd">
+    <div class="card pad modal">
+      <div class="modalHeader">
+        <h3>New Project</h3>
+        <span class="pill">Step 1</span>
+        <div class="spacer"></div>
+        <button class="btn secondary small" id="btnClose">Close</button>
+      </div>
+
+      <div class="grid2" style="margin-top:10px">
+        <div>
+          <label class="muted">Project Name *</label>
+          <input id="projectName" placeholder="e.g., ABC Hotel New Installation" />
+        </div>
+        <div>
+          <label class="muted">Project Code (optional)</label>
+          <input id="projectCode" placeholder="e.g., PRJ-2026-001" />
+        </div>
+        <div>
+          <label class="muted">Customer Name</label>
+          <input id="customerName" placeholder="e.g., ABC Hotel" />
+        </div>
+        <div>
+          <label class="muted">Building / Site</label>
+          <input id="building" placeholder="e.g., Block A / ABC Hotel" />
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <label class="muted">Notes (optional)</label>
+        <textarea id="notes" placeholder="Scope notes, target dates, internal refs..."></textarea>
+      </div>
+
+      <div class="row" style="justify-content:flex-end;margin-top:10px">
+        <button class="btn" id="btnCreate">Create & Open</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const api = (p) => p;
+
+  let projects = [];
+
+  function escapeHtml(s){
+    return String(s||'').replace(/[&<>"']/g, (c)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  function toast(msg){
+    const t = $('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    setTimeout(()=> t.style.display='none', 1800);
+  }
+
+  function openModal(){ $('bd').style.display = 'flex'; $('projectName').focus(); }
+  function closeModal(){ $('bd').style.display = 'none'; }
+
+  function render(){
+    const q = $('q').value.trim().toLowerCase();
+    const list = q
+      ? projects.filter(p => (
+          (p.projectName||'').toLowerCase().includes(q) ||
+          (p.projectCode||'').toLowerCase().includes(q) ||
+          (p.customer?.name||'').toLowerCase().includes(q)
+        ))
+      : projects;
+
+    $('count').textContent = list.length + ' project(s)';
+
+    const tb = $('tb');
+    tb.innerHTML = '';
+    for(const p of list){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(String(p.id ?? ''))}</td>
+        <td>
+          <strong>${escapeHtml(p.projectName || '')}</strong>
+          <div class="muted">${escapeHtml(p.projectCode || '')}</div>
+        </td>
+        <td>${escapeHtml(p.customer?.name || '')}</td>
+        <td><span class="pill">${escapeHtml(p.status || '')}</span></td>
+        <td>${escapeHtml(String(p.liftCount ?? 0))}</td>
+        <td><button class="btn small secondary" data-open="${escapeHtml(String(p.id))}">Open</button></td>
+      `;
+      tb.appendChild(tr);
+    }
+
+    tb.querySelectorAll('button[data-open]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const id = b.getAttribute('data-open');
+        window.location.href = '/project.html?id=' + encodeURIComponent(id);
+      });
+    });
+  }
+
+  async function refresh(){
+    const res = await fetch(api('/api/projects'));
+    if(!res.ok){ projects = []; render(); return; }
+    projects = await res.json();
+    render();
+  }
+
+  async function createProject(){
+    const payload = {
+      projectName: $('projectName').value.trim(),
+      projectCode: $('projectCode').value.trim(),
+      customerName: $('customerName').value.trim(),
+      building: $('building').value.trim(),
+      notes: $('notes').value.trim()
+    };
+    if(!payload.projectName){ alert('Project Name is required'); return; }
+
+    const res = await fetch(api('/api/projects'), {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(()=> ({}));
+    if(!res.ok){ alert(data.error || 'Failed to create project'); return; }
+
+    closeModal();
+    toast('Project created');
+    window.location.href = '/project.html?id=' + encodeURIComponent(data.id);
+  }
+
+  $('btnRefresh').addEventListener('click', refresh);
+  $('btnNew').addEventListener('click', openModal);
+  $('btnClose').addEventListener('click', closeModal);
+  $('bd').addEventListener('click', (e)=>{ if(e.target === $('bd')) closeModal(); });
+  $('btnCreate').addEventListener('click', createProject);
+  $('q').addEventListener('input', render);
+
+  refresh();
+</script>
+</body>
+</html>

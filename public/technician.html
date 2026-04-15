@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Technician App</title>
+
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#0f172a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Technician App" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <style>
+    :root{
+      --bg:#f6f8fc;
+      --card:#fff;
+      --text:#0f172a;
+      --muted:#64748b;
+      --line:#e5e7eb;
+      --btn:#0f172a;
+      --btnText:#fff;
+      --good:#16a34a;
+      --warn:#f59e0b;
+      --bad:#dc2626;
+      --info:#2563eb;
+      --shadow:0 10px 22px rgba(15,23,42,0.06);
+      --radius:16px;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
+
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:var(--font);
+    }
+
+    .wrap{
+      max-width: 920px;
+      margin: 22px auto;
+      padding: 0 14px 40px;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    h1{
+      margin: 10px 0 8px;
+      font-size: 24px;
+    }
+
+    .muted{
+      color:var(--muted);
+      font-size: 13px;
+    }
+
+    label{
+      display:block;
+      font-size: 12px;
+      color:var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input, select, textarea{
+      width:100%;
+      border:1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 14px;
+      outline:none;
+      background:#fff;
+      font-family: inherit;
+    }
+
+    textarea{
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    input:focus, select:focus, textarea:focus{
+      border-color:#cbd5e1;
+      box-shadow: 0 0 0 4px rgba(37,99,235,0.08);
+    }
+
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .btn{
+      border:1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor:pointer;
+      background:#fff;
+    }
+
+    .btnPrimary{
+  background:var(--btn);
+  color:#fff;
+  font-weight:800;
+}
+
+.btnSecondary{
+  background:#f1f5f9;
+}
+
+    .btnSmall{
+  padding:10px 12px;
+  font-size:14px;
+}
+
+    .btn:disabled{
+  opacity:0.4;
+  background:#f1f5f9;
+}
+
+    .top{
+      display:flex;
+      gap: 10px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom: 12px;
+    }
+
+.top{
+  position:sticky;
+  top:0;
+  background:var(--bg);
+  z-index:10;
+  padding-bottom:8px;
+}
+
+    .chips{
+      display:flex;
+      gap: 8px;
+      flex-wrap:wrap;
+    }
+
+    .chip{
+      border:1px solid var(--line);
+      background:#fff;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 900;
+      cursor:pointer;
+    }
+
+    .chip.active{
+      background:#0f172a;
+      color:#fff;
+      border-color:#0f172a;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .ticket{
+  padding:14px;
+}
+.ticket{
+  box-shadow: 0 4px 10px rgba(0,0,0,0.04);
+}
+    .ticketHead{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px;
+}
+
+    .code{
+  font-weight:1000;
+  font-size:16px;
+}
+
+.ticket .muted{
+  opacity:0.85;
+}
+
+.ticket{
+  border-left: 4px solid #e5e7eb;
+}
+
+.btn:active{
+  transform: scale(0.97);
+}
+
+.badge{
+  letter-spacing:0.3px;
+}
+    .badge{
+      font-size: 12px;
+      font-weight: 900;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border:1px solid var(--line);
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      white-space:nowrap;
+    }
+
+    .bAssigned{ background:#eef2ff; }
+    .bProg{ background:#e7f2ff; }
+    .bDone{ background:#dcfce7; }
+    .bCancel{ background:#fee2e2; }
+    .bWarn{ background:#fff7ed; border-color:#fdba74; }
+    .bDanger{
+  background:#fee2e2;
+  border-color:#f87171;
+  color:#991b1b;
+}
+    .bInfo{ background:#eff6ff; border-color:#93c5fd; }
+
+    .actions{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:8px;
+  margin-top:10px;
+}
+
+    .hide{ display:none; }
+
+    .hr{
+      height:1px;
+      background:#e5e7eb;
+      width:100%;
+      margin:12px 0;
+    }
+
+    .field{
+      margin-top: 12px;
+    }
+
+    .kv{
+      display:grid;
+      grid-template-columns: 110px 1fr;
+      gap: 6px 10px;
+      margin-top:12px;
+      font-size:14px;
+    }
+
+    .kv .k{
+      color:var(--muted);
+    }
+
+    .summaryBox{
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px;
+  background:#f8fafc;
+  margin-top:12px;
+}
+.summaryBox .badge{
+  margin-top:6px;
+}
+
+    .checkRow{
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:12px;
+      margin-top:10px;
+    }
+
+    .checkTop{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:flex-start;
+    }
+
+    .noteItem, .partItem{
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:12px;
+      margin-top:10px;
+      background:#fff;
+    }
+
+    .modalBack{
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,0.45);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      z-index:9999;
+    }
+
+    .modal{
+      width:min(760px, 100%);
+      max-height:calc(100vh - 32px);
+      overflow:auto;
+      background:#fff;
+      border-radius:18px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.18);
+      border:1px solid var(--line);
+    }
+
+    .modalHead{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      padding:16px;
+      border-bottom:1px solid var(--line);
+      position:sticky;
+      top:0;
+      background:#fff;
+      z-index:2;
+    }
+
+    .modalTitle{
+      font-size:18px;
+      font-weight:900;
+    }
+
+    .modalBody{
+      padding:16px;
+    }
+
+    .modalFoot{
+      padding:16px;
+      border-top:1px solid var(--line);
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      position:sticky;
+      bottom:0;
+      background:#fff;
+    }
+
+    .toast{
+      position:fixed;
+      right:20px;
+      bottom:20px;
+      background:#111827;
+      color:#fff;
+      padding:12px 16px;
+      border-radius:12px;
+      box-shadow:0 12px 30px rgba(0,0,0,0.2);
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .25s ease;
+      z-index:10000;
+      font-weight:700;
+    }
+
+    .toast.show{ opacity:1; }
+
+    @media (max-width: 700px){
+      .row{ grid-template-columns: 1fr; }
+      .kv{ grid-template-columns: 1fr; }
+      .ticketHead{ flex-direction:column; }
+      .top{ align-items:flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+  <div>
+    <h1>Technician App</h1>
+    <div class="muted">
+      Login with phone + PIN. Your assignments sync automatically from the office system.
+    </div>
+  </div>
+</div>
+
+    <div id="loginCard" class="card">
+      <div class="row">
+        <div>
+          <label>Phone</label>
+          <input id="phone" placeholder="e.g. 17123456" />
+        </div>
+        <div>
+          <label>PIN (4–8 digits)</label>
+          <input id="pin" type="password" placeholder="••••" />
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:12px; align-items:center;">
+        <button class="btn btnPrimary" onclick="login()">Login</button>
+        <div id="loginMsg" class="muted"></div>
+      </div>
+      <div class="muted" style="margin-top:10px;">If PIN is not set yet, ask management to set your PIN in the office system.</div>
+    </div>
+
+    <div id="appCard" class="card hide">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+        <div>
+          <div class="muted">Logged in as</div>
+          <div id="me" style="font-weight:1000; font-size:18px;"></div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" onclick="refreshJobs()">Refresh</button>
+          <button class="btn" onclick="logout()">Logout</button>
+        </div>
+      </div>
+
+      <div class="chips" id="chips" style="margin-top:12px;"></div>
+
+      <div id="list" class="grid"></div>
+      <div id="empty" class="muted" style="margin-top:14px; display:none;">No assignments found.</div>
+    </div>
+  </div>
+
+  <div id="modalBack" class="modalBack">
+    <div class="modal">
+      <div class="modalHead">
+        <div id="modalTitle" class="modalTitle">Modal</div>
+        <button class="btn" type="button" onclick="closeModal()">Close</button>
+      </div>
+      <div id="modalBody" class="modalBody"></div>
+      <div id="modalFoot" class="modalFoot"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+<script>
+  const API_BASE = location.origin;
+  const LS_TOKEN = "liftapp.tech.token";
+  const LS_TECH = "liftapp.tech.profile";
+
+  let filterStatus = 'ALL';
+  let jobsCache = [];
+  let activeJobId = null;
+
+  function byId(id){ return document.getElementById(id); }
+
+  function escapeHtml(v){
+    return String(v ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function showToast(message, type = 'info'){
+    const el = byId('toast');
+    el.textContent = message;
+    el.style.background =
+      type === 'success' ? '#16a34a' :
+      type === 'error' ? '#dc2626' :
+      type === 'warn' ? '#d97706' : '#111827';
+    el.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove('show'), 2400);
+  }
+
+  function setBusy(on){
+    document.body.style.cursor = on ? 'wait' : 'default';
+  }
+
+  function setFilter(chip){
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    filterStatus = chip.getAttribute('data-filter') || 'ALL';
+    renderJobCards();
+  }
+
+  function getToken(){ return localStorage.getItem(LS_TOKEN) || ''; }
+  function setToken(token){ localStorage.setItem(LS_TOKEN, token); }
+  function setProfile(profile){ localStorage.setItem(LS_TECH, JSON.stringify(profile || null)); }
+  function clearToken(){
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_TECH);
+  }
+
+  async function parseResponse(res, fallback){
+    const text = await res.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
+    if (!res.ok) {
+      throw new Error(data?.error || data?.message || data?.raw || fallback);
+    }
+    return data;
+  }
+
+  async function apiFetch(path, options = {}, fallback = 'Request failed'){
+    const res = await fetch(API_BASE + path, options);
+    return parseResponse(res, fallback);
+  }
+
+  function isServiceRole(role){
+    const r = String(role || '').toUpperCase();
+    return r.includes('AMC SERVICE') || r.includes('WARRANTY SERVICE');
+  }
+
+  function checklistSummaryText(summary){
+    if (!summary) return 'No checklist';
+    return `${summary.doneRequired || 0}/${summary.totalRequired || 0} required complete (${summary.percent || 0}%)`;
+  }
+
+  function renderChecklistStatusBadge(summary){
+    const raw = String(summary?.status || 'NOT_STARTED').toUpperCase();
+    if (raw === 'COMPLETED') {
+      return `<span class="badge bDone">Checklist Complete</span>`;
+    }
+    if (raw === 'IN_PROGRESS') {
+      return `<span class="badge bInfo">Checklist In Progress</span>`;
+    }
+    return `<span class="badge">Checklist Not Started</span>`;
+  }
+
+  function badgeClass(status){
+    const s = String(status || '').toUpperCase();
+    if (s === 'ASSIGNED') return 'badge bAssigned';
+    if (s === 'IN_PROGRESS') return 'badge bProg';
+    if (s === 'DONE') return 'badge bDone';
+    if (s === 'CANCELLED') return 'badge bCancel';
+    if (s === 'REJECTED') return 'badge bDanger';
+    return 'badge';
+  }
+
+  function statusLabel(job){
+    const s = String(job.status || '').replaceAll('_', ' ');
+    if (job.resubmissionRequired) return `${s} • Needs Fix`;
+    return s;
+  }
+
+  function formatDate(v){
+    if (!v) return '—';
+    try {
+      return new Date(v).toLocaleDateString();
+    } catch {
+      return String(v);
+    }
+  }
+
+  function getMyRole(job){
+    return String(job.teamRole || job.myTeamRole || '').toUpperCase();
+  }
+
+  function isLead(job){
+    return getMyRole(job) === 'LEAD';
+  }
+
+  function filterJobs(rows){
+    if (filterStatus === 'ALL') return rows;
+    if (filterStatus === 'NEEDS_FIX') return rows.filter(r => !!r.resubmissionRequired);
+    return rows.filter(r => String(r.status || '').toUpperCase() === filterStatus);
+  }
+
+  function openModal(title, bodyHtml, footerHtml = ''){
+    byId('modalTitle').textContent = title;
+    byId('modalBody').innerHTML = bodyHtml;
+    byId('modalFoot').innerHTML = footerHtml;
+    byId('modalBack').style.display = 'flex';
+  }
+
+  function closeModal(){
+    byId('modalBack').style.display = 'none';
+    byId('modalTitle').textContent = '';
+    byId('modalBody').innerHTML = '';
+    byId('modalFoot').innerHTML = '';
+  }
+
+  byId('modalBack').addEventListener('click', (e) => {
+    if (e.target === byId('modalBack')) closeModal();
+  });
+
+  async function login(){
+    const phone = byId('phone').value.trim();
+    const pin = byId('pin').value.trim();
+    const msg = byId('loginMsg');
+    msg.textContent = '';
+
+    setBusy(true);
+    try{
+      const data = await apiFetch('/api/tech/login', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ phone, pin })
+      }, 'Login failed');
+
+      setToken(data.token);
+      setProfile(data.technician || null);
+      await boot();
+      showToast('Login successful', 'success');
+    }catch(e){
+      msg.textContent = e.message || 'Login failed';
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function logout(){
+    clearToken();
+    jobsCache = [];
+    activeJobId = null;
+    byId('appCard').classList.add('hide');
+    byId('loginCard').classList.remove('hide');
+    byId('pin').value = '';
+  }
+
+  async function boot(){
+    const token = getToken();
+    if(!token) return;
+
+    try{
+      const meData = await apiFetch('/api/tech/me', {
+        headers:{ 'Authorization':'Bearer ' + token }
+      }, 'Failed to load profile');
+
+      setProfile(meData.technician || null);
+      byId('me').textContent = `${meData.technician.name} (${meData.technician.phone || ''})`;
+      byId('loginCard').classList.add('hide');
+      byId('appCard').classList.remove('hide');
+      await refreshJobs();
+    }catch(e){
+      logout();
+    }
+  }
+
+  async function refreshJobs(){
+    const token = getToken();
+    if(!token) return;
+
+    setBusy(true);
+    try {
+      const data = await apiFetch('/api/tech/assignments', {
+        headers:{ 'Authorization':'Bearer ' + token }
+      }, 'Failed to load assignments');
+
+      jobsCache = Array.isArray(data) ? data : [];
+      console.log('Technician assignments loaded:', jobsCache);
+      renderChips();
+      renderJobCards();
+
+      if (activeJobId) {
+        const active = jobsCache.find(j => Number(j.id) === Number(activeJobId));
+        if (active) {
+          // keep context only logically; detail modal is reopened by explicit action
+        } else {
+          activeJobId = null;
+        }
+      }
+    } catch (e) {
+      alert(e.message || 'Failed to load assignments');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
+function renderChips() {
+  
+const container = document.getElementById('chips');
+
+  const hasNeedsFix = jobsCache.some(j => j.resubmissionRequired);
+
+if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)) {
+  filterStatus = 'ALL';
+}
+
+  container.innerHTML = `
+    <div class="chip ${filterStatus === 'ALL' ? 'active' : ''}" data-filter="ALL" onclick="setFilter(this)">All</div>
+    <div class="chip ${filterStatus === 'ASSIGNED' ? 'active' : ''}" data-filter="ASSIGNED" onclick="setFilter(this)">Assigned</div>
+    <div class="chip ${filterStatus === 'IN_PROGRESS' ? 'active' : ''}" data-filter="IN_PROGRESS" onclick="setFilter(this)">In Progress</div>
+    <div class="chip ${filterStatus === 'DONE' ? 'active' : ''}" data-filter="DONE" onclick="setFilter(this)">Done</div>
+    ${hasNeedsFix ? `<div class="chip ${filterStatus === 'NEEDS_FIX' ? 'active' : ''}" data-filter="NEEDS_FIX" onclick="setFilter(this)">Needs Fix</div>` : ''}
+  `;
+}
+
+  function renderJobCards(){
+    const list = byId('list');
+    const empty = byId('empty');
+    list.innerHTML = '';
+
+    const rows = filterJobs(jobsCache);
+
+    if (!rows.length) {
+  const labelMap = {
+    ALL: 'assignments',
+    ASSIGNED: 'assigned jobs',
+    IN_PROGRESS: 'in-progress jobs',
+    DONE: 'completed jobs',
+    NEEDS_FIX: 'jobs needing fixes'
+  };
+
+  empty.textContent = `No ${labelMap[filterStatus] || 'assignments'} found.`;
+  empty.style.display = 'block';
+  return;
+}
+
+    empty.style.display = 'none';
+
+    rows.forEach((a) => {
+      const liftCode = a.lift?.liftCode || '';
+      const location = a.lift?.location || '';
+      const projectName = a.project?.projectName || '';
+      const role = a.role || '';
+      const due = formatDate(a.dueDate);
+      const myRole = getMyRole(a) || '—';
+      const checklistText = checklistSummaryText(a.checklistSummary || null);
+      const canStart = isLead(a) && String(a.status || '').toUpperCase() === 'ASSIGNED';
+      const totalRequired = Number(a.checklistSummary?.totalRequired || 0);
+      const doneRequired = Number(a.checklistSummary?.doneRequired || 0);
+      const checklistComplete = totalRequired > 0 && doneRequired >= totalRequired;
+      const canComplete =
+        isLead(a) &&
+        String(a.status || '').toUpperCase() === 'IN_PROGRESS' &&
+        checklistComplete &&
+        !a.resubmissionRequired;
+
+      const card = document.createElement('div');
+      card.className = 'ticket';
+
+      card.innerHTML = `
+        <div class="ticketHead">
+          <div>
+            <div class="code">${escapeHtml(liftCode)} <span class="muted">• ${escapeHtml(role)}</span></div>
+            <div class="muted">${escapeHtml(projectName)}${location ? ' • ' + escapeHtml(location) : ''}${a.dueDate ? ' • Due: ' + escapeHtml(due) : ''}</div>
+            <div class="muted" style="margin-top:6px;">My Role: <b>${escapeHtml(myRole || '—')}</b></div>
+          </div>
+          <div class="${badgeClass(a.status)}">${escapeHtml(statusLabel(a))}</div>
+        </div>
+
+        ${
+          a.resubmissionRequired
+            ? `<div class="summaryBox" style="border-color:#fca5a5;background:#fef2f2;">
+                 <div style="font-weight:800;color:#991b1b;">Supervisor requested changes</div>
+                 <div class="muted" style="margin-top:4px;">Open Checklist to review remarks and update the submission.</div>
+               </div>`
+            : ''
+        }
+
+        <div class="summaryBox">
+          <div class="muted">${escapeHtml(checklistText)}</div>
+          <div style="margin-top:8px;">${renderChecklistStatusBadge(a.checklistSummary || null)}</div>
+        </div>
+
+        <div class="muted" style="margin-top:10px;">${escapeHtml(a.notes || '')}</div>
+
+        <div class="actions">
+          <button class="btn btnSmall" data-act="details">Details</button>
+          <button class="btn btnSmall" data-act="checklist">Checklist</button>
+          <button class="btn btnSmall" data-act="start" ${canStart ? '' : 'disabled'}>Start</button>
+          <button class="btn btnSmall" data-act="done" ${canComplete ? '' : 'disabled'} title="${
+            canComplete ? '' :
+            (!isLead(a) ? 'Only lead can complete the job' :
+            (String(a.status || '').toUpperCase() !== 'IN_PROGRESS' ? 'Job must be in progress first' :
+            (a.resubmissionRequired ? 'Supervisor requested changes — update checklist or add note' :
+            `Complete ${doneRequired}/${totalRequired} required items first`)))
+          }">Complete</button>
+        </div>
+      `;
+
+      card.querySelector('[data-act="details"]').onclick = () => showJobDetails(a.id);
+      card.querySelector('[data-act="checklist"]').onclick = () => showTechChecklistModal(a.id, a.role || 'JOB');
+      card.querySelector('[data-act="start"]').onclick = async () => {
+        try {
+          await updateJobStatus(a.id, 'IN_PROGRESS');
+          showToast('Job started', 'success');
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      };
+      card.querySelector('[data-act="done"]').onclick = async () => {
+        if (!confirm('Are you sure you completed this job?')) return;
+        try {
+          await updateJobStatus(a.id, 'DONE');
+          showToast('Job completed', 'success');
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      };
+
+      list.appendChild(card);
+    });
+  }
+
+  async function updateJobStatus(id, status){
+    const token = getToken();
+    setBusy(true);
+    try {
+      await apiFetch(`/api/tech/assignments/${id}/status`, {
+        method:'PUT',
+        headers:{
+          'Content-Type':'application/json',
+          'Authorization':'Bearer ' + token
+        },
+        body: JSON.stringify({ status })
+      }, 'Failed to update status');
+
+      await refreshJobs();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function showJobDetails(jobId){
+    const a = jobsCache.find(j => Number(j.id) === Number(jobId));
+    if (!a) return;
+
+    activeJobId = a.id;
+
+    const supportNames = (a.supportTechnicians || []).map(t => t?.name).filter(Boolean);
+    const myRole = getMyRole(a) || '—';
+    const summary = a.checklistSummary || null;
+
+    openModal(
+      `${a.lift?.liftCode || ''} — ${a.role || 'JOB'}`,
+      `
+        <div class="kv">
+          <div class="k">Project</div><div>${escapeHtml(a.project?.projectName || '—')}</div>
+          <div class="k">Project Code</div><div>${escapeHtml(a.project?.projectCode || '—')}</div>
+          <div class="k">Location</div><div>${escapeHtml(a.lift?.location || '—')}</div>
+          <div class="k">Status</div><div><span class="${badgeClass(a.status)}">${escapeHtml(statusLabel(a))}</span></div>
+          <div class="k">My Role</div><div>${escapeHtml(myRole)}</div>
+          <div class="k">Lead</div><div>${escapeHtml(a.leadTechnician?.name || a.technician?.name || '—')}</div>
+          <div class="k">Support</div><div>${escapeHtml(supportNames.join(', ') || '—')}</div>
+          <div class="k">Due</div><div>${escapeHtml(formatDate(a.dueDate))}</div>
+        </div>
+
+        <div class="summaryBox">
+          <div style="font-weight:800;margin-bottom:6px;">Checklist</div>
+          <div class="muted">${escapeHtml(checklistSummaryText(summary))}</div>
+          <div style="margin-top:8px;">${renderChecklistStatusBadge(summary)}</div>
+        </div>
+
+        ${
+          a.resubmissionRequired
+            ? `<div class="summaryBox" style="border-color:#fca5a5;background:#fef2f2;">
+                 <div style="font-weight:800;color:#991b1b;">Needs correction</div>
+                 <div class="muted" style="margin-top:4px;">Open Checklist to view supervisor remarks and update your submission.</div>
+               </div>`
+            : ''
+        }
+
+        <div class="field">
+          <label>Job Notes</label>
+          <div class="summaryBox">${escapeHtml(a.notes || '—')}</div>
+        </div>
+      `,
+      `
+        <button class="btn" type="button" onclick="showTechChecklistModal(${Number(a.id)}, '${String(a.role || 'JOB').replaceAll("'", "\\'")}')">Checklist</button>
+        <button class="btn" type="button" onclick="closeModal()">Close</button>
+      `
+    );
+  }
+
+  async function getTechChecklist(jobId){
+    return apiFetch(`/api/tech/assignments/${jobId}/checklist`, {
+      headers: { 'Authorization': 'Bearer ' + getToken() }
+    }, 'Failed to load checklist');
+  }
+
+  async function updateTechChecklistItem(jobId, itemId, payload){
+    return apiFetch(`/api/tech/assignments/${jobId}/checklist/${itemId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + getToken()
+      },
+      body: JSON.stringify(payload)
+    }, 'Failed to update checklist item');
+  }
+
+  async function addTechChecklistNote(jobId, noteText){
+    return apiFetch(`/api/tech/assignments/${jobId}/checklist-notes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + getToken()
+      },
+      body: JSON.stringify({ noteText })
+    }, 'Failed to add checklist note');
+  }
+
+  async function getTechServiceReport(jobId){
+    return apiFetch(`/api/tech/assignments/${jobId}/service-report`, {
+      headers: { 'Authorization': 'Bearer ' + getToken() }
+    }, 'Failed to load service report');
+  }
+
+  async function saveTechServiceReport(jobId, payload){
+    return apiFetch(`/api/tech/assignments/${jobId}/service-report`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + getToken()
+      },
+      body: JSON.stringify(payload)
+    }, 'Failed to save service report');
+  }
+
+  async function addTechServicePart(jobId, payload){
+    return apiFetch(`/api/tech/assignments/${jobId}/service-report/parts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + getToken()
+      },
+      body: JSON.stringify(payload)
+    }, 'Failed to add part');
+  }
+
+  async function updateTechServicePart(partId, payload){
+    return apiFetch(`/api/tech/service-parts/${partId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + getToken()
+      },
+      body: JSON.stringify(payload)
+    }, 'Failed to update part');
+  }
+
+  async function deleteTechServicePart(partId){
+    return apiFetch(`/api/tech/service-parts/${partId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': 'Bearer ' + getToken()
+      }
+    }, 'Failed to delete part');
+  }
+
+  async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
+    try {
+      setBusy(true);
+      const [data, reportData] = await Promise.all([
+        getTechChecklist(jobId),
+        isServiceRole(roleLabel)
+          ? getTechServiceReport(jobId)
+          : Promise.resolve({ report: null, parts: [] }),
+      ]);
+      setBusy(false);
+
+      const isLeadUser = String(data.teamRole || data.myTeamRole || '').toUpperCase() === 'LEAD';
+      const showSupervisorAlert =
+        String(data.supervisorStatus || '').toUpperCase() === 'REJECTED' &&
+        String(data.supervisorRemarks || '').trim();
+
+      let currentChecklist = data;
+      let currentReportData = reportData;
+
+      function checklistModalHtml() {
+        return `
+          ${showSupervisorAlert ? `
+            <div class="summaryBox" style="border-color:#fca5a5;background:#fff5f5;">
+              <div style="font-weight:700; color:#b42318; margin-bottom:6px;">Supervisor Remarks</div>
+              <div style="color:#b42318; font-weight:600;">${escapeHtml(data.supervisorRemarks)}</div>
+              <div class="muted" style="margin-top:6px;">
+                Please complete the correction and then mark the job complete again.
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="summaryBox">
+            <div class="muted" style="margin-bottom:6px;">
+              ${isLeadUser
+                ? '<b>You are LEAD</b> — you can complete checklist'
+                : '<b>You are SUPPORT</b> — view only (notes allowed)'}
+            </div>
+            <div style="font-weight:800;">${escapeHtml(roleLabel)} checklist</div>
+            <div id="checklistSummaryText" class="muted" style="margin-top:6px;">
+              ${escapeHtml(checklistSummaryText(currentChecklist.summary))}
+            </div>
+          </div>
+
+          <div id="checklistItemsWrap"></div>
+
+          <div class="hr"></div>
+
+          <div class="field">
+            <label>Add Note</label>
+            <textarea id="checklistNoteText" placeholder="Add observation / issue / service note"></textarea>
+          </div>
+
+          <div class="field">
+            <div style="font-weight:800;">Notes</div>
+            <div id="checklistNotesWrap"></div>
+          </div>
+
+          ${
+            isServiceRole(roleLabel)
+              ? `
+                <div class="hr"></div>
+
+                <div style="font-weight:800; margin-bottom:10px;">Service Report</div>
+
+                <div class="field">
+                  <label>Overall Condition</label>
+                  <textarea id="srOverallCondition" placeholder="Overall lift condition">${escapeHtml(currentReportData?.report?.overallCondition || '')}</textarea>
+                </div>
+
+                <div class="field">
+                  <label>Faults Observed</label>
+                  <textarea id="srFaultsObserved" placeholder="Faults observed">${escapeHtml(currentReportData?.report?.faultsObserved || '')}</textarea>
+                </div>
+
+                <div class="field">
+                  <label>Action Taken</label>
+                  <textarea id="srActionTaken" placeholder="Action taken">${escapeHtml(currentReportData?.report?.actionTaken || '')}</textarea>
+                </div>
+
+                <div class="field">
+                  <label>Recommendations</label>
+                  <textarea id="srRecommendations" placeholder="Recommendations">${escapeHtml(currentReportData?.report?.recommendations || '')}</textarea>
+                </div>
+
+                <div class="field">
+                  <label><input type="checkbox" id="srFollowUpRequired" ${currentReportData?.report?.followUpRequired ? 'checked' : ''} /> Follow-up Required</label>
+                </div>
+
+                <div class="field">
+                  <label>Technician Remarks</label>
+                  <textarea id="srTechnicianRemarks" placeholder="Technician remarks">${escapeHtml(currentReportData?.report?.technicianRemarks || '')}</textarea>
+                </div>
+
+                <div class="actions">
+                  <button type="button" class="btn" id="btnSaveServiceReport">Save Report</button>
+                  <button type="button" class="btn" id="btnAddServicePart">+ Add Part</button>
+                </div>
+
+                <div class="field">
+                  <div style="font-weight:800;">Parts Used</div>
+                  <div id="servicePartsWrap"></div>
+                </div>
+              `
+              : ''
+          }
+        `;
+      }
+
+      openModal(
+        `${roleLabel} Checklist`,
+        checklistModalHtml(),
+        `
+          <button class="btn" type="button" id="btnAddChecklistNote">Add Note</button>
+          <button class="btn" type="button" onclick="closeModal()">Close</button>
+        `
+      );
+
+      async function refreshChecklistModal() {
+        currentChecklist = await getTechChecklist(jobId);
+        if (isServiceRole(roleLabel)) {
+          currentReportData = await getTechServiceReport(jobId);
+        }
+        byId('modalBody').innerHTML = checklistModalHtml();
+        wireChecklistModal();
+        renderJobCards();
+      }
+
+      function renderItems(items) {
+        const itemsWrap = byId('checklistItemsWrap');
+        itemsWrap.innerHTML = '';
+
+        if (!items.length) {
+          itemsWrap.innerHTML = `<div class="muted">No checklist items found.</div>`;
+          return;
+        }
+
+        items.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = 'checkRow';
+
+          const canEdit = isLeadUser;
+          const itemType = String(item.itemType || '').toUpperCase();
+          let editor = '';
+
+          if (itemType === 'BOOLEAN') {
+            editor = `
+              <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+                <input type="checkbox" id="itemBool_${item.id}" ${item.isDone ? 'checked' : ''} ${canEdit ? '' : 'disabled'} />
+                Mark complete
+              </label>
+            `;
+          } else if (itemType === 'TEXT') {
+            editor = `
+              <div class="field">
+                <textarea id="itemText_${item.id}" ${canEdit ? '' : 'disabled'}>${escapeHtml(item.textValue || '')}</textarea>
+              </div>
+            `;
+          } else if (itemType === 'NUMBER') {
+            editor = `
+              <div class="field">
+                <input type="number" id="itemNumber_${item.id}" value="${escapeHtml(item.numberValue ?? '')}" ${canEdit ? '' : 'disabled'} />
+              </div>
+            `;
+          }
+
+          row.innerHTML = `
+            <div class="checkTop">
+              <div>
+                <div style="font-weight:800;">${Number(item.sortOrder || 0)}. ${escapeHtml(item.itemText || '')}</div>
+                <div class="muted" style="margin-top:4px;">
+                  ${item.isRequired ? 'Required' : 'Optional'} · ${item.isDone ? 'Done' : 'Pending'}
+                </div>
+              </div>
+              <div>${item.isDone ? '<span class="badge bDone">Done</span>' : '<span class="badge">Pending</span>'}</div>
+            </div>
+
+            ${editor}
+
+            ${canEdit ? `<div class="actions"><button class="btn btnSmall" data-save-item="${item.id}">Save Item</button></div>` : ''}
+          `;
+
+          itemsWrap.appendChild(row);
+        });
+
+        if (isLeadUser) {
+          itemsWrap.querySelectorAll('[data-save-item]').forEach((btn) => {
+            btn.onclick = async () => {
+              const itemId = Number(btn.getAttribute('data-save-item'));
+              const item = items.find(x => Number(x.id) === itemId);
+              if (!item) return;
+
+              try {
+                const itemType = String(item.itemType || '').toUpperCase();
+                const payload = {};
+
+                if (itemType === 'BOOLEAN') {
+                  payload.isDone = !!byId(`itemBool_${itemId}`)?.checked;
+                } else if (itemType === 'TEXT') {
+                  const val = byId(`itemText_${itemId}`)?.value || '';
+                  payload.textValue = val;
+                  payload.isDone = String(val).trim().length > 0;
+                } else if (itemType === 'NUMBER') {
+                  const raw = byId(`itemNumber_${itemId}`)?.value;
+                  payload.numberValue = raw === '' ? null : Number(raw);
+                  payload.isDone = raw !== '';
+                }
+
+                await updateTechChecklistItem(jobId, itemId, payload);
+                await refreshChecklistModal();
+                await refreshJobs();
+                showToast('Checklist item saved', 'success');
+              } catch (e) {
+                alert(e.message || String(e));
+              }
+            };
+          });
+        }
+      }
+
+      function renderNotes(notes) {
+        const notesWrap = byId('checklistNotesWrap');
+        notesWrap.innerHTML = '';
+
+        if (!notes.length) {
+          notesWrap.innerHTML = `<div class="muted">No notes yet.</div>`;
+          return;
+        }
+
+        notes.forEach((n) => {
+          const div = document.createElement('div');
+          div.className = 'noteItem';
+          div.innerHTML = `
+            <div>${escapeHtml(n.noteText || '')}</div>
+            <div class="muted" style="margin-top:6px;">
+              ${escapeHtml(n.technician?.name || 'Technician')} · ${escapeHtml(n.createdAt || '')}
+            </div>
+          `;
+          notesWrap.appendChild(div);
+        });
+      }
+
+      function renderServiceParts(parts) {
+        const wrap = byId('servicePartsWrap');
+        if (!wrap) return;
+
+        wrap.innerHTML = '';
+
+        if (!parts.length) {
+          wrap.innerHTML = `<div class="muted">No parts added yet.</div>`;
+          return;
+        }
+
+        parts.forEach((p) => {
+          const div = document.createElement('div');
+          div.className = 'partItem';
+          div.innerHTML = `
+            <div class="field">
+              <label>Part / Material</label>
+              <input id="partName_${p.id}" value="${escapeHtml(p.itemName || '')}" />
+            </div>
+            <div class="field">
+              <label>Qty</label>
+              <input type="number" min="1" step="1" id="partQty_${p.id}" value="${escapeHtml(p.qty ?? 1)}" />
+            </div>
+            <div class="field">
+              <label>Remarks</label>
+              <textarea id="partRemarks_${p.id}">${escapeHtml(p.remarks || '')}</textarea>
+            </div>
+            <div class="actions">
+              <button class="btn btnSmall" data-save-part="${p.id}">Save Part</button>
+              <button class="btn btnSmall" data-delete-part="${p.id}">Delete</button>
+            </div>
+          `;
+          wrap.appendChild(div);
+        });
+
+        wrap.querySelectorAll('[data-save-part]').forEach((btn) => {
+          btn.onclick = async () => {
+            const id = Number(btn.getAttribute('data-save-part'));
+            try {
+              await updateTechServicePart(id, {
+                itemName: byId(`partName_${id}`)?.value || '',
+                qty: Number(byId(`partQty_${id}`)?.value || 1),
+                remarks: byId(`partRemarks_${id}`)?.value || ''
+              });
+              await refreshChecklistModal();
+              showToast('Part updated', 'success');
+            } catch (e) {
+              alert(e.message || String(e));
+            }
+          };
+        });
+
+        wrap.querySelectorAll('[data-delete-part]').forEach((btn) => {
+          btn.onclick = async () => {
+            const id = Number(btn.getAttribute('data-delete-part'));
+            if (!confirm('Delete this part?')) return;
+            try {
+              await deleteTechServicePart(id);
+              await refreshChecklistModal();
+              showToast('Part deleted', 'success');
+            } catch (e) {
+              alert(e.message || String(e));
+            }
+          };
+        });
+      }
+
+      function wireChecklistModal() {
+        renderItems(currentChecklist.items || []);
+        renderNotes(currentChecklist.notes || []);
+        renderServiceParts(currentReportData.parts || []);
+
+        const addNoteBtn = byId('btnAddChecklistNote');
+        if (addNoteBtn) {
+          addNoteBtn.onclick = async () => {
+            try {
+              const noteText = byId('checklistNoteText')?.value.trim();
+              if (!noteText) throw new Error('Enter a note first');
+              await addTechChecklistNote(jobId, noteText);
+              await refreshChecklistModal();
+              await refreshJobs();
+              showToast('Note added', 'success');
+            } catch (e) {
+              alert(e.message || String(e));
+            }
+          };
+        }
+
+        if (isServiceRole(roleLabel)) {
+          const saveReportBtn = byId('btnSaveServiceReport');
+          const addPartBtn = byId('btnAddServicePart');
+
+          if (saveReportBtn) {
+            saveReportBtn.onclick = async () => {
+              try {
+                await saveTechServiceReport(jobId, {
+                  overallCondition: byId('srOverallCondition')?.value || '',
+                  faultsObserved: byId('srFaultsObserved')?.value || '',
+                  actionTaken: byId('srActionTaken')?.value || '',
+                  recommendations: byId('srRecommendations')?.value || '',
+                  followUpRequired: !!byId('srFollowUpRequired')?.checked,
+                  technicianRemarks: byId('srTechnicianRemarks')?.value || '',
+                });
+                await refreshChecklistModal();
+                showToast('Service report saved', 'success');
+              } catch (e) {
+                alert(e.message || String(e));
+              }
+            };
+          }
+
+          if (addPartBtn) {
+            addPartBtn.onclick = async () => {
+              try {
+                await addTechServicePart(jobId, {
+                  itemName: 'New Part',
+                  qty: 1,
+                  remarks: '',
+                });
+                await refreshChecklistModal();
+                showToast('Part added', 'success');
+              } catch (e) {
+                alert(e.message || String(e));
+              }
+            };
+          }
+        }
+      }
+
+      wireChecklistModal();
+    } catch (e) {
+      setBusy(false);
+      alert(e.message || String(e));
+    }
+  }
+
+/*if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+      await navigator.serviceWorker.register('/sw.js');
+      console.log('Service worker registered');
+    } catch (err) {
+      console.error('Service worker registration failed:', err);
+    }
+  });
+}
+*/
+  boot();
+</script>
+</body>
+</html>

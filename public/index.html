@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lift Management System</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        Lift Management
+        <span class="tag">Phase 2</span>
+      </div>
+
+      <nav class="nav" id="nav">
+        <a href="#dashboard" data-view="dashboard" class="active">Dashboard</a>
+        <a href="#projects" data-view="projects">Projects</a>
+        <a href="#lifts" data-view="lifts">Lifts</a>
+        <a href="#jobs" data-view="jobs">Jobs</a>
+        <a href="#technicians" data-view="technicians">Technicians</a>
+        <a href="#reports" data-view="reports">Reports</a>
+	<a href="#service" data-view="service">Service</a>
+      </nav>
+
+      <div class="hr"></div>
+
+      <div class="muted" style="font-size:12px">
+        Tip: Technician assignment happens in <b>Jobs</b>, not Projects.
+      </div>
+
+      <!-- NEW: Technician Login/Logout area -->
+      <div style="margin-top:12px" id="sideActions"></div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="h1" id="pageTitle">Dashboard</div>
+        <div class="toolbar" id="toolbar"></div>
+      </div>
+
+      <div id="viewRoot"></div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modalBack" id="modalBack">
+    <div class="modal">
+      <div class="modalHead">
+        <div class="modalTitle" id="modalTitle">Modal</div>
+        <button class="btn secondary" id="btnModalClose" type="button">Close</button>
+      </div>
+      <div class="modalBody" id="modalBody"></div>
+      <div class="modalFoot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
