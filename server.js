@@ -4687,15 +4687,15 @@ app.get('/api/lifts', async (req, res) => {
         {
           model: ProjectLift,
           include: [
-            { model: Contract },
-            {
-              model: Project,
-              attributes: ['id', 'project_name', 'project_code'],
-              include: [
-                { model: Customer, attributes: ['id', 'name'] },
-                { model: Site, attributes: ['id', 'name'] },
-              ],
-            },
+  {
+    model: Lift,
+    attributes: ['id', 'liftCode', 'location', 'status']
+  },
+  {
+    model: Project,
+    attributes: ['id', 'project_name', 'project_code', 'status']
+  }
+]
           ],
         },
       ],
@@ -5205,9 +5205,15 @@ app.get('/api/dashboard', async (req, res) => {
         {
           model: ProjectLift,
           include: [
-            { model: Contract },
-          ],
-        },
+  {
+    model: Lift,
+    attributes: ['id', 'liftCode', 'location', 'status']
+  },
+  {
+    model: Project,
+    attributes: ['id', 'project_name', 'project_code', 'status']
+  }
+]
       ],
       order: [['id', 'ASC']],
     });
