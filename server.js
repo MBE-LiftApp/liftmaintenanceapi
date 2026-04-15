@@ -415,7 +415,7 @@ async function assertChecklistCompleteOrThrow(assignmentId) {
   }
   return summary;
 }
-const app = express();
+
 app.use(express.json());
 
 // Serve frontend
