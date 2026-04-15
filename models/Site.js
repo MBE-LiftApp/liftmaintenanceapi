@@ -7,9 +7,8 @@ module.exports = (sequelize, DataTypes) => {
       address: { type: DataTypes.TEXT, allowNull: true },
       gpsLat: { type: DataTypes.DECIMAL(10, 7), allowNull: true, field: 'gps_lat' },
       gpsLng: { type: DataTypes.DECIMAL(10, 7), allowNull: true, field: 'gps_lng' },
-      contactPerson: { type: DataTypes.TEXT, allowNull: true, field: 'contact_person' },
-      contactPhone: { type: DataTypes.TEXT, allowNull: true, field: 'contact_phone' },
-      notes: { type: DataTypes.TEXT, allowNull: true },
+      createdAt: { type: DataTypes.DATE, allowNull: true, field: 'created_at' },
+      updatedAt: { type: DataTypes.DATE, allowNull: true, field: 'updated_at' },
     },
     {
       tableName: 'sites',
@@ -18,8 +17,8 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Site.associate = (models) => {
-  Site.hasMany(models.Project, { foreignKey: 'site_id' });
-};
+    Site.hasMany(models.Project, { foreignKey: 'site_id' });
+  };
 
   return Site;
 };
