@@ -1,23 +1,24 @@
 module.exports = (sequelize, DataTypes) => {
-  const Customer = sequelize.define(
-    'Customer',
+  const Site = sequelize.define(
+    'Site',
     {
       id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
       name: { type: DataTypes.TEXT, allowNull: false },
-      phone: { type: DataTypes.TEXT, allowNull: true },
-      email: { type: DataTypes.TEXT, allowNull: true },
       address: { type: DataTypes.TEXT, allowNull: true },
-      notes: { type: DataTypes.TEXT, allowNull: true },
+      gpsLat: { type: DataTypes.DECIMAL(10, 7), allowNull: true, field: 'gps_lat' },
+      gpsLng: { type: DataTypes.DECIMAL(10, 7), allowNull: true, field: 'gps_lng' },
+      createdAt: { type: DataTypes.DATE, allowNull: true, field: 'created_at' },
+      updatedAt: { type: DataTypes.DATE, allowNull: true, field: 'updated_at' },
     },
     {
-      tableName: 'customers',
+      tableName: 'sites',
       timestamps: false,
     }
   );
 
-  Customer.associate = (models) => {
-  Customer.hasMany(models.Project, { foreignKey: 'customer_id' });
-};
+  Site.associate = (models) => {
+    Site.hasMany(models.Project, { foreignKey: 'site_id' });
+  };
 
-  return Customer;
+  return Site;
 };
