@@ -2955,7 +2955,7 @@ async function renderLifts() {
       <td>${l.liftCode || ""}</td>
       <td>${l.customerName || ""}</td>
       <td>${l.building || ""}</td>
-      <td>${l.location || ""}</td>
+      <td>${l.liftPosition || l.location || ""}</td>
       <td></td>
       <td></td>
       <td>${

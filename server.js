@@ -4663,17 +4663,14 @@ app.get('/api/lifts', async (req, res) => {
     const lifts = await Lift.findAll({
       include: [
   {
-    model: ProjectLift,
-          include: [
-            { model: Contract }, // ✅ moved here
-            {
-              model: Project,
-              attributes: ['id', 'project_name', 'project_code', 'project_location'],
-              include: [
-                { model: Customer, attributes: ['id', 'name'] },
-                { model: Site, attributes: ['id', 'name'] },
-              ],
-            },
+    {
+  model: Project,
+  attributes: ['id', 'project_name', 'project_code'],
+  include: [
+    { model: Customer, attributes: ['id', 'name'] },
+    { model: Site, attributes: ['id', 'name'] },
+  ],
+},
           ],
         },
       ],
@@ -4710,9 +4707,8 @@ app.get('/api/lifts', async (req, res) => {
       const customerName = project?.Customer?.name || '';
 
       const building =
-        project?.Site?.name ||
-        project?.project_location ||
-        '';
+  project?.Site?.name ||
+  '';
 
       // ✅ FIXED: get contracts from ProjectLift
       const amc = pickAmcContract(projectLift?.Contracts || []);
@@ -4808,24 +4804,20 @@ let amcLastServiceDate = null;
 
 app.post('/api/lifts', async (req, res) => {
   try {
-    const { customerName, building, liftCode, location, status, amcType } = req.body;
+    const { customerName, building, liftCode, location, status, amcType } = req.body || {};
 
     if (!customerName || !building || !liftCode) {
       return res.status(400).json({ error: 'Customer Name, Building and Lift Code are required' });
     }
 
-    const customer = await findOrCreateCustomerByName(customerName);
-    const site = await findOrCreateSiteByName(building);
-
     const lift = await Lift.create({
       liftCode: String(liftCode).trim(),
-      customerId: customer.id,
-      siteId: site.id,
-      location: location ? String(location).trim() : null,
-      status: (status || 'ACTIVE').toUpperCase(),
+      customerName: String(customerName).trim(),
+      building: String(building).trim(),
+      liftPosition: location ? String(location).trim() : null,
+      status: String(status || 'ACTIVE').toUpperCase(),
+      amcType: amcType || 'LABOUR_ONLY',
     });
-
-    await getOrCreateAmcContract(lift.id, { amcType: amcType || 'LABOUR_ONLY' });
 
     res.status(201).json({ id: lift.id });
   } catch (err) {
@@ -4836,13 +4828,14 @@ app.post('/api/lifts', async (req, res) => {
 
 app.put('/api/lifts/:id/status', async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status } = req.body || {};
     const lift = await Lift.findByPk(req.params.id);
     if (!lift) return res.status(404).json({ error: 'Lift not found' });
 
-    lift.status = (status || lift.status || 'ACTIVE').toUpperCase();
+    lift.status = String(status || lift.status || 'ACTIVE').toUpperCase();
     await lift.save();
-    res.json(lift);
+
+    res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/lifts/:id/status error:', err);
     res.status(500).json({ error: err.message || 'Failed to update status' });
@@ -4851,21 +4844,12 @@ app.put('/api/lifts/:id/status', async (req, res) => {
 
 app.put('/api/lifts/:id/amc-type', async (req, res) => {
   try {
-    const { amcType } = req.body;
+    const { amcType } = req.body || {};
     const lift = await Lift.findByPk(req.params.id);
     if (!lift) return res.status(404).json({ error: 'Lift not found' });
 
-    const c = await Contract.findOne({
-      where: { liftId: lift.id, contractType: 'AMC' },
-      order: [['id', 'DESC']],
-    });
-
-    if (!c) {
-      return res.status(400).json({ error: 'No AMC contract exists for this lift yet' });
-    }
-
-    c.amcType = amcType || 'LABOUR_ONLY';
-    await c.save();
+    lift.amcType = amcType || 'LABOUR_ONLY';
+    await lift.save();
 
     res.json({ ok: true });
   } catch (err) {
@@ -4883,36 +4867,18 @@ app.put('/api/lifts/:id/amc', async (req, res) => {
       amcType,
       amcStartDate,
       amcEndDate,
-      billingCycle,
-      contractValue,
-      serviceIntervalDays,
-      amcNotes,
-    } = req.body;
+    } = req.body || {};
 
-    const c = await getOrCreateAmcContract(lift.id, {
-      amcType: amcType || 'LABOUR_ONLY',
-      billingCycle: billingCycle || 'ANNUAL',
-      contractValue: normalizeCost(contractValue) ?? 0,
-      serviceIntervalDays: Number(serviceIntervalDays) || 30,
-      amcNotes: amcNotes || null,
-    });
+    if (amcType !== undefined) lift.amcType = amcType || 'LABOUR_ONLY';
+    if (amcStartDate !== undefined) lift.amcStartDate = amcStartDate || null;
+    if (amcEndDate !== undefined) lift.amcEndDate = amcEndDate || null;
 
-    if (amcType !== undefined) c.amcType = amcType || 'LABOUR_ONLY';
-    if (amcStartDate !== undefined) c.startDate = amcStartDate || null;
-    if (amcEndDate !== undefined) c.endDate = amcEndDate || null;
-    if (billingCycle !== undefined) c.billingCycle = billingCycle || 'ANNUAL';
-    if (contractValue !== undefined) c.contractValue = normalizeCost(contractValue) ?? 0;
-    if (serviceIntervalDays !== undefined) {
-      const n = Number(serviceIntervalDays);
-      c.serviceIntervalDays = Number.isFinite(n) ? n : 30;
-    }
-    if (amcNotes !== undefined) c.amcNotes = amcNotes || null;
+    await lift.save();
 
-    await c.save();
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/lifts/:id/amc error:', err);
-    res.status(500).json({ error: err.message || 'Failed to save AMC contract' });
+    res.status(500).json({ error: err.message || 'Failed to save AMC details' });
   }
 });
 
@@ -4921,32 +4887,28 @@ app.post('/api/lifts/seed', async (req, res) => {
     const count = await Lift.count();
     if (count > 0) return res.json({ message: 'Already seeded', count });
 
-    const cust = await findOrCreateCustomerByName('Existing Customer');
-    const siteA = await findOrCreateSiteByName('Building A');
-    const siteB = await findOrCreateSiteByName('Building B');
-
-    const lift1 = await Lift.create({
+    await Lift.create({
       liftCode: 'LIFT-A-001',
-      customerId: cust.id,
-      siteId: siteA.id,
-      location: 'Lobby',
+      customerName: 'Existing Customer',
+      building: 'Building A',
+      liftPosition: 'Lobby',
       status: 'ACTIVE',
+      amcType: 'LABOUR_ONLY',
     });
-    
 
-    const lift2 = await Lift.create({
+    await Lift.create({
       liftCode: 'LIFT-B-001',
-      customerId: cust.id,
-      siteId: siteB.id,
-      location: 'Block 2',
+      customerName: 'Existing Customer',
+      building: 'Building B',
+      liftPosition: 'Block 2',
       status: 'MAINTENANCE',
+      amcType: 'LABOUR_ONLY',
     });
-    
 
     res.json({ ok: true });
   } catch (err) {
     console.error('POST /api/lifts/seed error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || 'Failed to seed lifts' });
   }
 });
 
