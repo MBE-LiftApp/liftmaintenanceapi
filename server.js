@@ -4662,11 +4662,11 @@ app.get('/api/lifts', async (req, res) => {
   try {
     const lifts = await Lift.findAll({
       include: [
-        { model: Contract },
         { model: ServiceLog },
         {
           model: ProjectLift,
           include: [
+            { model: Contract }, // ✅ moved here
             {
               model: Project,
               attributes: ['id', 'project_name', 'project_code', 'project_location'],
@@ -4708,16 +4708,15 @@ app.get('/api/lifts', async (req, res) => {
         warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
       }
 
-      const customerName =
-        project?.Customer?.name ||
-        '';
+      const customerName = project?.Customer?.name || '';
 
       const building =
         project?.Site?.name ||
         project?.project_location ||
         '';
 
-      const amc = pickAmcContract(j.Contracts);
+      // ✅ FIXED: get contracts from ProjectLift
+      const amc = pickAmcContract(projectLift?.Contracts || []);
 
       const hasValidAmc = !!(
         amc &&
@@ -4764,6 +4763,7 @@ app.get('/api/lifts', async (req, res) => {
       }
 
       const computedAmc = computeAmcStatus(amcStartDate, amcEndDate, today);
+
       const amcStatus =
         computedAmc.amcStatus === 'ACTIVE'
           ? 'AMC ACTIVE'
