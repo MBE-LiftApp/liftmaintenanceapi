@@ -4717,20 +4717,17 @@ app.get('/api/lifts', async (req, res) => {
       // ✅ FIXED: get contracts from ProjectLift
       const amc = pickAmcContract(projectLift?.Contracts || []);
 
-      const hasValidAmc = !!(
-        amc &&
-        String(amc.contractType || amc.contract_type || '').toUpperCase() === 'AMC'
-      );
+      const hasValidAmc = !!amc;
 
-      const amcStartDate = hasValidAmc ? (amc.startDate || amc.start_date || null) : null;
-      const amcEndDate = hasValidAmc ? (amc.endDate || amc.end_date || null) : null;
-      const amcType = hasValidAmc ? (amc.amcType || amc.amc_type || 'LABOUR_ONLY') : null;
-      const billingCycle = hasValidAmc ? (amc.billingCycle || amc.billing_cycle || 'ANNUAL') : null;
-      const contractValue = hasValidAmc ? (amc.contractValue ?? amc.contract_value ?? 0) : null;
-      const serviceIntervalDays = hasValidAmc
-        ? (amc.serviceIntervalDays ?? amc.service_interval_days ?? 30)
-        : null;
-      const amcNotes = hasValidAmc ? (amc.amcNotes || amc.amc_notes || null) : null;
+const amcStartDate = hasValidAmc ? (amc.startDate || null) : null;
+const amcEndDate = hasValidAmc ? (amc.endDate || null) : null;
+const amcType = hasValidAmc ? (amc.amcType || 'LABOUR_ONLY') : null;
+const billingCycle = hasValidAmc ? (amc.billingCycle || 'ANNUAL') : null;
+const contractValue = hasValidAmc ? (amc.contractValue ?? 0) : null;
+const serviceIntervalDays = hasValidAmc
+  ? (amc.serviceIntervalDays ?? 30)
+  : null;
+const amcNotes = hasValidAmc ? (amc.amcNotes || null) : null;
 
       const amcLogs = [];
 let amcLastServiceDate = null;
