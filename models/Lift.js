@@ -2,87 +2,54 @@ module.exports = (sequelize, DataTypes) => {
   const Lift = sequelize.define(
     'Lift',
     {
-      id: {
-        type: DataTypes.BIGINT,
-        primaryKey: true,
-        autoIncrement: true,
-      },
+      id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
 
-      // UI: liftCode -> DB: job_no
       liftCode: {
         type: DataTypes.TEXT,
         allowNull: false,
-        unique: true,
-        field: 'job_no',
+        field: 'lift_code',
       },
 
-      customerId: {
-        type: DataTypes.BIGINT,
-        allowNull: false,
-        field: 'customer_id',
-      },
-
-      siteId: {
-        type: DataTypes.BIGINT,
-        allowNull: true,
-        field: 'site_id',
-      },
-
-      // New clear name for where the lift sits inside the project
-      liftPosition: {
+      building: {
         type: DataTypes.TEXT,
         allowNull: true,
-        field: 'lift_position',
+        field: 'building',
       },
 
-      // Optional existing label in DB
-      liftLabel: {
+      location: {
         type: DataTypes.TEXT,
         allowNull: true,
-        field: 'lift_label',
+        field: 'location',
+      },
+
+      customerName: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        field: 'customer_name',
       },
 
       status: {
         type: DataTypes.TEXT,
-        allowNull: false,
-        defaultValue: 'ACTIVE',
-        field: 'current_status',
+        allowNull: true,
+        field: 'status',
       },
 
-      brand: {
+      amcType: {
         type: DataTypes.TEXT,
         allowNull: true,
-        field: 'brand',
+        field: 'amc_type',
       },
 
-      model: {
-        type: DataTypes.TEXT,
-        allowNull: true,
-        field: 'model',
-      },
-
-      capacityKg: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-        field: 'capacity_kg',
-      },
-
-      stops: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-        field: 'stops',
-      },
-
-      commissioningDate: {
+      amcStartDate: {
         type: DataTypes.DATEONLY,
         allowNull: true,
-        field: 'commissioning_date',
+        field: 'amc_start_date',
       },
 
-      notes: {
-        type: DataTypes.TEXT,
+      amcEndDate: {
+        type: DataTypes.DATEONLY,
         allowNull: true,
-        field: 'notes',
+        field: 'amc_end_date',
       },
 
       createdAt: {
@@ -99,19 +66,14 @@ module.exports = (sequelize, DataTypes) => {
     },
     {
       tableName: 'lifts',
-      timestamps: true,
-      createdAt: 'created_at',
-      updatedAt: 'updated_at',
+      timestamps: false,
     }
   );
 
   Lift.associate = (models) => {
-    Lift.belongsTo(models.Customer, { foreignKey: 'customerId' });
-    Lift.belongsTo(models.Site, { foreignKey: 'siteId' });
-
-    Lift.hasMany(models.Contract, { foreignKey: 'liftId', onDelete: 'CASCADE' });
-    Lift.hasMany(models.ServiceLog, { foreignKey: 'liftId', onDelete: 'CASCADE' });
-    Lift.hasMany(models.ProjectLift, { foreignKey: 'liftId', sourceKey: 'id' });
+    Lift.hasMany(models.ProjectLift, {
+      foreignKey: 'liftId',
+    });
   };
 
   return Lift;
