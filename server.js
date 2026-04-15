@@ -4661,44 +4661,61 @@ async function getOrCreateAmcContract(liftId, defaults = {}) {
 app.get('/api/lifts', async (req, res) => {
   try {
     const lifts = await Lift.findAll({
-  include: [
-    { model: Customer },
-    { model: Site },
-    { model: Contract },
-    { model: ServiceLog },
-    { model: ProjectLift },
-  ],
-  order: [['id', 'ASC']],
-});
+      include: [
+        { model: Contract },
+        { model: ServiceLog },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Project,
+              attributes: ['id', 'project_name', 'project_code', 'project_location'],
+              include: [
+                { model: Customer, attributes: ['id', 'name'] },
+                { model: Site, attributes: ['id', 'name'] },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
 
     const today = startOfDay(new Date());
 
     const result = lifts.map((lift) => {
       const j = lift.toJSON();
 
-const projectLift = Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
-  ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
-  : null;
+      const projectLift = Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
+        ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
+        : null;
 
-const warrantyStartDate = projectLift?.warranty_start_date || null;
-const warrantyEndDate = projectLift?.warranty_end_date || null;
-const handoverActualDate = projectLift?.handover_actual_date || null;
+      const project = projectLift?.Project || null;
 
-let warrantyStatus = 'NO WARRANTY';
+      const warrantyStartDate = projectLift?.warranty_start_date || null;
+      const warrantyEndDate = projectLift?.warranty_end_date || null;
+      const handoverActualDate = projectLift?.handover_actual_date || null;
 
-const warrantyEndOnly = parseDateOnly(warrantyEndDate);
+      let warrantyStatus = 'NO WARRANTY';
+      const warrantyEndOnly = parseDateOnly(warrantyEndDate);
 
-if (handoverActualDate && warrantyEndOnly) {
-  warrantyStatus = today > warrantyEndOnly ? 'WARRANTY EXPIRED' : 'WARRANTY ACTIVE';
-}
+      if (handoverActualDate && warrantyEndOnly) {
+        warrantyStatus = today > warrantyEndOnly ? 'WARRANTY EXPIRED' : 'WARRANTY ACTIVE';
+      }
 
-let warrantyDaysRemaining = null;
+      let warrantyDaysRemaining = null;
+      if (warrantyStatus === 'WARRANTY ACTIVE' && warrantyEndOnly) {
+        warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
+      }
 
-if (warrantyStatus === 'WARRANTY ACTIVE' && warrantyEndOnly) {
-  warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
-}
-      const customerName = j.Customer?.name || '';
-      const building = j.Site?.name || '';
+      const customerName =
+        project?.Customer?.name ||
+        '';
+
+      const building =
+        project?.Site?.name ||
+        project?.project_location ||
+        '';
 
       const amc = pickAmcContract(j.Contracts);
 
@@ -4732,60 +4749,48 @@ if (warrantyStatus === 'WARRANTY ACTIVE' && warrantyEndOnly) {
 
       if (hasValidAmc) {
         const interval = Number(serviceIntervalDays || 30);
+        const base = amcLastServiceDate || amcStartDate;
 
-        if (amcLastServiceDate) {
-          const last = parseDateOnly(amcLastServiceDate);
-          if (last) {
-            const next = new Date(last);
-            next.setDate(next.getDate() + interval);
-            amcNextServiceDue = next.toISOString().slice(0, 10);
-
-            const nextOnly = parseDateOnly(amcNextServiceDue);
-            if (nextOnly && today > nextOnly) {
-              amcOverdueDays = daysBetween(nextOnly, today);
-            }
-          }
-        } else if (amcStartDate) {
-          const start = parseDateOnly(amcStartDate);
-          if (start) {
-            const next = new Date(start);
-            next.setDate(next.getDate() + interval);
-            amcNextServiceDue = next.toISOString().slice(0, 10);
-
-            const nextOnly = parseDateOnly(amcNextServiceDue);
-            if (nextOnly && today > nextOnly) {
-              amcOverdueDays = daysBetween(nextOnly, today);
+        if (base) {
+          const next = addDays(base, interval);
+          if (next) {
+            amcNextServiceDue = formatDateOnly(next);
+            const due = parseDateOnly(amcNextServiceDue);
+            if (due && today > due) {
+              amcOverdueDays = dateDiffDays(amcNextServiceDue, formatDateOnly(today)) || 0;
             }
           }
         }
       }
 
-      const totalCost = amcLogs.reduce((sum, x) => sum + Number(x.cost || 0), 0);
+      const computedAmc = computeAmcStatus(amcStartDate, amcEndDate, today);
+      const amcStatus =
+        computedAmc.amcStatus === 'ACTIVE'
+          ? 'AMC ACTIVE'
+          : computedAmc.amcStatus === 'EXPIRING_SOON'
+            ? 'AMC EXPIRING SOON'
+            : computedAmc.amcStatus === 'EXPIRED'
+              ? 'AMC EXPIRED'
+              : 'NO AMC';
 
-      const computedAmc = hasValidAmc
-        ? computeAmcStatus(amcStartDate, amcEndDate, today)
-        : { amcStatus: 'NO AMC', daysToExpiry: null };
-
-      let amcStatus = computedAmc.amcStatus;
-      if (amcStatus === 'ACTIVE') amcStatus = 'AMC ACTIVE';
-      else if (amcStatus === 'EXPIRING_SOON') amcStatus = 'AMC EXPIRING SOON';
-      else if (amcStatus === 'EXPIRED') amcStatus = 'AMC EXPIRED';
-      else if (amcStatus === 'NOT_STARTED') amcStatus = 'AMC NOT STARTED';
-      else amcStatus = 'NO AMC';
+      const totalCost = (j.ServiceLogs || []).reduce((sum, x) => sum + Number(x.cost || 0), 0);
 
       return {
         id: j.id,
-        liftCode: j.liftCode || j.lift_label || '',
+        liftCode: j.liftCode || j.liftLabel || '',
         customerName,
         building,
-        location: j.location,
+        liftPosition:
+          projectLift?.location_label ||
+          j.liftPosition ||
+          '',
         status: (j.status || j.current_status || 'ACTIVE').toUpperCase(),
 
-warrantyStatus,
-warrantyStartDate,
-warrantyEndDate,
-handoverActualDate,
-warrantyDaysRemaining,
+        warrantyStatus,
+        warrantyStartDate,
+        warrantyEndDate,
+        handoverActualDate,
+        warrantyDaysRemaining,
 
         hasAmcContract: hasValidAmc,
         amcType,
