@@ -16,7 +16,8 @@ module.exports = (sequelize, DataTypes) => {
         field: 'building',
       },
 
-      location: {
+      // Keep compatibility with newer code that expects liftPosition
+      liftPosition: {
         type: DataTypes.TEXT,
         allowNull: true,
         field: 'location',
@@ -73,7 +74,16 @@ module.exports = (sequelize, DataTypes) => {
   Lift.associate = (models) => {
     Lift.hasMany(models.ProjectLift, {
       foreignKey: 'liftId',
+      sourceKey: 'id',
     });
+
+    // Optional compatibility for any old code that still reads Lift.ServiceLogs
+    if (models.ServiceLog) {
+      Lift.hasMany(models.ServiceLog, {
+        foreignKey: 'liftId',
+        sourceKey: 'id',
+      });
+    }
   };
 
   return Lift;
