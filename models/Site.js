@@ -18,8 +18,8 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Site.associate = (models) => {
-    Site.hasMany(models.Lift, { foreignKey: 'siteId' });
-  };
+  Site.hasMany(models.Project, { foreignKey: 'site_id' });
+};
 
   return Site;
 };
