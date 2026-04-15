@@ -1838,7 +1838,7 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
               model: ProjectLift,
               include: [
                 { model: Project, attributes: ['id', 'project_name', 'project_code'] },
-                { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+                { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
               ],
             },
             { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
@@ -1923,12 +1923,14 @@ team: Array.isArray(a.ProjectLiftJobTechnicians)
         team: summary.team,
 
         lift: a.ProjectLift?.Lift
-          ? {
-              id: a.ProjectLift.Lift.id,
-              liftCode: a.ProjectLift.Lift.liftCode,
-              location: a.ProjectLift.Lift.location || (a.ProjectLift.location_label || ''),
-            }
-          : null,
+  ? {
+      id: a.ProjectLift.Lift.id,
+      liftCode: a.ProjectLift.Lift.liftCode,
+      liftPosition:
+        a.ProjectLift.Lift.liftPosition ||
+        (a.ProjectLift.location_label || ''),
+    }
+  : null,
 
         project: a.ProjectLift?.Project
           ? {
@@ -2188,7 +2190,7 @@ app.post('/api/project-lifts/:projectLiftId/warranty-service-assign', async (req
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
   include: [
-    { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+    { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
     {
       model: ProjectLiftAssignment,
       as: 'assignments',
@@ -2601,7 +2603,7 @@ app.post('/api/project-lifts/:projectLiftId/auto-amc-job', async (req, res) => {
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -2749,7 +2751,7 @@ app.get('/api/projects', async (req, res) => {
     {
       model: ProjectLift,
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -2835,7 +2837,7 @@ app.get('/api/projects/:projectId', async (req, res) => {
         {
           model: ProjectLift,
           include: [
-            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            { model: Lift, attributes: ['id', 'liftCode', 'liftPosition', 'status'] },
             {
               model: ProjectLiftAssignment,
               as: 'assignments',
@@ -2986,7 +2988,7 @@ console.log('LIFT IDS:', liftIds);
           projectLiftId: pl.id,
           liftId: pl.lift_id,
           liftCode: pl.lift_code,
-          location: pl.location_label || (pl.Lift ? pl.Lift.location : '') || '',
+          location: pl.location_label || (pl.Lift ? pl.Lift.liftPosition : '') || '',
           passengerCapacity: pl.passenger_capacity ?? null,
           liftType: pl.lift_type ?? null,
           numberOfFloors: pl.number_of_floors ?? null,
@@ -3089,7 +3091,7 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
     } else {
       if (!lift.customerId) lift.customerId = project.customer_id;
       if (!lift.siteId && project.site_id) lift.siteId = project.site_id;
-      if (location && !lift.location) lift.location = String(location).trim();
+      if (location && !lift.liftPosition) lift.liftPosition = String(location).trim();
       await lift.save();
     }
 
@@ -3190,7 +3192,7 @@ app.post('/api/project-lifts/:projectLiftId/auto-warranty-job', async (req, res)
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
   include: [
-    { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+    { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
     {
       model: ProjectLiftAssignment,
       as: 'assignments',
@@ -3577,7 +3579,7 @@ app.post('/api/project-lifts/:projectLiftId/amc-service-assign', async (req, res
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -3830,7 +3832,7 @@ app.get('/api/jobs/:id', async (req, res) => {
           model: ProjectLift,
           include: [
             { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
-            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            { model: Lift, attributes: ['id', 'liftCode', 'liftPosition', 'status'] },
           ],
         },
       ],
@@ -3908,11 +3910,14 @@ app.get('/api/jobs/:id', async (req, res) => {
         : null,
 
       lift: {
-        id: a.ProjectLift?.lift_id || null,
-        liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
-        location: a.ProjectLift?.location_label || a.ProjectLift?.Lift?.location || '',
-        status: a.ProjectLift?.Lift?.status || '',
-      },
+  id: a.ProjectLift?.lift_id || null,
+  liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
+  liftPosition:
+    a.ProjectLift?.location_label ||
+    a.ProjectLift?.Lift?.liftPosition ||
+    '',
+  status: a.ProjectLift?.Lift?.status || '',
+},
 
       checklistSummary,
     });
@@ -4374,7 +4379,7 @@ app.get('/api/jobs', async (req, res) => {
           model: ProjectLift,
           include: [
             { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
-            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            { model: Lift, attributes: ['id', 'liftCode', 'liftPosition', 'status'] },
           ],
         },
       ],
@@ -4469,11 +4474,14 @@ app.get('/api/jobs', async (req, res) => {
           : null,
 
         lift: {
-          id: a.ProjectLift?.lift_id || null,
-          liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
-          location: a.ProjectLift?.location_label || a.ProjectLift?.Lift?.location || '',
-          status: a.ProjectLift?.Lift?.status || '',
-        },
+  id: a.ProjectLift?.lift_id || null,
+  liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
+  liftPosition:
+    a.ProjectLift?.location_label ||
+    a.ProjectLift?.Lift?.liftPosition ||
+    '',
+  status: a.ProjectLift?.Lift?.status || '',
+},
 
         checklistSummary,
       });
@@ -5007,7 +5015,7 @@ async function buildServiceDashboardData() {
       {
         model: ProjectLift,
         include: [
-          { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+          { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
           {
             model: ProjectLiftAssignment,
             as: 'assignments',
@@ -5114,7 +5122,7 @@ console.log('AMC DEBUG', {
         projectLiftId: String(pl.id),
         liftId: String(pl.lift_id || pl.liftId || ''),
         liftCode: pl.lift_code || '',
-        location: pl.location_label || (pl.Lift ? pl.Lift.location : '') || '',
+        location: pl.location_label || (pl.Lift ? pl.Lift.liftPosition : '') || '',
 
         warrantyMonths: pl.warranty_months ?? null,
         warrantyStartDate: warrantyInfo.startDate,
@@ -5307,7 +5315,7 @@ try {
     {
       model: ProjectLift,
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -5370,7 +5378,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            location: pl.location_label || pl.Lift?.liftPositionlocation || '',
             workflowStatus: 'HANDED OVER',
             actionHint: 'Track service lifecycle',
           });
@@ -5385,7 +5393,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            location: pl.location_label || pl.Lift?.liftPosition || '',
             workflowStatus: 'READY FOR HANDOVER',
             actionHint: 'Complete Handover',
           });
@@ -5399,7 +5407,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            location: pl.location_label || pl.Lift?.liftPosition || '',
             workflowStatus: 'TEST AWAITING APPROVAL',
             actionHint: 'Supervisor approval pending',
           });
@@ -5414,7 +5422,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            location: pl.location_label || pl.Lift?.liftPosition || '',
             workflowStatus: 'READY FOR TEST ASSIGNMENT',
             actionHint: 'Assign Test Job',
           });
@@ -5428,7 +5436,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            location: pl.location_label || pl.Lift?.liftPosition || '',
             workflowStatus: 'INSTALL AWAITING APPROVAL',
             actionHint: 'Supervisor approval pending',
           });
