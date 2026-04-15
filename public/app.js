@@ -4371,13 +4371,13 @@ function showCreateProjectModal() {
   btnSave.onclick = async () => {
     try {
       const payload = {
-        projectName: body.querySelector("#projectName").value.trim(),
-        customerName: body.querySelector("#customerName").value.trim(),
-        building: body.querySelector("#building").value.trim(),
-        notes: body.querySelector("#notes").value || "",
-      };
+  project_name: body.querySelector("#projectName").value.trim(),
+  customer_name: body.querySelector("#customerName").value.trim(),
+  site_name: body.querySelector("#building").value.trim(),
+  notes: body.querySelector("#notes").value || "",
+};
 
-      await API.createProject(payload);
+await API.createProject(payload);
 
       closeModal();
       await renderProjects();
