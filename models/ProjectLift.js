@@ -56,18 +56,23 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   ProjectLift.associate = (models) => {
-    ProjectLift.belongsTo(models.Project, { foreignKey: "project_id" });
+  ProjectLift.belongsTo(models.Project, { foreignKey: "project_id" });
 
-    ProjectLift.belongsTo(models.Lift, {
-      foreignKey: "liftId",
-      targetKey: "id",
-    });
+  ProjectLift.belongsTo(models.Lift, {
+    foreignKey: "liftId",
+    targetKey: "id",
+  });
 
-    ProjectLift.hasMany(models.ProjectLiftAssignment, {
-      foreignKey: "project_lift_id",
-      as: "assignments",
-    });
-  };
+  ProjectLift.hasMany(models.ProjectLiftAssignment, {
+    foreignKey: "project_lift_id",
+    as: "assignments",
+  });
+
+  // ✅ ADD THIS (CRITICAL FIX)
+  ProjectLift.hasMany(models.Contract, {
+    foreignKey: "projectLiftId",
+  });
+};
 
   return ProjectLift;
 };

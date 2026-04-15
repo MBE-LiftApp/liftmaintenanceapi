@@ -3,15 +3,22 @@ module.exports = (sequelize, DataTypes) => {
     'Contract',
     {
       id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
-      liftId: { type: DataTypes.BIGINT, allowNull: false, field: 'lift_id' },
+
+      // ✅ FIXED: use project_lift_id instead of lift_id
+      projectLiftId: {
+        type: DataTypes.BIGINT,
+        allowNull: false,
+        field: 'project_lift_id',
+      },
+
       contractType: { type: DataTypes.TEXT, allowNull: false, field: 'contract_type' },
-      // Made nullable by DB_COMPAT_MIGRATION.sql so UI can save AMC type first, dates later.
+
       startDate: { type: DataTypes.DATEONLY, allowNull: true, field: 'start_date' },
       endDate: { type: DataTypes.DATEONLY, allowNull: true, field: 'end_date' },
+
       status: { type: DataTypes.TEXT, allowNull: false, field: 'status' },
       remarks: { type: DataTypes.TEXT, allowNull: true, field: 'remarks' },
 
-      // Added by DB_COMPAT_MIGRATION.sql to support current UI
       amcType: { type: DataTypes.TEXT, allowNull: true, field: 'amc_type' },
       billingCycle: { type: DataTypes.TEXT, allowNull: true, field: 'billing_cycle' },
       contractValue: { type: DataTypes.DECIMAL(12, 2), allowNull: true, field: 'contract_value' },
@@ -25,7 +32,10 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Contract.associate = (models) => {
-    Contract.belongsTo(models.Lift, { foreignKey: 'liftId' });
+    // ✅ FIXED association
+    Contract.belongsTo(models.ProjectLift, {
+      foreignKey: 'projectLiftId',
+    });
   };
 
   return Contract;
