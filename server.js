@@ -4662,15 +4662,18 @@ app.get('/api/lifts', async (req, res) => {
   try {
     const lifts = await Lift.findAll({
       include: [
-  {
-    {
-  model: Project,
-  attributes: ['id', 'project_name', 'project_code'],
-  include: [
-    { model: Customer, attributes: ['id', 'name'] },
-    { model: Site, attributes: ['id', 'name'] },
-  ],
-},
+        {
+          model: ProjectLift,
+          include: [
+            { model: Contract },
+            {
+              model: Project,
+              attributes: ['id', 'project_name', 'project_code'],
+              include: [
+                { model: Customer, attributes: ['id', 'name'] },
+                { model: Site, attributes: ['id', 'name'] },
+              ],
+            },
           ],
         },
       ],
@@ -4682,9 +4685,10 @@ app.get('/api/lifts', async (req, res) => {
     const result = lifts.map((lift) => {
       const j = lift.toJSON();
 
-      const projectLift = Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
-        ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
-        : null;
+      const projectLift =
+        Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
+          ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
+          : null;
 
       const project = projectLift?.Project || null;
 
@@ -4704,30 +4708,21 @@ app.get('/api/lifts', async (req, res) => {
         warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
       }
 
-      const customerName = project?.Customer?.name || '';
+      const customerName = project?.Customer?.name || j.customerName || '';
+      const building = project?.Site?.name || j.building || '';
 
-      const building =
-  project?.Site?.name ||
-  '';
-
-      // ✅ FIXED: get contracts from ProjectLift
       const amc = pickAmcContract(projectLift?.Contracts || []);
-
       const hasValidAmc = !!amc;
 
-const amcStartDate = hasValidAmc ? (amc.startDate || null) : null;
-const amcEndDate = hasValidAmc ? (amc.endDate || null) : null;
-const amcType = hasValidAmc ? (amc.amcType || 'LABOUR_ONLY') : null;
-const billingCycle = hasValidAmc ? (amc.billingCycle || 'ANNUAL') : null;
-const contractValue = hasValidAmc ? (amc.contractValue ?? 0) : null;
-const serviceIntervalDays = hasValidAmc
-  ? (amc.serviceIntervalDays ?? 30)
-  : null;
-const amcNotes = hasValidAmc ? (amc.amcNotes || null) : null;
+      const amcStartDate = hasValidAmc ? (amc.startDate || null) : null;
+      const amcEndDate = hasValidAmc ? (amc.endDate || null) : null;
+      const amcType = hasValidAmc ? (amc.amcType || 'LABOUR_ONLY') : null;
+      const billingCycle = hasValidAmc ? (amc.billingCycle || 'ANNUAL') : null;
+      const contractValue = hasValidAmc ? (amc.contractValue ?? 0) : null;
+      const serviceIntervalDays = hasValidAmc ? (amc.serviceIntervalDays ?? 30) : null;
+      const amcNotes = hasValidAmc ? (amc.amcNotes || null) : null;
 
-      const amcLogs = [];
-let amcLastServiceDate = null;
-
+      let amcLastServiceDate = null;
       let amcNextServiceDue = null;
       let amcOverdueDays = 0;
 
@@ -4762,14 +4757,11 @@ let amcLastServiceDate = null;
 
       return {
         id: j.id,
-        liftCode: j.liftCode || j.liftLabel || '',
+        liftCode: j.liftCode || '',
         customerName,
         building,
-        liftPosition:
-          projectLift?.location_label ||
-          j.liftPosition ||
-          '',
-        status: (j.status || j.current_status || 'ACTIVE').toUpperCase(),
+        liftPosition: projectLift?.location_label || j.liftPosition || '',
+        status: String(j.status || 'ACTIVE').toUpperCase(),
 
         warrantyStatus,
         warrantyStartDate,
@@ -4789,7 +4781,7 @@ let amcLastServiceDate = null;
         amcLastServiceDate,
         amcNextServiceDue,
         amcOverdueDays,
-        totalCost: Number(totalCost.toFixed(2)),
+        totalCost,
         amcStatus,
         daysToExpiry: computedAmc.daysToExpiry,
       };
