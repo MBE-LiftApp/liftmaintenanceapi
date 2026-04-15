@@ -250,6 +250,15 @@ async function buildServiceHistoryForLift(pl, rawAssignments, { today, warrantyI
   };
 }
 
+async function buildServiceDashboardDataSafe() {
+  try {
+    return await buildServiceDashboardData();
+  } catch (err) {
+    console.error("DASHBOARD ERROR:", err);
+    return { rows: [] }; // prevents UI crash
+  }
+}
+
 async function ensureChecklistForAssignment(assignment) {
   if (!assignment?.id) return [];
 
@@ -321,7 +330,7 @@ async function getChecklistSummary(assignmentId) {
   };
 }
 async function getDueAmcProjectLifts() {
-  const data = await buildServiceDashboardData();
+  const data = await buildServiceDashboardDataSafe();
   const rows = data.rows || [];
 
   const result = rows.filter((l) =>
@@ -349,7 +358,7 @@ async function getDueAmcProjectLifts() {
 }
 
 async function getDueWarrantyProjectLifts() {
-  const data = await buildServiceDashboardData();
+  const data = await buildServiceDashboardDataSafe();
   const rows = data.rows || [];
 
   console.log("==== WARRANTY DEBUG ====");
@@ -2784,52 +2793,39 @@ app.get('/api/projects', async (req, res) => {
 // Create project (serial code from backend)
 app.post('/api/projects', async (req, res) => {
   try {
-    const { projectName, customerName, siteName, notes } = req.body || {};
+    const { projectName, customerName, building, notes } = req.body || {};
 
-    if (!projectName || !customerName) {
-      return res.status(400).json({ error: 'Project name and customer are required' });
+    if (!projectName) {
+      return res.status(400).json({ error: 'Project name required' });
     }
 
-    // ✅ 1. Ensure customer exists
-    let customer = await Customer.findOne({
-      where: { name: customerName.trim() },
-    });
+    // 1. Find or create customer
+    let customer = await Customer.findOne({ where: { name: customerName } });
 
     if (!customer) {
-      customer = await Customer.create({
-        name: customerName.trim(),
-      });
+      customer = await Customer.create({ name: customerName });
     }
 
-    // ✅ 2. Ensure site exists (optional)
-    let site = null;
-    if (siteName && String(siteName).trim()) {
-      site = await Site.findOne({
-        where: { name: siteName.trim() },
-      });
+    // 2. Find or create site
+    let site = await Site.findOne({ where: { name: building } });
 
-      if (!site) {
-        site = await Site.create({
-          name: siteName.trim(),
-        });
-      }
+    if (!site) {
+      site = await Site.create({ name: building });
     }
 
-    // ✅ 3. Create project with VALID FK IDs
+    // 3. Create project
     const project = await Project.create({
-      project_name: projectName.trim(),
-      customer_id: customer.id,   // 🔥 CRITICAL FIX
-      site_id: site ? site.id : null,
-      status: 'OPEN',
-      notes: notes || null,
-      created_at: new Date(),
-      updated_at: new Date(),
+      name: projectName,
+      customer_id: customer.id,
+      site_id: site.id,
+      notes: notes || ''
     });
 
     res.json(project);
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to create project' });
   }
 });
 
@@ -5158,7 +5154,7 @@ console.log('AMC DEBUG', {
 
 app.get('/api/service/dashboard', async (req, res) => {
   try {
-    const data = await buildServiceDashboardData();
+    const data = await buildServiceDashboardDataSafe();
     res.json(data);
   } catch (err) {
     console.error('GET /api/service/dashboard error:', err);
