@@ -2784,41 +2784,49 @@ app.get('/api/projects', async (req, res) => {
 // Create project (serial code from backend)
 app.post('/api/projects', async (req, res) => {
   try {
-    const { projectName, customerName, building, notes } = req.body || {};
+    const { projectName, customerName, siteName, notes } = req.body || {};
 
-    if (!projectName || !String(projectName).trim()) return res.status(400).json({ error: 'Project name is required' });
-    if (!customerName || !String(customerName).trim()) return res.status(400).json({ error: 'Customer name is required' });
-
-    const custName = String(customerName).trim();
-    const [customer] = await Customer.findOrCreate({ where: { name: custName }, defaults: { name: custName } });
-
-    let site = null;
-    if (building && String(building).trim()) {
-      const b = String(building).trim();
-      const [s] = await Site.findOrCreate({ where: { name: b }, defaults: { name: b } });
-      site = s;
+    if (!projectName || !customerName) {
+      return res.status(400).json({ error: 'Project name and customer are required' });
     }
 
-    const projectCode = await nextProjectCode();
+    // ✅ 1. Ensure customer exists
+    let customer = await Customer.findOne({
+      where: { name: customerName.trim() },
+    });
 
+    if (!customer) {
+      customer = await Customer.create({
+        name: customerName.trim(),
+      });
+    }
+
+    // ✅ 2. Ensure site exists (optional)
+    let site = null;
+    if (siteName && String(siteName).trim()) {
+      site = await Site.findOne({
+        where: { name: siteName.trim() },
+      });
+
+      if (!site) {
+        site = await Site.create({
+          name: siteName.trim(),
+        });
+      }
+    }
+
+    // ✅ 3. Create project with VALID FK IDs
     const project = await Project.create({
-      project_code: projectCode,
-      project_name: String(projectName).trim(),
-      customer_id: customer.id,
+      project_name: projectName.trim(),
+      customer_id: customer.id,   // 🔥 CRITICAL FIX
       site_id: site ? site.id : null,
       status: 'OPEN',
-      notes: notes ? String(notes).trim() : null,
+      notes: notes || null,
+      created_at: new Date(),
+      updated_at: new Date(),
     });
 
-    res.json({
-      id: project.id,
-      projectCode: project.project_code || '',
-      projectName: project.project_name,
-      status: project.status,
-      customer: { id: customer.id, name: customer.name },
-      site: site ? { id: site.id, name: site.name } : null,
-      notes: project.notes || '',
-    });
+    res.json(project);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -3061,19 +3069,27 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
     const {
-  liftCode,
-  location,
-  passengerCapacity,
-  liftType,
-  numberOfFloors,
-  warrantyMonths,
-  warrantyServiceVisits,
-  notes,
-} = req.body || {};
+      liftCode,
+      location,
+      passengerCapacity,
+      liftType,
+      numberOfFloors,
+      warrantyMonths,
+      warrantyServiceVisits,
+      notes,
+    } = req.body || {};
 
-    if (!liftCode || !String(liftCode).trim()) return res.status(400).json({ error: 'Lift Code is required' });
+    if (!liftCode || !String(liftCode).trim()) {
+      return res.status(400).json({ error: 'Lift Code is required' });
+    }
 
-    const project = await Project.findByPk(projectId);
+    const project = await Project.findByPk(projectId, {
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+      ],
+    });
+
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const code = String(liftCode).trim();
@@ -3083,15 +3099,21 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
     if (!lift) {
       lift = await Lift.create({
         liftCode: code,
-        customerId: project.customer_id,
-        siteId: project.site_id,
-        location: location ? String(location).trim() : null,
+        customerName: project.Customer?.name || '',
+        building: project.Site?.name || '',
+        liftPosition: location ? String(location).trim() : null,
         status: 'ACTIVE',
       });
     } else {
-      if (!lift.customerId) lift.customerId = project.customer_id;
-      if (!lift.siteId && project.site_id) lift.siteId = project.site_id;
-      if (location && !lift.liftPosition) lift.liftPosition = String(location).trim();
+      if (!lift.customerName && project.Customer?.name) {
+        lift.customerName = project.Customer.name;
+      }
+      if (!lift.building && project.Site?.name) {
+        lift.building = project.Site.name;
+      }
+      if (location && !lift.liftPosition) {
+        lift.liftPosition = String(location).trim();
+      }
       await lift.save();
     }
 
@@ -3100,14 +3122,12 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       lift_id: lift.id,
       lift_code: code,
       location_label: location ? String(location).trim() : null,
-
       passenger_capacity: Number.isFinite(Number(passengerCapacity)) ? Number(passengerCapacity) : null,
       lift_type: liftType ? String(liftType).trim().toUpperCase() : null,
       number_of_floors: Number.isFinite(Number(numberOfFloors)) ? Number(numberOfFloors) : null,
-
       warranty_months: Number.isFinite(Number(warrantyMonths)) ? Number(warrantyMonths) : 12,
+      warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
       notes: notes ? String(notes) : null,
-warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
     });
 
     res.json({
@@ -3115,12 +3135,12 @@ warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number
       projectId: project.id,
       liftId: lift.id,
       liftCode: pl.lift_code,
-      location: pl.location_label || '',
+      liftPosition: pl.location_label || '',
       passengerCapacity: pl.passenger_capacity ?? null,
       liftType: pl.lift_type ?? null,
       numberOfFloors: pl.number_of_floors ?? null,
       warrantyMonths: pl.warranty_months,
-warrantyServiceVisits: getWarrantyServiceVisitCount(pl, 5),
+      warrantyServiceVisits: getWarrantyServiceVisitCount(pl, 5),
       notes: pl.notes || '',
     });
   } catch (err) {
