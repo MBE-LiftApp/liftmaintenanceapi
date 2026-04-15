@@ -5,16 +5,14 @@ module.exports = (sequelize, DataTypes) => {
       id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
 
       // Map UI "liftCode" to the real DB column "job_no"
-      liftCode: { type: DataTypes.TEXT, allowNull: false, unique: true, field: 'job_no' },
+      liftCode: { type: DataTypes.TEXT, allowNull: false, unique: true, field: 'lift_code' },
 
-      customerId: { type: DataTypes.BIGINT, allowNull: false, field: 'customer_id' },
-      siteId: { type: DataTypes.BIGINT, allowNull: true, field: 'site_id' },
+customerId: { type: DataTypes.BIGINT, allowNull: false, field: 'customer_id' },
+siteId: { type: DataTypes.BIGINT, allowNull: true, field: 'site_id' },
 
-      // Use lift_label as "location" (UI label)
-      location: { type: DataTypes.TEXT, allowNull: true, field: 'lift_label' },
+location: { type: DataTypes.TEXT, allowNull: true, field: 'location' },
 
-      // Map UI status to current_status
-      status: { type: DataTypes.TEXT, allowNull: false, defaultValue: 'ACTIVE', field: 'current_status' },
+status: { type: DataTypes.TEXT, allowNull: false, defaultValue: 'ACTIVE', field: 'status' },
 
       brand: { type: DataTypes.TEXT, allowNull: true, field: 'brand' },
       model: { type: DataTypes.TEXT, allowNull: true, field: 'model' },
