@@ -2815,7 +2815,7 @@ app.post('/api/projects', async (req, res) => {
 
     // 3. Create project
     const project = await Project.create({
-      name: projectName,
+      project_name: projectName,
       customer_id: customer.id,
       site_id: site.id,
       notes: notes || ''
@@ -4687,15 +4687,14 @@ app.get('/api/lifts', async (req, res) => {
         {
           model: ProjectLift,
           include: [
-  {
-    model: Lift,
-    attributes: ['id', 'liftCode', 'location', 'status']
-  },
-  {
-    model: Project,
-    attributes: ['id', 'project_name', 'project_code', 'status']
-  }
-]
+            {
+              model: Project,
+              attributes: ['id', 'project_name', 'project_code', 'status'],
+              include: [
+                { model: Customer, attributes: ['id', 'name'] },
+                { model: Site, attributes: ['id', 'name'] },
+              ],
+            },
           ],
         },
       ],
@@ -4730,59 +4729,15 @@ app.get('/api/lifts', async (req, res) => {
         warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
       }
 
-      const customerName = project?.Customer?.name || j.customerName || '';
-      const building = project?.Site?.name || j.building || '';
-
-      const amc = pickAmcContract(projectLift?.Contracts || []);
-      const hasValidAmc = !!amc;
-
-      const amcStartDate = hasValidAmc ? (amc.startDate || null) : null;
-      const amcEndDate = hasValidAmc ? (amc.endDate || null) : null;
-      const amcType = hasValidAmc ? (amc.amcType || 'LABOUR_ONLY') : null;
-      const billingCycle = hasValidAmc ? (amc.billingCycle || 'ANNUAL') : null;
-      const contractValue = hasValidAmc ? (amc.contractValue ?? 0) : null;
-      const serviceIntervalDays = hasValidAmc ? (amc.serviceIntervalDays ?? 30) : null;
-      const amcNotes = hasValidAmc ? (amc.amcNotes || null) : null;
-
-      let amcLastServiceDate = null;
-      let amcNextServiceDue = null;
-      let amcOverdueDays = 0;
-
-      if (hasValidAmc) {
-        const interval = Number(serviceIntervalDays || 30);
-        const base = amcLastServiceDate || amcStartDate;
-
-        if (base) {
-          const next = addDays(base, interval);
-          if (next) {
-            amcNextServiceDue = formatDateOnly(next);
-            const due = parseDateOnly(amcNextServiceDue);
-            if (due && today > due) {
-              amcOverdueDays = dateDiffDays(amcNextServiceDue, formatDateOnly(today)) || 0;
-            }
-          }
-        }
-      }
-
-      const computedAmc = computeAmcStatus(amcStartDate, amcEndDate, today);
-
-      const amcStatus =
-        computedAmc.amcStatus === 'ACTIVE'
-          ? 'AMC ACTIVE'
-          : computedAmc.amcStatus === 'EXPIRING_SOON'
-            ? 'AMC EXPIRING SOON'
-            : computedAmc.amcStatus === 'EXPIRED'
-              ? 'AMC EXPIRED'
-              : 'NO AMC';
-
-      const totalCost = 0;
+      const customerName = project?.Customer?.name || '';
+      const building = project?.Site?.name || '';
 
       return {
         id: j.id,
-        liftCode: j.liftCode || '',
+        liftCode: j.liftCode || j.lift_code || '',
         customerName,
         building,
-        liftPosition: projectLift?.location_label || j.liftPosition || '',
+        liftPosition: projectLift?.location_label || j.location || '',
         status: String(j.status || 'ACTIVE').toUpperCase(),
 
         warrantyStatus,
@@ -4791,21 +4746,21 @@ app.get('/api/lifts', async (req, res) => {
         handoverActualDate,
         warrantyDaysRemaining,
 
-        hasAmcContract: hasValidAmc,
-        amcType,
-        amcStartDate,
-        amcEndDate,
-        billingCycle,
-        contractValue,
-        serviceIntervalDays,
-        amcNotes,
+        hasAmcContract: false,
+        amcType: null,
+        amcStartDate: null,
+        amcEndDate: null,
+        billingCycle: null,
+        contractValue: null,
+        serviceIntervalDays: null,
+        amcNotes: null,
 
-        amcLastServiceDate,
-        amcNextServiceDue,
-        amcOverdueDays,
-        totalCost,
-        amcStatus,
-        daysToExpiry: computedAmc.daysToExpiry,
+        amcLastServiceDate: null,
+        amcNextServiceDue: null,
+        amcOverdueDays: 0,
+        totalCost: 0,
+        amcStatus: 'NO AMC',
+        daysToExpiry: null,
       };
     });
 
@@ -5205,15 +5160,12 @@ app.get('/api/dashboard', async (req, res) => {
         {
           model: ProjectLift,
           include: [
-  {
-    model: Lift,
-    attributes: ['id', 'liftCode', 'location', 'status']
-  },
-  {
-    model: Project,
-    attributes: ['id', 'project_name', 'project_code', 'status']
-  }
-]
+            {
+              model: Project,
+              attributes: ['id', 'project_name', 'project_code', 'status'],
+            },
+          ],
+        },
       ],
       order: [['id', 'ASC']],
     });
@@ -5245,25 +5197,13 @@ app.get('/api/dashboard', async (req, res) => {
           ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
           : null;
 
-      const amcC = pickAmcContract(latestProjectLift?.Contracts || []);
-      const amc = computeAmcStatus(
-        amcC?.startDate || null,
-        amcC?.endDate || null,
-        today
-      );
-
-      if (amc.amcStatus === 'ACTIVE') amcActive++;
-      else if (amc.amcStatus === 'EXPIRING_SOON') amcExpiringSoon++;
-      else if (amc.amcStatus === 'EXPIRED') amcExpired++;
-
-      const interval = Number(amcC?.serviceIntervalDays || 30);
-      const start = parseDateOnly(amcC?.startDate);
-
-      if (start) {
-        const next = new Date(start);
-        next.setDate(next.getDate() + interval);
-        if (today > next) overdueServices++;
+      const warrantyEnd = parseDateOnly(latestProjectLift?.warranty_end_date || null);
+      if (warrantyEnd && today > warrantyEnd) {
+        overdueServices++;
       }
+
+      // AMC temporarily disabled in dashboard until contract schema is aligned
+      // Keep counters at zero for now
     }
 
     res.json({
