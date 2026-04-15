@@ -5464,7 +5464,79 @@ async function ensureSchema() {
   // Sequence for serial Project Codes
   await sequelize.query(`CREATE SEQUENCE IF NOT EXISTS public.project_code_seq START 1;`);
 
-  // Projects table
+  // -------------------------
+  // MASTER TABLES FIRST
+  // -------------------------
+
+  // Customers
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS customers (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Sites
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS sites (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      address TEXT,
+      gps_lat NUMERIC,
+      gps_lng NUMERIC,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Lifts
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS lifts (
+      id BIGSERIAL PRIMARY KEY,
+      lift_code TEXT UNIQUE,
+      building TEXT,
+      location TEXT,
+      customer_name TEXT,
+      status TEXT,
+      amc_type TEXT,
+      amc_start_date DATE,
+      amc_end_date DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Technicians
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS technicians (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      role TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      pin_salt TEXT,
+      pin_hash TEXT,
+      must_change_pin BOOLEAN NOT NULL DEFAULT TRUE,
+      skills TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_salt TEXT;`);
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_hash TEXT;`);
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS must_change_pin BOOLEAN NOT NULL DEFAULT TRUE;`);
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS skills TEXT;`);
+
+  // -------------------------
+  // PROJECTS
+  // -------------------------
+
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS projects (
       id BIGSERIAL PRIMARY KEY,
@@ -5486,7 +5558,10 @@ async function ensureSchema() {
   await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS status TEXT;`);
   await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS notes TEXT;`);
 
-  // Project lifts
+  // -------------------------
+  // PROJECT LIFTS
+  // -------------------------
+
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lifts (
       id BIGSERIAL PRIMARY KEY,
@@ -5494,17 +5569,17 @@ async function ensureSchema() {
       lift_id BIGINT REFERENCES lifts(id) ON DELETE SET NULL,
       lift_code TEXT NOT NULL,
       location_label TEXT,
-
       passenger_capacity INTEGER,
       lift_type TEXT,
       number_of_floors INTEGER,
-
       installation_start_date DATE,
       installation_end_date DATE,
       testing_start_date DATE,
       testing_end_date DATE,
       handover_date DATE,
+      handover_actual_date DATE,
       warranty_months INTEGER NOT NULL DEFAULT 12,
+      warranty_service_visits INTEGER NOT NULL DEFAULT 5,
       warranty_start_date DATE,
       warranty_end_date DATE,
       notes TEXT,
@@ -5515,14 +5590,12 @@ async function ensureSchema() {
 
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS lift_code TEXT;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS location_label TEXT;`);
-
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS passenger_capacity INTEGER;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS lift_type TEXT;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS number_of_floors INTEGER;`);
-
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_months INTEGER;`);
-await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_service_visits INTEGER NOT NULL DEFAULT 5;`);
-await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_actual_date DATE;`);
+  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_service_visits INTEGER NOT NULL DEFAULT 5;`);
+  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_actual_date DATE;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_start_date DATE;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_end_date DATE;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_date DATE;`);
@@ -5533,27 +5606,33 @@ await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handov
 
   await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_project_lifts_lift_code ON project_lifts(lift_code);`);
 
-// Contracts (AMC)
-await sequelize.query(`
-  CREATE TABLE IF NOT EXISTS contracts (
-    id BIGSERIAL PRIMARY KEY,
-    project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
-    amc_type TEXT,
-    start_date DATE,
-    end_date DATE,
-    service_interval_days INTEGER,
-    service_visit_count INTEGER NOT NULL DEFAULT 5,
-    billing_cycle TEXT,
-    contract_value NUMERIC,
-    amc_notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  );
-`);
+  // -------------------------
+  // CONTRACTS
+  // -------------------------
 
-await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_visit_count INTEGER NOT NULL DEFAULT 5;`);
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS contracts (
+      id BIGSERIAL PRIMARY KEY,
+      project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
+      amc_type TEXT,
+      start_date DATE,
+      end_date DATE,
+      service_interval_days INTEGER,
+      service_visit_count INTEGER NOT NULL DEFAULT 5,
+      billing_cycle TEXT,
+      contract_value NUMERIC,
+      amc_notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 
-  // Assignments
+  await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_visit_count INTEGER NOT NULL DEFAULT 5;`);
+
+  // -------------------------
+  // ASSIGNMENTS
+  // -------------------------
+
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lift_assignments (
       id BIGSERIAL PRIMARY KEY,
@@ -5588,34 +5667,17 @@ await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_vi
       notes TEXT
     );
   `);
+
   await sequelize.query(`ALTER TABLE project_lift_job_technicians ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;`);
   await sequelize.query(`ALTER TABLE project_lift_job_technicians ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;`);
   await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_project_lift_job_technicians_unique_member ON project_lift_job_technicians(assignment_id, technician_id);`);
   await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_project_lift_job_technicians_one_lead ON project_lift_job_technicians(assignment_id) WHERE team_role = 'LEAD';`);
 
-  // Technicians + sessions
-  await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS technicians (
-      id BIGSERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      phone TEXT,
-      email TEXT,
-      role TEXT,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      pin_salt TEXT,
-      pin_hash TEXT,
-      must_change_pin BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+  // -------------------------
+  // SESSIONS LAST
+  // -------------------------
 
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_salt TEXT;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_hash TEXT;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS must_change_pin BOOLEAN NOT NULL DEFAULT TRUE;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS skills TEXT;`);
-  
-        await sequelize.query(`
+  await sequelize.query(`
     CREATE TABLE IF NOT EXISTS technician_sessions (
       id BIGSERIAL PRIMARY KEY,
       technician_id BIGINT NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
