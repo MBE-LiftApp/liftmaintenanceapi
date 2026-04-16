@@ -2644,8 +2644,7 @@ btnHistory.onclick = () => {
   }
 };
 actionWrap.appendChild(btnHistory);
-  });
-
+ 
   if (lifts.length === 0) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td colspan="6" class="muted">No lifts added yet. Click <b>+ Add Lift</b> to start the project workflow.</td>`;
