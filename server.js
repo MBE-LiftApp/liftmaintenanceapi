@@ -1829,7 +1829,7 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
               model: ProjectLift,
               include: [
                 { model: Project, attributes: ['id', 'project_name', 'project_code'] },
-                { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+                
               ],
             },
             { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
@@ -2179,7 +2179,7 @@ app.post('/api/project-lifts/:projectLiftId/warranty-service-assign', async (req
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
   include: [
-    { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+    
     {
       model: ProjectLiftAssignment,
       as: 'assignments',
@@ -2592,7 +2592,7 @@ app.post('/api/project-lifts/:projectLiftId/auto-amc-job', async (req, res) => {
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+        
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -2740,7 +2740,7 @@ app.get('/api/projects', async (req, res) => {
     {
       model: ProjectLift,
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+        
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -2826,7 +2826,7 @@ app.get('/api/projects/:projectId', async (req, res) => {
         {
           model: ProjectLift,
           include: [
-            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            
             {
               model: ProjectLiftAssignment,
               as: 'assignments',
@@ -3181,7 +3181,7 @@ app.post('/api/project-lifts/:projectLiftId/auto-warranty-job', async (req, res)
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
   include: [
-    { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+    
     {
       model: ProjectLiftAssignment,
       as: 'assignments',
@@ -3364,7 +3364,7 @@ app.get('/api/technicians/:id/jobs', async (req, res) => {
     {
       model: ProjectLift,
       include: [
-        { model: Lift, attributes: ['liftCode'] },
+        
         { model: Project, attributes: ['project_name', 'project_code'] }
       ]
     }
@@ -3568,7 +3568,7 @@ app.post('/api/project-lifts/:projectLiftId/amc-service-assign', async (req, res
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+        
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -3821,7 +3821,7 @@ app.get('/api/jobs/:id', async (req, res) => {
           model: ProjectLift,
           include: [
             { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
-            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            
           ],
         },
       ],
@@ -4365,7 +4365,7 @@ app.get('/api/jobs', async (req, res) => {
           model: ProjectLift,
           include: [
             { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
-            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            
           ],
         },
       ],
@@ -4932,7 +4932,7 @@ async function buildServiceDashboardData() {
       {
         model: ProjectLift,
         include: [
-          { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+          
           {
             model: ProjectLiftAssignment,
             as: 'assignments',
