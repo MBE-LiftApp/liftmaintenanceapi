@@ -3461,6 +3461,30 @@ async function renderJobs() {
   }
 }
 
+async function renderAMC() {
+  const root = setViewMode(false);
+
+  setTitle("AMC");
+
+  const btnCreate = smallBtn("+ Create AMC", "primary");
+  btnCreate.onclick = () => {
+    alert("Create AMC modal coming next");
+  };
+
+  const btnRefresh = smallBtn("Refresh", "secondary");
+  btnRefresh.onclick = () => renderAMC();
+
+  setToolbar([btnCreate, btnRefresh]);
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="label">AMC Management</div>
+      <div class="hr"></div>
+      <div class="muted">AMC contracts will be managed here.</div>
+    </div>
+  `;
+}
+
 async function renderMyJobs() {
   const root = setViewMode(false);
 
@@ -5888,13 +5912,14 @@ async function render(view) {
   if (view === 'reports') return renderReports();
   if (view === 'service') return renderServiceDashboard();
   if (view === 'tech') return renderTechDashboard();
+  if (view === 'amc') return renderAMC();   // ADD THIS
 
   return renderDashboard();
 }
 
 function currentViewFromHash() {
   const h = (location.hash || '#dashboard').replace('#', '').trim();
-  const allowed = ['dashboard', 'projects', 'lifts', 'jobs', 'technicians', 'reports', 'service', 'tech'];
+  const allowed = ['dashboard', 'projects', 'lifts', 'jobs', 'technicians', 'reports', 'service', 'tech', 'amc'];
   return allowed.includes(h) ? h : 'dashboard';
 }
 
