@@ -3483,22 +3483,26 @@ async function renderAMC() {
     const projects = await API.listProjects();
     const rows = [];
 
-    (projects || []).forEach((p) => {
-      (p.lifts || []).forEach((l) => {
-        const handedOver =
-  l.handoverActualDate ||
-  l.handover_actual_date;
+    for (const p of (projects || [])) {
+      const r = await fetch(`/api/projects/${p.id}`);
+      const pj = await r.json();
+      if (!r.ok) continue;
 
-if (!handedOver) return;
+      (pj.lifts || []).forEach((l) => {
+        const handedOver =
+          l.handoverActualDate ||
+          l.handover_actual_date;
+
+        if (!handedOver) return;
 
         rows.push({
           ...l,
-          projectName: p.projectName || '',
-          projectCode: p.projectCode || '',
-          customerName: p.customer?.name || '',
+          projectName: pj.projectName || '',
+          projectCode: pj.projectCode || '',
+          customerName: pj.customer?.name || '',
         });
       });
-    });
+    }
 
     root.innerHTML = `
       <div class="card">
@@ -3540,9 +3544,9 @@ if (!handedOver) return;
 
       const amcStatus = l?.amc?.status || "NO AMC";
       const warrantyEndDate =
-  l?.warrantyEndDate ||
-  l?.warranty_end_date ||
-  '—';
+        l?.warrantyEndDate ||
+        l?.warranty_end_date ||
+        '—';
 
       tr.innerHTML = `
         <td>
