@@ -5141,7 +5141,9 @@ app.post('/api/lifts/:liftId/jobs', async (req, res) => {
 // --------------------
 app.get('/api/dashboard', async (req, res) => {
   try {
-    const lifts = await Lift.findAll({ include: [{ model: ServiceLog }, { model: Contract }] });
+    const lifts = await Lift.findAll({ 
+  include: [{ model: ServiceLog }] 
+});
     const today = startOfDay(new Date());
 
     let total = 0,
@@ -5169,7 +5171,7 @@ app.get('/api/dashboard', async (req, res) => {
 
       totalCost += logs.reduce((sum, x) => sum + Number(x.cost || 0), 0);
 
-      const amcC = pickAmcContract(j.Contracts);
+      
       const amc = computeAmcStatus(amcC?.startDate || null, amcC?.endDate || null, today);
 
       if (amc.amcStatus === 'ACTIVE') amcActive++;
@@ -5182,7 +5184,7 @@ app.get('/api/dashboard', async (req, res) => {
         lastServiceDate = logs[0].serviceDate || null;
       }
 
-      const amcC2 = pickAmcContract(j.Contracts);
+      
       const interval = Number(amcC2?.serviceIntervalDays || 30);
 
       if (lastServiceDate) {
