@@ -3386,77 +3386,91 @@ app.post('/api/project-lifts/:projectLiftId/auto-warranty-job', async (req, res)
 app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
   try {
     const projectLiftId = Number(req.params.projectLiftId);
+
     const {
-  amcType,
-  startDate,
-  durationMonths,
-  serviceIntervalDays,
-  serviceVisitCount,
-  billingCycle,
-  contractValue,
-  amcNotes,
-} = req.body || {};
+      amcType,
+      startDate,
+      durationMonths,
+      serviceIntervalDays,
+      serviceVisitCount,
+      billingCycle,
+      contractValue,
+      amcNotes,
+    } = req.body || {};
 
     const pl = await ProjectLift.findByPk(projectLiftId);
-    if (!pl) return res.status(404).json({ error: 'Project lift not found' });
-    if (!pl.lift_id) return res.status(400).json({ error: 'Project lift is not linked to a lift record' });
-    if (!pl.handover_date || !pl.warranty_end_date) return res.status(400).json({ error: 'Handover and warranty must be completed before AMC creation' });
+
+    if (!pl) {
+      return res.status(404).json({ error: 'Project lift not found' });
+    }
+
+    const resolvedLiftId = Number(pl.lift_id || pl.liftId || 0);
+    if (!resolvedLiftId) {
+      return res.status(400).json({ error: 'Project lift is not linked to a lift record' });
+    }
+
+    const linkedLift = await Lift.findByPk(resolvedLiftId);
+    if (!linkedLift) {
+      return res.status(400).json({ error: 'Linked lift record not found' });
+    }
+
+    if (!pl.handover_actual_date || !pl.warranty_end_date) {
+      return res.status(400).json({ error: 'Handover and warranty must be completed before AMC creation' });
+    }
 
     const start = parseDateOnly(startDate || pl.warranty_end_date);
-    if (!start) return res.status(400).json({ error: 'Valid AMC start date is required' });
+    if (!start) {
+      return res.status(400).json({ error: 'Valid AMC start date is required' });
+    }
 
     const months = Number(durationMonths || 12);
     const interval = Number(serviceIntervalDays || 90);
-    if (!Number.isFinite(months) || months <= 0) return res.status(400).json({ error: 'Duration months must be greater than zero' });
-    if (!Number.isFinite(interval) || interval <= 0) return res.status(400).json({ error: 'Service interval days must be greater than zero' });
+    const visits = Number(serviceVisitCount || 5);
 
-    const end = addMonths(start, months);
-    const [contract, created] = await Contract.findOrCreate({
-      where: { liftId: pl.lift_id, contractType: 'AMC' },
-      defaults: {
-        liftId: pl.lift_id,
-        contractType: 'AMC',
-        status: 'ACTIVE',
-        startDate: formatDateOnly(start),
-        endDate: formatDateOnly(end),
-        amcType: String(amcType || 'LABOUR_ONLY').toUpperCase(),
-        billingCycle: billingCycle ? String(billingCycle).toUpperCase() : 'ANNUAL',
-        contractValue: normalizeCost(contractValue) ?? 0,
-        serviceIntervalDays: interval,
-        amcNotes: amcNotes ? String(amcNotes) : null,
-service_visit_count: Number.isFinite(Number(serviceVisitCount)) ? Number(serviceVisitCount) : 5,
-        remarks: `Created from Project Lift ${projectLiftId}`,
-      },
-    });
-
-    if (!created) {
-      await contract.update({
-        status: 'ACTIVE',
-        startDate: formatDateOnly(start),
-        endDate: formatDateOnly(end),
-        amcType: String(amcType || contract.amcType || 'LABOUR_ONLY').toUpperCase(),
-        billingCycle: billingCycle ? String(billingCycle).toUpperCase() : (contract.billingCycle || 'ANNUAL'),
-        contractValue: contractValue !== undefined ? (normalizeCost(contractValue) ?? 0) : (contract.contractValue ?? 0),
-        serviceIntervalDays: interval,
-        amcNotes: amcNotes !== undefined ? (amcNotes ? String(amcNotes) : null) : contract.amcNotes,
-        remarks: `Updated from Project Lift ${projectLiftId}`,
-service_visit_count: Number.isFinite(Number(serviceVisitCount))
-  ? Number(serviceVisitCount)
-  : (contract.service_visit_count ?? 5),
-      });
+    if (!Number.isFinite(months) || months <= 0) {
+      return res.status(400).json({ error: 'Duration months must be greater than zero' });
     }
 
-    const fresh = created ? contract : await Contract.findByPk(contract.id);
-    const amcInfo = buildAmcInfo(fresh);
-    res.json({
+    if (!Number.isFinite(interval) || interval <= 0) {
+      return res.status(400).json({ error: 'Service interval days must be greater than zero' });
+    }
+
+    if (!Number.isFinite(visits) || visits <= 0) {
+      return res.status(400).json({ error: 'AMC Service Visits must be at least 1' });
+    }
+
+    const existingActive = await Contract.findOne({
+      where: { projectLiftId },
+      order: [['id', 'DESC']],
+    });
+
+    if (existingActive) {
+      return res.status(400).json({ error: 'AMC already exists for this lift' });
+    }
+
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + months);
+    end.setDate(end.getDate() - 1);
+
+    const contract = await Contract.create({
+      projectLiftId,
+      amcType: amcType || 'LABOUR_ONLY',
+      startDate: toDateOnlyString(start),
+      endDate: end.toISOString().slice(0, 10),
+      serviceIntervalDays: interval,
+      serviceVisitCount: visits,
+      billingCycle: billingCycle || 'ANNUAL',
+      contractValue: contractValue || null,
+      amcNotes: amcNotes || '',
+    });
+
+    return res.json({
       ok: true,
-      contractId: fresh.id,
-      amc: amcInfo,
-      created,
+      contract,
     });
   } catch (err) {
     console.error('POST /api/project-lifts/:projectLiftId/amc error:', err);
-    res.status(500).json({ error: err.message || 'Failed to create AMC' });
+    return res.status(500).json({ error: err.message || 'Failed to create AMC' });
   }
 });
 
