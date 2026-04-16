@@ -3467,118 +3467,24 @@ async function renderAMC() {
   setTitle("AMC");
 
   const btnCreate = smallBtn("+ Create AMC", "primary");
-btnCreate.onclick = () => {
-  showCreateAmcSelectionModal();
-};
+  btnCreate.onclick = () => {
+    showCreateAmcSelectionModal();
+  };
 
-const btnRefresh = smallBtn("Refresh", "secondary");
-btnRefresh.onclick = () => renderAMC();
+  const btnRefresh = smallBtn("Refresh", "secondary");
+  btnRefresh.onclick = () => renderAMC();
 
-setToolbar([btnCreate, btnRefresh]);
+  setToolbar([btnCreate, btnRefresh]);
 
   root.innerHTML = `
-  <div class="card">
-    <div class="label">AMC Management</div>
-    <div class="hr"></div>
-    <div class="muted">Create and manage AMC contracts.</div>
-  </div>
-`;
-
-  try {
-    const projects = await API.listProjects();
-    const rows = [];
-
-    for (const p of (projects || [])) {
-      const r = await fetch(`/api/projects/${p.id}`);
-      const pj = await r.json();
-      if (!r.ok) continue;
-
-      (pj.lifts || []).forEach((l) => {
-        const handedOver =
-          l.handoverActualDate ||
-          l.handover_actual_date;
-
-        if (!handedOver) return;
-
-        rows.push({
-          ...l,
-          projectName: pj.projectName || '',
-          projectCode: pj.projectCode || '',
-          customerName: pj.customer?.name || '',
-        });
-      });
-    }
-
-    root.innerHTML = `
-      <div class="card">
-        <div class="label">AMC Management</div>
-        <div class="hr"></div>
+    <div class="card">
+      <div class="label">AMC Management</div>
+      <div class="hr"></div>
+      <div class="muted">
+        Use "Create AMC" to start a new contract.
       </div>
-    `;
-
-    const card = root.querySelector(".card");
-    const wrap = makeScrollableTableWrap(`
-      <table>
-        <thead>
-          <tr>
-            <th>Lift</th>
-            <th>Project</th>
-            <th>Customer</th>
-            <th>Warranty End</th>
-            <th>AMC Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="amcBody"></tbody>
-      </table>
-    `, "520px");
-
-    card.appendChild(wrap);
-
-    const tb = wrap.querySelector("#amcBody");
-
-    if (!rows.length) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="6" class="muted">No handed-over lifts available for AMC.</td>`;
-      tb.appendChild(tr);
-      return;
-    }
-
-    rows.forEach((l) => {
-      const tr = document.createElement("tr");
-
-      const amcStatus = l?.amc?.status || "NO AMC";
-      const warrantyEndDate =
-        l?.warrantyEndDate ||
-        l?.warranty_end_date ||
-        '—';
-
-      tr.innerHTML = `
-        <td>
-          <div><b>${l.liftCode || ''}</b></div>
-          <div class="muted">${l.location || '—'}</div>
-        </td>
-        <td>${[l.projectCode, l.projectName].filter(Boolean).join(" - ")}</td>
-        <td>${l.customerName || '—'}</td>
-        <td>${warrantyEndDate}</td>
-        <td></td>
-        <td></td>
-      `;
-
-      tr.children[4].appendChild(badge(amcStatus));
-
-      
-      tb.appendChild(tr);
-    });
-  } catch (e) {
-    root.innerHTML = `
-      <div class="card">
-        <div class="label">AMC failed to load</div>
-        <div class="hr"></div>
-        <div class="muted">${String(e.message || e)}</div>
-      </div>
-    `;
-  }
+    </div>
+  `;
 }
 
 async function showCreateAmcSelectionModal() {
@@ -3599,15 +3505,21 @@ async function showCreateAmcSelectionModal() {
         if (!warrantyEndDate) return;
 
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         const warrantyEnd = new Date(warrantyEndDate);
+        warrantyEnd.setHours(0, 0, 0, 0);
 
         if (today < warrantyEnd) return;
 
         const amcStatus = String(l?.amc?.status || '').toUpperCase();
         if (['AMC ACTIVE'].includes(amcStatus)) return;
 
+        console.log('AMC candidate lift', l);
+
         eligibleLifts.push({
           ...l,
+          projectLiftId: l.id,
           label: `${l.liftCode} — ${pj.projectCode} (${pj.customer?.name || ''})`,
         });
       });
@@ -3622,7 +3534,7 @@ async function showCreateAmcSelectionModal() {
           <select id="amcLiftSelect">
             <option value="">-- Select Lift --</option>
             ${eligibleLifts.map(l => `
-              <option value="${l.projectLiftId || l.id}">
+              <option value="${l.projectLiftId}">
                 ${l.label}
               </option>
             `).join("")}
@@ -3643,11 +3555,18 @@ async function showCreateAmcSelectionModal() {
       }
 
       const lift = eligibleLifts.find(
-        l => String(l.projectLiftId || l.id) === selectedId
+        l => String(l.projectLiftId) === String(selectedId)
       );
 
+      if (!lift) {
+        alert("Selected lift could not be resolved");
+        return;
+      }
+
+      console.log("Selected AMC lift", lift);
+
       closeModal();
-      showCreateAmcModal(lift); // 👈 reuse your existing modal
+      showCreateAmcModal(lift);
     };
 
     openModal({
