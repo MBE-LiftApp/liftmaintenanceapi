@@ -3162,8 +3162,16 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       return res.status(409).json({ error: 'This lift code already exists in the project.' });
     }
 
-    const warrantyMonthsNum = Number(warrantyMonths);
-    const warrantyVisitsNum = Number(warrantyServiceVisits);
+    // For Add Lift, allow defaults if not supplied yet
+    const warrantyMonthsNum =
+      warrantyMonths == null || warrantyMonths === ''
+        ? 12
+        : Number(warrantyMonths);
+
+    const warrantyVisitsNum =
+      warrantyServiceVisits == null || warrantyServiceVisits === ''
+        ? 5
+        : Number(warrantyServiceVisits);
 
     if (!Number.isFinite(warrantyMonthsNum) || warrantyMonthsNum < 1) {
       return res.status(400).json({
@@ -3179,14 +3187,14 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
 
     const pl = await ProjectLift.create({
       project_id: project.id,
-      lift_id: null, // intentionally not using Lift master table for now
+      lift_id: null,
       lift_code: code,
       location_label: location ? String(location).trim() : null,
       passenger_capacity: Number.isFinite(Number(passengerCapacity)) ? Number(passengerCapacity) : null,
       lift_type: liftType ? String(liftType).trim().toUpperCase() : null,
       number_of_floors: Number.isFinite(Number(numberOfFloors)) ? Number(numberOfFloors) : null,
       warranty_months: warrantyMonthsNum,
-      warranty_service_visits: warrantyVisitsNum,
+      warrantyServiceVisits: warrantyVisitsNum,
       notes: notes ? String(notes).trim() : null,
     });
 
@@ -3200,7 +3208,7 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       liftType: pl.lift_type ?? null,
       numberOfFloors: pl.number_of_floors ?? null,
       warrantyMonths: pl.warranty_months,
-      warrantyServiceVisits: pl.warranty_service_visits,
+      warrantyServiceVisits: pl.warrantyServiceVisits ?? pl.warranty_service_visits,
       notes: pl.notes || '',
     });
   } catch (err) {
