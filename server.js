@@ -3139,30 +3139,27 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
     }
 
     const project = await Project.findByPk(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
 
     const code = String(liftCode).trim();
 
-    let lift = await Lift.findOne({ where: { liftCode: code } });
+    // prevent duplicate lift code within this project
+    const existing = await ProjectLift.findOne({
+      where: {
+        project_id: project.id,
+        lift_code: code,
+      },
+    });
 
-    if (!lift) {
-      lift = await Lift.create({
-        liftCode: code,
-        customerId: project.customer_id,
-        siteId: project.site_id,
-        location: location ? String(location).trim() : null,
-        status: 'ACTIVE',
-      });
-    } else {
-      if (!lift.customerId) lift.customerId = project.customer_id;
-      if (!lift.siteId && project.site_id) lift.siteId = project.site_id;
-      if (location && !lift.location) lift.location = String(location).trim();
-      await lift.save();
+    if (existing) {
+      return res.status(409).json({ error: 'This lift code already exists in the project.' });
     }
 
     const pl = await ProjectLift.create({
       project_id: project.id,
-      lift_id: lift.id,
+      lift_id: null, // intentionally not using Lift master table for now
       lift_code: code,
       location_label: location ? String(location).trim() : null,
       passenger_capacity: Number.isFinite(Number(passengerCapacity)) ? Number(passengerCapacity) : null,
@@ -3170,28 +3167,25 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       number_of_floors: Number.isFinite(Number(numberOfFloors)) ? Number(numberOfFloors) : null,
       warranty_months: Number.isFinite(Number(warrantyMonths)) ? Number(warrantyMonths) : 12,
       warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
-      notes: notes ? String(notes) : null,
+      notes: notes ? String(notes).trim() : null,
     });
 
     res.json({
       id: pl.id,
       projectId: project.id,
-      liftId: lift.id,
+      liftId: pl.lift_id,
       liftCode: pl.lift_code,
       location: pl.location_label || '',
       passengerCapacity: pl.passenger_capacity ?? null,
       liftType: pl.lift_type ?? null,
       numberOfFloors: pl.number_of_floors ?? null,
       warrantyMonths: pl.warranty_months,
-      warrantyServiceVisits: getWarrantyServiceVisitCount(pl, 5),
+      warrantyServiceVisits: pl.warranty_service_visits ?? 5,
       notes: pl.notes || '',
     });
   } catch (err) {
-    if (err.name === 'SequelizeUniqueConstraintError') {
-      return res.status(409).json({ error: 'Lift Code already exists in the system.' });
-    }
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('POST /api/projects/:projectId/lifts error:', err);
+    res.status(500).json({ error: err.message || 'Failed to add lift to project' });
   }
 });
 
