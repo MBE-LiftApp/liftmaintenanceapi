@@ -3485,7 +3485,11 @@ async function renderAMC() {
 
     (projects || []).forEach((p) => {
       (p.lifts || []).forEach((l) => {
-        if (!l.handoverActualDate) return;
+        const handedOver =
+  l.handoverActualDate ||
+  l.handover_actual_date;
+
+if (!handedOver) return;
 
         rows.push({
           ...l,
@@ -3535,7 +3539,10 @@ async function renderAMC() {
       const tr = document.createElement("tr");
 
       const amcStatus = l?.amc?.status || "NO AMC";
-      const warrantyEndDate = l?.warrantyEndDate || l?.warranty_end_date || '—';
+      const warrantyEndDate =
+  l?.warrantyEndDate ||
+  l?.warranty_end_date ||
+  '—';
 
       tr.innerHTML = `
         <td>
