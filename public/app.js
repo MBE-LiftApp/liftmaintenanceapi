@@ -1276,20 +1276,13 @@ function showMilestoneModal(projectLiftId, lift) {
 
       <div class="field">
         <label>Warranty Months</label>
-        <input type="number" min="1" id="warrantyMonths" value="${lift.warrantyMonths ?? 12}" />
+        <input type="number" min="1" step="1" id="warrantyMonths" value="${lift.warrantyMonths ?? 12}" required />
       </div>
 
       <div class="field">
-  <label>Warranty Service Visits</label>
-  <input
-    type="number"
-    min="1"
-    step="1"
-    id="warrantyServiceVisits"
-    value="${lift.warrantyServiceVisits ?? 5}"
-    required
-  />
-</div>
+        <label>Warranty Service Visits</label>
+        <input type="number" min="1" step="1" id="warrantyServiceVisits" value="${lift.warrantyServiceVisits ?? 5}" required />
+      </div>
 
       <div class="field" style="grid-column:1/-1">
         <label>Notes</label>
@@ -1342,20 +1335,17 @@ function showMilestoneModal(projectLiftId, lift) {
     const testingStartDate = testingStartEl.value || null;
     const testingEndDate = testingEndEl.value || null;
     const handoverDate = handoverDateEl.value || null;
-    const warrantyMonths = Number(warrantyMonthsEl.value || 0);
+    const warrantyMonths = Number(warrantyMonthsEl.value);
     const warrantyServiceVisits = Number(warrantyVisitsEl.value);
-if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
-  errors.push("Warranty Service Visits must be at least 1.");
-}
 
-// 🔒 Warranty validation (ADD THIS)
-if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
-  errors.push("Warranty Service Visits must be at least 1.");
-}
+    if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
+      errors.push("Warranty Months must be at least 1.");
+    }
 
-if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
-  errors.push("Warranty Months must be at least 1.");
-}
+    if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+      errors.push("Warranty Service Visits must be at least 1.");
+    }
+
     if (installationStartDate && installationEndDate && compareDateOnly(installationEndDate, installationStartDate) < 0) {
       errors.push("Installation End Date cannot be earlier than Installation Start Date.");
     }
@@ -1370,14 +1360,6 @@ if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
 
     if (testingEndDate && handoverDate && compareDateOnly(handoverDate, testingEndDate) < 0) {
       errors.push("Handover Target Date cannot be earlier than Testing End Date.");
-    }
-
-    if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
-      errors.push("Warranty Months must be at least 1.");
-    }
-
-    if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
-      errors.push("Warranty Service Visits must be at least 1.");
     }
 
     if (installationEndDate && testingStartDate && compareDateOnly(testingStartDate, installationEndDate) > 0) {
@@ -1434,7 +1416,7 @@ if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
         testingStartDate: testingStartEl.value || null,
         testingEndDate: testingEndEl.value || null,
         handoverDate: handoverDateEl.value || null,
-        warrantyMonths: Number(warrantyMonthsEl.value || 12),
+        warrantyMonths: Number(warrantyMonthsEl.value),
         warrantyServiceVisits: Number(warrantyVisitsEl.value),
         notes: body.querySelector("#milestoneNotes").value || "",
       };

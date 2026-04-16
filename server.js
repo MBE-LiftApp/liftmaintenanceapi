@@ -3286,7 +3286,7 @@ app.put('/api/project-lifts/:projectLiftId/milestones', async (req, res) => {
       testing_end_date: testingEndDate,
       handover_date: handoverDate,
       warranty_months: warrantyMonths,
-      warranty_service_visits: warrantyServiceVisits,
+      warrantyServiceVisits: warrantyServiceVisits,
       notes: body.notes != null ? String(body.notes) : pl.notes,
     };
 
@@ -3717,7 +3717,7 @@ app.put('/api/project-lifts/:projectLiftId/complete-handover', async (req, res) 
       warranty_months: warrantyMonths,
       warranty_start_date: warrantyStartDate,
       warranty_end_date: warrantyEndDate,
-      warranty_service_visits: warrantyServiceVisits,
+      warrantyServiceVisits: warrantyServiceVisits,
       notes,
     });
 
