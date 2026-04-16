@@ -2767,63 +2767,72 @@ app.get('/api/projects', async (req, res) => {
 
 // Create project (serial code from backend)
 app.post('/api/projects', async (req, res) => {
-  const t = await sequelize.transaction();
-
   try {
-    const { projectName, customerName, building, notes } = req.body || {};
+    const body = req.body || {};
 
-    if (!projectName || !String(projectName).trim()) {
-      await t.rollback();
+    // Accept both frontend styles for safety
+    const projectName = String(
+      body.projectName || body.project_name || ''
+    ).trim();
+
+    const customerName = String(
+      body.customerName || body.customer_name || ''
+    ).trim();
+
+    const siteName = String(
+      body.building || body.site_name || body.siteName || ''
+    ).trim();
+
+    const notes = body.notes != null ? String(body.notes).trim() : null;
+
+    if (!projectName) {
       return res.status(400).json({ error: 'Project name is required' });
     }
 
-    if (!customerName || !String(customerName).trim()) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Customer name is required' });
-    }
-
-    const projectNameClean = String(projectName).trim();
-    const customerNameClean = String(customerName).trim();
-    const buildingClean = building && String(building).trim() ? String(building).trim() : null;
-    const notesClean = notes && String(notes).trim() ? String(notes).trim() : null;
-
-    // 1) Find or create customer
-    let [customerRows] = await sequelize.query(
-      `SELECT id, name FROM customers WHERE name = :name LIMIT 1`,
-      {
-        replacements: { name: customerNameClean },
-        transaction: t,
-      }
-    );
-
-    let customer = customerRows[0] || null;
-
-    if (!customer) {
-      const [insertedCustomerRows] = await sequelize.query(
-        `INSERT INTO customers (name)
-         VALUES (:name)
-         RETURNING id, name`,
+    let customer = null;
+    if (customerName) {
+      // direct SQL avoids model field-mapping surprises
+      const [customerRows] = await sequelize.query(
+        `
+        SELECT id, name
+        FROM customers
+        WHERE name = :name
+        LIMIT 1
+        `,
         {
-          replacements: { name: customerNameClean },
-          transaction: t,
+          replacements: { name: customerName },
         }
       );
-      customer = insertedCustomerRows[0];
+
+      customer = customerRows[0] || null;
+
+      if (!customer) {
+        const [insertedCustomerRows] = await sequelize.query(
+          `
+          INSERT INTO customers (name)
+          VALUES (:name)
+          RETURNING id, name
+          `,
+          {
+            replacements: { name: customerName },
+          }
+        );
+
+        customer = insertedCustomerRows[0] || null;
+      }
     }
 
-    if (!customer || !customer.id) {
-      throw new Error('Failed to create or load customer');
-    }
-
-    // 2) Find or create site
     let site = null;
-
-    if (buildingClean) {
-      let [siteRows] = await sequelize.query(
-        `SELECT id, name FROM sites WHERE name = :name LIMIT 1`,
+    if (siteName) {
+      const [siteRows] = await sequelize.query(
+        `
+        SELECT id, name
+        FROM sites
+        WHERE name = :name
+        LIMIT 1
+        `,
         {
-          replacements: { name: buildingClean },
-          transaction: t,
+          replacements: { name: siteName },
         }
       );
 
@@ -2831,57 +2840,78 @@ app.post('/api/projects', async (req, res) => {
 
       if (!site) {
         const [insertedSiteRows] = await sequelize.query(
-          `INSERT INTO sites (name)
-           VALUES (:name)
-           RETURNING id, name`,
+          `
+          INSERT INTO sites (name)
+          VALUES (:name)
+          RETURNING id, name
+          `,
           {
-            replacements: { name: buildingClean },
-            transaction: t,
+            replacements: { name: siteName },
           }
         );
-        site = insertedSiteRows[0];
+
+        site = insertedSiteRows[0] || null;
       }
     }
 
     const projectCode = await nextProjectCode();
 
-    // 3) Create project
     const [projectRows] = await sequelize.query(
-      `INSERT INTO projects
-         (project_code, project_name, customer_id, site_id, status, notes)
-       VALUES
-         (:project_code, :project_name, :customer_id, :site_id, :status, :notes)
-       RETURNING id, project_code, project_name, customer_id, site_id, status, notes`,
+      `
+      INSERT INTO projects
+        (project_code, project_name, customer_id, site_id, status, notes)
+      VALUES
+        (:projectCode, :projectName, :customerId, :siteId, :status, :notes)
+      RETURNING
+        id,
+        project_code,
+        project_name,
+        customer_id,
+        site_id,
+        status,
+        notes,
+        created_at,
+        updated_at
+      `,
       {
         replacements: {
-          project_code: projectCode,
-          project_name: projectNameClean,
-          customer_id: customer.id,
-          site_id: site ? site.id : null,
+          projectCode,
+          projectName,
+          customerId: customer ? customer.id : null,
+          siteId: site ? site.id : null,
           status: 'OPEN',
-          notes: notesClean,
+          notes: notes || null,
         },
-        transaction: t,
       }
     );
 
-    await t.commit();
-
     const project = projectRows[0];
 
-    res.json({
+    return res.json({
       id: project.id,
       projectCode: project.project_code || '',
-      projectName: project.project_name,
-      status: project.status,
-      customer: { id: customer.id, name: customer.name },
-      site: site ? { id: site.id, name: site.name } : null,
+      projectName: project.project_name || '',
+      status: project.status || 'OPEN',
+      customer: customer
+        ? {
+            id: customer.id,
+            name: customer.name,
+          }
+        : null,
+      site: site
+        ? {
+            id: site.id,
+            name: site.name,
+          }
+        : null,
+      liftCount: 0,
       notes: project.notes || '',
     });
   } catch (err) {
-    await t.rollback();
     console.error('POST /api/projects error:', err);
-    res.status(500).json({ error: err.message || 'Failed to create project' });
+    return res.status(500).json({
+      error: err.message || 'Failed to create project',
+    });
   }
 });
 
