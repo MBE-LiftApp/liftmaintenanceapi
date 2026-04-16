@@ -3007,6 +3007,230 @@ async function renderLifts() {
   }
 }
 
+async function renderJobs() {
+  const root = setViewMode(false);
+
+  setTitle("Jobs");
+
+  const btnCreate = smallBtn("+ Create Job", "primary");
+  btnCreate.onclick = () => showCreateJobModal();
+
+  const btnRefresh = smallBtn("Refresh", "secondary");
+  btnRefresh.onclick = () => renderJobs();
+
+  setToolbar([btnCreate, btnRefresh]);
+
+  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
+
+  try {
+    const allRows = await API.getJobs();
+    const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
+
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">Project Jobs</div>
+        <div class="muted">Install and Test jobs only</div>
+        <div class="hr"></div>
+      </div>
+    `;
+
+    const card = root.querySelector(".card");
+
+    const wrap = makeScrollableTableWrap(`
+      <table>
+        <thead>
+          <tr>
+            <th class="col-job-code">Job</th>
+            <th class="col-project">Project</th>
+            <th class="col-lift">Lift Code</th>
+            <th class="col-type">Type</th>
+            <th>Lead / Support</th>
+            <th>Checklist</th>
+            <th class="col-due">Due</th>
+            <th>Status</th>
+            <th>Supervisor</th>
+            <th class="col-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="jBody"></tbody>
+      </table>
+    `, "420px");
+
+    card.appendChild(wrap);
+
+    const tb = wrap.querySelector("#jBody");
+
+    if (!rows || rows.length === 0) {
+      tb.innerHTML = `
+        <tr>
+          <td colspan="10" class="muted">No project jobs found. Click <b>+ Create Job</b>.</td>
+        </tr>
+      `;
+      return;
+    }
+
+    rows.forEach((a) => {
+      const statusText = String(a.status || "").replaceAll("_", " ");
+
+      const checklist = a.checklistSummary || null;
+      const checklistText = checklist
+        ? `${checklist.doneRequired || 0}/${checklist.totalRequired || 0} required`
+        : "No checklist";
+
+      const checklistPercent = checklist ? `(${checklist.percent || 0}%)` : "";
+
+      let checklistBadgeText = "NO CHECKLIST";
+      if (checklist) {
+        const raw = String(checklist.status || "").toUpperCase();
+        if (raw === "COMPLETED") checklistBadgeText = "CHECKLIST COMPLETE";
+        else if (raw === "IN_PROGRESS") checklistBadgeText = "CHECKLIST IN PROGRESS";
+        else checklistBadgeText = "CHECKLIST NOT STARTED";
+      }
+
+      const leadName = getLeadName(a);
+      const supportNames = getSupportNames(a);
+      const supportCount = supportNames.length;
+
+      const sup = String(a.supervisorStatus || "PENDING").toUpperCase();
+      let supText = "🟡 Pending";
+      if (sup === "APPROVED") supText = "🟢 Approved";
+      if (sup === "REJECTED") supText = "🔴 Rejected";
+
+      const tr = document.createElement("tr");
+
+      tr.innerHTML = `
+        <td class="col-job-code">
+          <span class="monoCode">A-${a.id}</span>
+        </td>
+
+        <td class="col-project">
+          ${[a.project?.projectCode, a.project?.projectName].filter(Boolean).join(" - ")}
+        </td>
+
+        <td class="col-lift">
+          <span class="monoCode">${a.lift?.liftCode || ""}</span>
+        </td>
+
+        <td class="col-type">
+          ${a.role || ""}
+        </td>
+
+        <td>
+          <div><b>Lead:</b> ${leadName}</div>
+          <div class="muted">${supportCount} support${supportCount === 1 ? "" : "s"}</div>
+          ${supportCount ? `<div class="muted">${supportNames.join(", ")}</div>` : ""}
+        </td>
+
+        <td>
+          <div>${checklistText}</div>
+          <div class="muted">${checklistPercent}</div>
+          <div class="checklistOfficeBadgeWrap"></div>
+        </td>
+
+        <td class="col-due">${a.dueDate || ""}</td>
+
+        <td></td>
+
+        <td>
+          <div class="supervisorStatusWrap"></div>
+          ${
+            sup === "REJECTED" && a.supervisorRemarks
+              ? `<div class="muted" style="margin-top:6px; color:#b42318; font-size:12px;">${a.supervisorRemarks}</div>`
+              : ""
+          }
+        </td>
+
+        <td></td>
+      `;
+
+      tr.children[5].querySelector(".checklistOfficeBadgeWrap")
+        .appendChild(badge(checklistBadgeText));
+
+      tr.children[7].appendChild(badge(statusText));
+
+      tr.children[8].querySelector(".supervisorStatusWrap")
+        .appendChild(badge(supText));
+
+      const cell = tr.children[9];
+
+      if (a.checklistSummary) {
+        const b0 = smallBtn("Checklist", "secondary");
+        b0.onclick = async () => {
+          try {
+            await showOfficeChecklistModal(a.id, a.role || "JOB");
+          } catch (e) {
+            alert(e.message || String(e));
+          }
+        };
+        cell.appendChild(b0);
+      }
+
+      if (
+        String(a.status || "").toUpperCase() === "DONE" &&
+        String(a.supervisorStatus || "PENDING").toUpperCase() === "PENDING"
+      ) {
+        const b1 = smallBtn("Approve", "primary");
+        if (cell.children.length) b1.style.marginLeft = "8px";
+
+        b1.onclick = async () => {
+          try {
+            const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
+              method: "PUT"
+            });
+
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || "Approve failed");
+
+            alert("Job approved successfully.");
+            await renderJobs();
+          } catch (e) {
+            alert(e.message || String(e));
+          }
+        };
+
+        cell.appendChild(b1);
+
+        const b2 = smallBtn("Reject", "secondary");
+        if (cell.children.length) b2.style.marginLeft = "8px";
+
+        b2.onclick = async () => {
+          try {
+            const remarks = prompt("Reason for rejection?");
+            if (remarks === null) return;
+
+            const r = await fetch(`/api/supervisor/assignments/${a.id}/reject`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ remarks })
+            });
+
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || "Reject failed");
+
+            alert("Job returned to In Progress with supervisor remarks.");
+            await renderJobs();
+          } catch (e) {
+            alert(e.message || String(e));
+          }
+        };
+
+        cell.appendChild(b2);
+      }
+
+      tb.appendChild(tr);
+    });
+
+  } catch (e) {
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">Jobs failed to load</div>
+        <div class="hr"></div>
+        <div class="muted">${String(e.message || e)}</div>
+      </div>
+    `;
+  }
+}
+
 async function renderMyJobs() {
   const root = setViewMode(false);
 
