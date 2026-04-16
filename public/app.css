@@ -816,20 +816,16 @@ td div {
   min-width: 70px;
 }
 
-.col-project{
-  min-width: 130px;
+.col-project {
+  min-width: 220px;
 }
 
-.col-lift{
-  white-space: nowrap !important;
-  word-break: normal !important;
-  overflow-wrap: normal !important;
-  min-width: 110px;
+.col-lift {
+  min-width: 120px;
 }
 
-.col-type{
-  white-space: nowrap !important;
-  min-width: 90px;
+.col-type {
+  min-width: 100px;
 }
 
 .col-due{

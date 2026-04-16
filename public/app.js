@@ -3104,7 +3104,7 @@ async function renderJobs() {
         </td>
 
         <td class="col-project">
-          ${[a.project?.projectCode, a.project?.projectName].filter(Boolean).join(" - ")}
+          ${a.project?.projectName || ""}
         </td>
 
         <td class="col-lift">
