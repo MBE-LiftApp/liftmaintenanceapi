@@ -2608,14 +2608,13 @@ if (workflowStatus === 'HANDED OVER') {
   }
 
   // Warranty service info only
-if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
-  const btn = document.createElement('button');
-  btn.className = 'btn secondary';
-  btn.textContent = 'Manage Service';
-  btn.onclick = goToService;
-
-  actionWrap.appendChild(btn);
-}
+  if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
+    const btn = document.createElement('button');
+    btn.className = 'btn secondary';
+    btn.textContent = 'Manage Service';
+    btn.onclick = goToService;
+    actionWrap.appendChild(btn);
+  }
 
   // AMC service info only
   if (hasEligibleAmcContract && isAmcServiceDueNow && !hasActiveAmcService) {
@@ -2634,23 +2633,17 @@ if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
   }
 }
 
-const btnHistory = smallBtn("Service History", "secondary");
+// Always show service history button
+const btnHistory = smallBtn('Service History', 'secondary');
 btnHistory.onclick = () => {
   try {
     showServiceHistoryModal(l);
   } catch (e) {
     alert(e.message || String(e));
-    console.error("Service History modal failed", e);
+    console.error('Service History modal failed', e);
   }
 };
 actionWrap.appendChild(btnHistory);
- 
-  if (lifts.length === 0) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="6" class="muted">No lifts added yet. Click <b>+ Add Lift</b> to start the project workflow.</td>`;
-    tb.appendChild(tr);
-  }
-}
 
 async function renderTeamLoadCard(root) {
   const rows = await API.getTeamLoad();
