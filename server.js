@@ -3105,13 +3105,13 @@ console.log('LIFT IDS:', liftIds);
           }
         : null,
       site: project.Site
-        ? {
-            id: project.Site.id,
-            name: project.Site.name,
-            gps_lat: project.Site.gps_lat,
-            gps_lng: project.Site.gps_lng,
-          }
-        : null,
+  ? {
+      id: project.Site.id,
+      name: project.Site.name,
+      gps_lat: project.Site.gps_lat,
+      gps_lng: project.Site.gps_lng,
+    }
+  : null,
       lifts,
     });
   } catch (err) {
