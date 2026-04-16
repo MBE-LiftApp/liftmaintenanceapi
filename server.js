@@ -2924,26 +2924,20 @@ app.get('/api/projects/:projectId', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    const liftIds = (project.ProjectLifts || [])
-      .map((pl) => pl.lift_id)
-      .filter(Boolean);
+    const projectLiftIds = (project.ProjectLifts || [])
+  .map((pl) => pl.id)
+  .filter(Boolean);
 
-    const activeAmcContracts = liftIds.length
+const activeAmcContracts = projectLiftIds.length
   ? await Contract.findAll({
       where: {
-        liftId: liftIds,
-        contractType: 'AMC',
-        status: 'ACTIVE',
+        projectLiftId: projectLiftIds,
       },
     })
   : [];
 
-// 🔥 ADD THIS HERE
-console.log('AMC CONTRACTS FOUND:', activeAmcContracts);
-console.log('LIFT IDS:', liftIds);
-
-    const amcByLiftId = new Map(
-  activeAmcContracts.map((c) => [Number(c.liftId || c.lift_id), c])
+const amcByProjectLiftId = new Map(
+  activeAmcContracts.map((c) => [Number(c.projectLiftId), c])
 );
 
     const today = startOfDay(new Date());
@@ -3050,7 +3044,7 @@ console.log('LIFT IDS:', liftIds);
           !!pl.handover_actual_date &&
           !!pl.warranty_end_date &&
           today >= parseDateOnly(pl.warranty_end_date) &&
-          !amcByLiftId.get(Number(pl.lift_id));
+          !amcByProjectLiftId.get(Number(pl.id));
 
         amcInfo.canCreate = canCreateAmc;
 
