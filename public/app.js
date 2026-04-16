@@ -446,7 +446,14 @@ function showServiceHistoryModal(lift) {
     });
   }
 
-  showModalShell(`Service History — ${lift?.liftCode || ''}`, wrap);
+  const btnClose = smallBtn('Close', 'secondary');
+  btnClose.onclick = closeModal;
+
+  openModal({
+    title: `Service History — ${lift?.liftCode || ''}`,
+    bodyNode: wrap,
+    footerNodes: [btnClose],
+  });
 }
 
 function showAssignWarrantyTechModal(projectLiftId, techs = []) {
@@ -2628,10 +2635,15 @@ if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
 }
 
 const btnHistory = smallBtn("Service History", "secondary");
-btnHistory.onclick = () => showServiceHistoryModal(l);
+btnHistory.onclick = () => {
+  try {
+    showServiceHistoryModal(l);
+  } catch (e) {
+    alert(e.message || String(e));
+    console.error("Service History modal failed", e);
+  }
+};
 actionWrap.appendChild(btnHistory);
-tr.children[5].appendChild(actionWrap);
-tb.appendChild(tr);
   });
 
   if (lifts.length === 0) {
