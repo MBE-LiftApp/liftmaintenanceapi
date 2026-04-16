@@ -12,15 +12,6 @@ const {
   Project, ProjectLift, ProjectLiftAssignment
 } = require('./models');
 
-const app = express();
-
-// ✅ middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// ✅ SERVE FRONTEND FILES
-app.use(express.static('public'));
-
 const JobTechnician = sequelize.define('ProjectLiftJobTechnician', {
   id: { type: require('sequelize').DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
   assignmentId: { type: require('sequelize').DataTypes.BIGINT, allowNull: false, field: 'assignment_id' },
@@ -250,15 +241,6 @@ async function buildServiceHistoryForLift(pl, rawAssignments, { today, warrantyI
   };
 }
 
-async function buildServiceDashboardDataSafe() {
-  try {
-    return await buildServiceDashboardData();
-  } catch (err) {
-    console.error("DASHBOARD ERROR:", err);
-    return { rows: [] }; // prevents UI crash
-  }
-}
-
 async function ensureChecklistForAssignment(assignment) {
   if (!assignment?.id) return [];
 
@@ -330,7 +312,7 @@ async function getChecklistSummary(assignmentId) {
   };
 }
 async function getDueAmcProjectLifts() {
-  const data = await buildServiceDashboardDataSafe();
+  const data = await buildServiceDashboardData();
   const rows = data.rows || [];
 
   const result = rows.filter((l) =>
@@ -358,7 +340,7 @@ async function getDueAmcProjectLifts() {
 }
 
 async function getDueWarrantyProjectLifts() {
-  const data = await buildServiceDashboardDataSafe();
+  const data = await buildServiceDashboardData();
   const rows = data.rows || [];
 
   console.log("==== WARRANTY DEBUG ====");
@@ -424,7 +406,7 @@ async function assertChecklistCompleteOrThrow(assignmentId) {
   }
   return summary;
 }
-
+const app = express();
 app.use(express.json());
 
 // Serve frontend
@@ -1847,7 +1829,7 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
               model: ProjectLift,
               include: [
                 { model: Project, attributes: ['id', 'project_name', 'project_code'] },
-                { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+                { model: Lift, attributes: ['id', 'liftCode', 'location'] },
               ],
             },
             { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
@@ -1932,14 +1914,12 @@ team: Array.isArray(a.ProjectLiftJobTechnicians)
         team: summary.team,
 
         lift: a.ProjectLift?.Lift
-  ? {
-      id: a.ProjectLift.Lift.id,
-      liftCode: a.ProjectLift.Lift.liftCode,
-      liftPosition:
-        a.ProjectLift.Lift.liftPosition ||
-        (a.ProjectLift.location_label || ''),
-    }
-  : null,
+          ? {
+              id: a.ProjectLift.Lift.id,
+              liftCode: a.ProjectLift.Lift.liftCode,
+              location: a.ProjectLift.Lift.location || (a.ProjectLift.location_label || ''),
+            }
+          : null,
 
         project: a.ProjectLift?.Project
           ? {
@@ -2199,7 +2179,7 @@ app.post('/api/project-lifts/:projectLiftId/warranty-service-assign', async (req
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
   include: [
-    { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+    { model: Lift, attributes: ['id', 'liftCode', 'location'] },
     {
       model: ProjectLiftAssignment,
       as: 'assignments',
@@ -2612,7 +2592,7 @@ app.post('/api/project-lifts/:projectLiftId/auto-amc-job', async (req, res) => {
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -2760,7 +2740,7 @@ app.get('/api/projects', async (req, res) => {
     {
       model: ProjectLift,
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -2793,38 +2773,43 @@ app.get('/api/projects', async (req, res) => {
 // Create project (serial code from backend)
 app.post('/api/projects', async (req, res) => {
   try {
-    const { project_name, customer_name, site_name, notes } = req.body;
+    const { projectName, customerName, building, notes } = req.body || {};
 
-    if (!project_name) {
-      return res.status(400).json({ error: 'Project name is required' });
+    if (!projectName || !String(projectName).trim()) return res.status(400).json({ error: 'Project name is required' });
+    if (!customerName || !String(customerName).trim()) return res.status(400).json({ error: 'Customer name is required' });
+
+    const custName = String(customerName).trim();
+    const [customer] = await Customer.findOrCreate({ where: { name: custName }, defaults: { name: custName } });
+
+    let site = null;
+    if (building && String(building).trim()) {
+      const b = String(building).trim();
+      const [s] = await Site.findOrCreate({ where: { name: b }, defaults: { name: b } });
+      site = s;
     }
 
-    // ✅ Find or create Customer
-    let customer = await Customer.findOne({ where: { name: customer_name } });
+    const projectCode = await nextProjectCode();
 
-    if (!customer) {
-      customer = await Customer.create({ name: customer_name });
-    }
-
-    // ✅ Find or create Site
-    let site = await Site.findOne({ where: { name: site_name } });
-
-    if (!site) {
-      site = await Site.create({ name: site_name });
-    }
-
-    // ✅ Create Project safely
     const project = await Project.create({
-      project_name,
+      project_code: projectCode,
+      project_name: String(projectName).trim(),
       customer_id: customer.id,
-      site_id: site.id,
+      site_id: site ? site.id : null,
       status: 'OPEN',
-      notes: notes || '',
+      notes: notes ? String(notes).trim() : null,
     });
 
-    res.json(project);
+    res.json({
+      id: project.id,
+      projectCode: project.project_code || '',
+      projectName: project.project_name,
+      status: project.status,
+      customer: { id: customer.id, name: customer.name },
+      site: site ? { id: site.id, name: site.name } : null,
+      notes: project.notes || '',
+    });
   } catch (err) {
-    console.error('CREATE PROJECT ERROR:', err);
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2841,7 +2826,7 @@ app.get('/api/projects/:projectId', async (req, res) => {
         {
           model: ProjectLift,
           include: [
-            { model: Lift, attributes: ['id', 'liftCode', 'liftPosition', 'status'] },
+            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
             {
               model: ProjectLiftAssignment,
               as: 'assignments',
@@ -2992,7 +2977,7 @@ console.log('LIFT IDS:', liftIds);
           projectLiftId: pl.id,
           liftId: pl.lift_id,
           liftCode: pl.lift_code,
-          location: pl.location_label || (pl.Lift ? pl.Lift.liftPosition : '') || '',
+          location: pl.location_label || (pl.Lift ? pl.Lift.location : '') || '',
           passengerCapacity: pl.passenger_capacity ?? null,
           liftType: pl.lift_type ?? null,
           numberOfFloors: pl.number_of_floors ?? null,
@@ -3065,27 +3050,19 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
     const {
-      liftCode,
-      location,
-      passengerCapacity,
-      liftType,
-      numberOfFloors,
-      warrantyMonths,
-      warrantyServiceVisits,
-      notes,
-    } = req.body || {};
+  liftCode,
+  location,
+  passengerCapacity,
+  liftType,
+  numberOfFloors,
+  warrantyMonths,
+  warrantyServiceVisits,
+  notes,
+} = req.body || {};
 
-    if (!liftCode || !String(liftCode).trim()) {
-      return res.status(400).json({ error: 'Lift Code is required' });
-    }
+    if (!liftCode || !String(liftCode).trim()) return res.status(400).json({ error: 'Lift Code is required' });
 
-    const project = await Project.findByPk(projectId, {
-      include: [
-        { model: Customer, attributes: ['id', 'name'] },
-        { model: Site, attributes: ['id', 'name'] },
-      ],
-    });
-
+    const project = await Project.findByPk(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const code = String(liftCode).trim();
@@ -3095,21 +3072,15 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
     if (!lift) {
       lift = await Lift.create({
         liftCode: code,
-        customerName: project.Customer?.name || '',
-        building: project.Site?.name || '',
-        liftPosition: location ? String(location).trim() : null,
+        customerId: project.customer_id,
+        siteId: project.site_id,
+        location: location ? String(location).trim() : null,
         status: 'ACTIVE',
       });
     } else {
-      if (!lift.customerName && project.Customer?.name) {
-        lift.customerName = project.Customer.name;
-      }
-      if (!lift.building && project.Site?.name) {
-        lift.building = project.Site.name;
-      }
-      if (location && !lift.liftPosition) {
-        lift.liftPosition = String(location).trim();
-      }
+      if (!lift.customerId) lift.customerId = project.customer_id;
+      if (!lift.siteId && project.site_id) lift.siteId = project.site_id;
+      if (location && !lift.location) lift.location = String(location).trim();
       await lift.save();
     }
 
@@ -3118,12 +3089,14 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       lift_id: lift.id,
       lift_code: code,
       location_label: location ? String(location).trim() : null,
+
       passenger_capacity: Number.isFinite(Number(passengerCapacity)) ? Number(passengerCapacity) : null,
       lift_type: liftType ? String(liftType).trim().toUpperCase() : null,
       number_of_floors: Number.isFinite(Number(numberOfFloors)) ? Number(numberOfFloors) : null,
+
       warranty_months: Number.isFinite(Number(warrantyMonths)) ? Number(warrantyMonths) : 12,
-      warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
       notes: notes ? String(notes) : null,
+warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
     });
 
     res.json({
@@ -3131,12 +3104,12 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       projectId: project.id,
       liftId: lift.id,
       liftCode: pl.lift_code,
-      liftPosition: pl.location_label || '',
+      location: pl.location_label || '',
       passengerCapacity: pl.passenger_capacity ?? null,
       liftType: pl.lift_type ?? null,
       numberOfFloors: pl.number_of_floors ?? null,
       warrantyMonths: pl.warranty_months,
-      warrantyServiceVisits: getWarrantyServiceVisitCount(pl, 5),
+warrantyServiceVisits: getWarrantyServiceVisitCount(pl, 5),
       notes: pl.notes || '',
     });
   } catch (err) {
@@ -3208,7 +3181,7 @@ app.post('/api/project-lifts/:projectLiftId/auto-warranty-job', async (req, res)
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
   include: [
-    { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+    { model: Lift, attributes: ['id', 'liftCode', 'location'] },
     {
       model: ProjectLiftAssignment,
       as: 'assignments',
@@ -3291,73 +3264,67 @@ app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
   try {
     const projectLiftId = Number(req.params.projectLiftId);
     const {
-      amcType,
-      startDate,
-      durationMonths,
-      serviceIntervalDays,
-      serviceVisitCount,
-      billingCycle,
-      contractValue,
-      amcNotes,
-    } = req.body || {};
+  amcType,
+  startDate,
+  durationMonths,
+  serviceIntervalDays,
+  serviceVisitCount,
+  billingCycle,
+  contractValue,
+  amcNotes,
+} = req.body || {};
 
     const pl = await ProjectLift.findByPk(projectLiftId);
     if (!pl) return res.status(404).json({ error: 'Project lift not found' });
-    if (!pl.handover_date && !pl.handover_actual_date) {
-      return res.status(400).json({ error: 'Handover must be completed before AMC creation' });
-    }
-    if (!pl.warranty_end_date) {
-      return res.status(400).json({ error: 'Warranty end date is required before AMC creation' });
-    }
+    if (!pl.lift_id) return res.status(400).json({ error: 'Project lift is not linked to a lift record' });
+    if (!pl.handover_date || !pl.warranty_end_date) return res.status(400).json({ error: 'Handover and warranty must be completed before AMC creation' });
 
     const start = parseDateOnly(startDate || pl.warranty_end_date);
     if (!start) return res.status(400).json({ error: 'Valid AMC start date is required' });
 
     const months = Number(durationMonths || 12);
     const interval = Number(serviceIntervalDays || 90);
-
-    if (!Number.isFinite(months) || months <= 0) {
-      return res.status(400).json({ error: 'Duration months must be greater than zero' });
-    }
-    if (!Number.isFinite(interval) || interval <= 0) {
-      return res.status(400).json({ error: 'Service interval days must be greater than zero' });
-    }
+    if (!Number.isFinite(months) || months <= 0) return res.status(400).json({ error: 'Duration months must be greater than zero' });
+    if (!Number.isFinite(interval) || interval <= 0) return res.status(400).json({ error: 'Service interval days must be greater than zero' });
 
     const end = addMonths(start, months);
-
     const [contract, created] = await Contract.findOrCreate({
-      where: { projectLiftId },
+      where: { liftId: pl.lift_id, contractType: 'AMC' },
       defaults: {
-        projectLiftId,
+        liftId: pl.lift_id,
+        contractType: 'AMC',
+        status: 'ACTIVE',
         startDate: formatDateOnly(start),
         endDate: formatDateOnly(end),
         amcType: String(amcType || 'LABOUR_ONLY').toUpperCase(),
         billingCycle: billingCycle ? String(billingCycle).toUpperCase() : 'ANNUAL',
         contractValue: normalizeCost(contractValue) ?? 0,
         serviceIntervalDays: interval,
-        serviceVisitCount: Number.isFinite(Number(serviceVisitCount)) ? Number(serviceVisitCount) : 5,
         amcNotes: amcNotes ? String(amcNotes) : null,
+service_visit_count: Number.isFinite(Number(serviceVisitCount)) ? Number(serviceVisitCount) : 5,
+        remarks: `Created from Project Lift ${projectLiftId}`,
       },
     });
 
     if (!created) {
       await contract.update({
+        status: 'ACTIVE',
         startDate: formatDateOnly(start),
         endDate: formatDateOnly(end),
         amcType: String(amcType || contract.amcType || 'LABOUR_ONLY').toUpperCase(),
         billingCycle: billingCycle ? String(billingCycle).toUpperCase() : (contract.billingCycle || 'ANNUAL'),
         contractValue: contractValue !== undefined ? (normalizeCost(contractValue) ?? 0) : (contract.contractValue ?? 0),
         serviceIntervalDays: interval,
-        serviceVisitCount: Number.isFinite(Number(serviceVisitCount))
-          ? Number(serviceVisitCount)
-          : (contract.serviceVisitCount ?? 5),
         amcNotes: amcNotes !== undefined ? (amcNotes ? String(amcNotes) : null) : contract.amcNotes,
+        remarks: `Updated from Project Lift ${projectLiftId}`,
+service_visit_count: Number.isFinite(Number(serviceVisitCount))
+  ? Number(serviceVisitCount)
+  : (contract.service_visit_count ?? 5),
       });
     }
 
     const fresh = created ? contract : await Contract.findByPk(contract.id);
     const amcInfo = buildAmcInfo(fresh);
-
     res.json({
       ok: true,
       contractId: fresh.id,
@@ -3601,7 +3568,7 @@ app.post('/api/project-lifts/:projectLiftId/amc-service-assign', async (req, res
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -3854,7 +3821,7 @@ app.get('/api/jobs/:id', async (req, res) => {
           model: ProjectLift,
           include: [
             { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
-            { model: Lift, attributes: ['id', 'liftCode', 'liftPosition', 'status'] },
+            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
           ],
         },
       ],
@@ -3932,14 +3899,11 @@ app.get('/api/jobs/:id', async (req, res) => {
         : null,
 
       lift: {
-  id: a.ProjectLift?.lift_id || null,
-  liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
-  liftPosition:
-    a.ProjectLift?.location_label ||
-    a.ProjectLift?.Lift?.liftPosition ||
-    '',
-  status: a.ProjectLift?.Lift?.status || '',
-},
+        id: a.ProjectLift?.lift_id || null,
+        liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
+        location: a.ProjectLift?.location_label || a.ProjectLift?.Lift?.location || '',
+        status: a.ProjectLift?.Lift?.status || '',
+      },
 
       checklistSummary,
     });
@@ -4401,7 +4365,7 @@ app.get('/api/jobs', async (req, res) => {
           model: ProjectLift,
           include: [
             { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
-            { model: Lift, attributes: ['id', 'liftCode', 'liftPosition', 'status'] },
+            { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
           ],
         },
       ],
@@ -4496,14 +4460,11 @@ app.get('/api/jobs', async (req, res) => {
           : null,
 
         lift: {
-  id: a.ProjectLift?.lift_id || null,
-  liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
-  liftPosition:
-    a.ProjectLift?.location_label ||
-    a.ProjectLift?.Lift?.liftPosition ||
-    '',
-  status: a.ProjectLift?.Lift?.status || '',
-},
+          id: a.ProjectLift?.lift_id || null,
+          liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
+          location: a.ProjectLift?.location_label || a.ProjectLift?.Lift?.location || '',
+          status: a.ProjectLift?.Lift?.status || '',
+        },
 
         checklistSummary,
       });
@@ -4683,84 +4644,147 @@ async function getOrCreateAmcContract(liftId, defaults = {}) {
 app.get('/api/lifts', async (req, res) => {
   try {
     const lifts = await Lift.findAll({
-      include: [
-        {
-          model: ProjectLift,
-          include: [
-            {
-              model: Project,
-              attributes: ['id', 'project_name', 'project_code', 'status'],
-              include: [
-                { model: Customer, attributes: ['id', 'name'] },
-                { model: Site, attributes: ['id', 'name'] },
-              ],
-            },
-          ],
-        },
-      ],
-      order: [['id', 'ASC']],
-    });
+  include: [
+    { model: Customer },
+    { model: Site },
+    { model: Contract },
+    { model: ServiceLog },
+    { model: ProjectLift },
+  ],
+  order: [['id', 'ASC']],
+});
 
     const today = startOfDay(new Date());
 
     const result = lifts.map((lift) => {
       const j = lift.toJSON();
 
-      const projectLift =
-        Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
-          ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
-          : null;
+const projectLift = Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
+  ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
+  : null;
 
-      const project = projectLift?.Project || null;
+const warrantyStartDate = projectLift?.warranty_start_date || null;
+const warrantyEndDate = projectLift?.warranty_end_date || null;
+const handoverActualDate = projectLift?.handover_actual_date || null;
 
-      const warrantyStartDate = projectLift?.warranty_start_date || null;
-      const warrantyEndDate = projectLift?.warranty_end_date || null;
-      const handoverActualDate = projectLift?.handover_actual_date || null;
+let warrantyStatus = 'NO WARRANTY';
 
-      let warrantyStatus = 'NO WARRANTY';
-      const warrantyEndOnly = parseDateOnly(warrantyEndDate);
+const warrantyEndOnly = parseDateOnly(warrantyEndDate);
 
-      if (handoverActualDate && warrantyEndOnly) {
-        warrantyStatus = today > warrantyEndOnly ? 'WARRANTY EXPIRED' : 'WARRANTY ACTIVE';
+if (handoverActualDate && warrantyEndOnly) {
+  warrantyStatus = today > warrantyEndOnly ? 'WARRANTY EXPIRED' : 'WARRANTY ACTIVE';
+}
+
+let warrantyDaysRemaining = null;
+
+if (warrantyStatus === 'WARRANTY ACTIVE' && warrantyEndOnly) {
+  warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
+}
+      const customerName = j.Customer?.name || '';
+      const building = j.Site?.name || '';
+
+      const amc = pickAmcContract(j.Contracts);
+
+      const hasValidAmc = !!(
+        amc &&
+        String(amc.contractType || amc.contract_type || '').toUpperCase() === 'AMC'
+      );
+
+      const amcStartDate = hasValidAmc ? (amc.startDate || amc.start_date || null) : null;
+      const amcEndDate = hasValidAmc ? (amc.endDate || amc.end_date || null) : null;
+      const amcType = hasValidAmc ? (amc.amcType || amc.amc_type || 'LABOUR_ONLY') : null;
+      const billingCycle = hasValidAmc ? (amc.billingCycle || amc.billing_cycle || 'ANNUAL') : null;
+      const contractValue = hasValidAmc ? (amc.contractValue ?? amc.contract_value ?? 0) : null;
+      const serviceIntervalDays = hasValidAmc
+        ? (amc.serviceIntervalDays ?? amc.service_interval_days ?? 30)
+        : null;
+      const amcNotes = hasValidAmc ? (amc.amcNotes || amc.amc_notes || null) : null;
+
+      const amcLogs = (j.ServiceLogs || []).filter(
+        (l) => String(l.workDone || '').toUpperCase() === 'AMC SERVICE'
+      );
+
+      let amcLastServiceDate = null;
+      if (amcLogs.length) {
+        amcLogs.sort((a, b) => new Date(b.serviceDate) - new Date(a.serviceDate));
+        amcLastServiceDate = amcLogs[0].serviceDate || null;
       }
 
-      let warrantyDaysRemaining = null;
-      if (warrantyStatus === 'WARRANTY ACTIVE' && warrantyEndOnly) {
-        warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
+      let amcNextServiceDue = null;
+      let amcOverdueDays = 0;
+
+      if (hasValidAmc) {
+        const interval = Number(serviceIntervalDays || 30);
+
+        if (amcLastServiceDate) {
+          const last = parseDateOnly(amcLastServiceDate);
+          if (last) {
+            const next = new Date(last);
+            next.setDate(next.getDate() + interval);
+            amcNextServiceDue = next.toISOString().slice(0, 10);
+
+            const nextOnly = parseDateOnly(amcNextServiceDue);
+            if (nextOnly && today > nextOnly) {
+              amcOverdueDays = daysBetween(nextOnly, today);
+            }
+          }
+        } else if (amcStartDate) {
+          const start = parseDateOnly(amcStartDate);
+          if (start) {
+            const next = new Date(start);
+            next.setDate(next.getDate() + interval);
+            amcNextServiceDue = next.toISOString().slice(0, 10);
+
+            const nextOnly = parseDateOnly(amcNextServiceDue);
+            if (nextOnly && today > nextOnly) {
+              amcOverdueDays = daysBetween(nextOnly, today);
+            }
+          }
+        }
       }
 
-      const customerName = project?.Customer?.name || '';
-      const building = project?.Site?.name || '';
+      const totalCost = amcLogs.reduce((sum, x) => sum + Number(x.cost || 0), 0);
+
+      const computedAmc = hasValidAmc
+        ? computeAmcStatus(amcStartDate, amcEndDate, today)
+        : { amcStatus: 'NO AMC', daysToExpiry: null };
+
+      let amcStatus = computedAmc.amcStatus;
+      if (amcStatus === 'ACTIVE') amcStatus = 'AMC ACTIVE';
+      else if (amcStatus === 'EXPIRING_SOON') amcStatus = 'AMC EXPIRING SOON';
+      else if (amcStatus === 'EXPIRED') amcStatus = 'AMC EXPIRED';
+      else if (amcStatus === 'NOT_STARTED') amcStatus = 'AMC NOT STARTED';
+      else amcStatus = 'NO AMC';
 
       return {
         id: j.id,
-        liftCode: j.liftCode || j.lift_code || '',
+        liftCode: j.liftCode || j.lift_label || '',
         customerName,
         building,
-        liftPosition: projectLift?.location_label || j.location || '',
-        status: String(j.status || 'ACTIVE').toUpperCase(),
+        location: j.location,
+        status: (j.status || j.current_status || 'ACTIVE').toUpperCase(),
 
-        warrantyStatus,
-        warrantyStartDate,
-        warrantyEndDate,
-        handoverActualDate,
-        warrantyDaysRemaining,
+warrantyStatus,
+warrantyStartDate,
+warrantyEndDate,
+handoverActualDate,
+warrantyDaysRemaining,
 
-        hasAmcContract: false,
-        amcType: null,
-        amcStartDate: null,
-        amcEndDate: null,
-        billingCycle: null,
-        contractValue: null,
-        serviceIntervalDays: null,
-        amcNotes: null,
+        hasAmcContract: hasValidAmc,
+        amcType,
+        amcStartDate,
+        amcEndDate,
+        billingCycle,
+        contractValue,
+        serviceIntervalDays,
+        amcNotes,
 
-        amcLastServiceDate: null,
-        amcNextServiceDue: null,
-        amcOverdueDays: 0,
-        totalCost: 0,
-        amcStatus: 'NO AMC',
-        daysToExpiry: null,
+        amcLastServiceDate,
+        amcNextServiceDue,
+        amcOverdueDays,
+        totalCost: Number(totalCost.toFixed(2)),
+        amcStatus,
+        daysToExpiry: computedAmc.daysToExpiry,
       };
     });
 
@@ -4773,20 +4797,24 @@ app.get('/api/lifts', async (req, res) => {
 
 app.post('/api/lifts', async (req, res) => {
   try {
-    const { customerName, building, liftCode, location, status, amcType } = req.body || {};
+    const { customerName, building, liftCode, location, status, amcType } = req.body;
 
     if (!customerName || !building || !liftCode) {
       return res.status(400).json({ error: 'Customer Name, Building and Lift Code are required' });
     }
 
+    const customer = await findOrCreateCustomerByName(customerName);
+    const site = await findOrCreateSiteByName(building);
+
     const lift = await Lift.create({
       liftCode: String(liftCode).trim(),
-      customerName: String(customerName).trim(),
-      building: String(building).trim(),
-      liftPosition: location ? String(location).trim() : null,
-      status: String(status || 'ACTIVE').toUpperCase(),
-      amcType: amcType || 'LABOUR_ONLY',
+      customerId: customer.id,
+      siteId: site.id,
+      location: location ? String(location).trim() : null,
+      status: (status || 'ACTIVE').toUpperCase(),
     });
+
+    await getOrCreateAmcContract(lift.id, { amcType: amcType || 'LABOUR_ONLY' });
 
     res.status(201).json({ id: lift.id });
   } catch (err) {
@@ -4797,14 +4825,13 @@ app.post('/api/lifts', async (req, res) => {
 
 app.put('/api/lifts/:id/status', async (req, res) => {
   try {
-    const { status } = req.body || {};
+    const { status } = req.body;
     const lift = await Lift.findByPk(req.params.id);
     if (!lift) return res.status(404).json({ error: 'Lift not found' });
 
-    lift.status = String(status || lift.status || 'ACTIVE').toUpperCase();
+    lift.status = (status || lift.status || 'ACTIVE').toUpperCase();
     await lift.save();
-
-    res.json({ ok: true });
+    res.json(lift);
   } catch (err) {
     console.error('PUT /api/lifts/:id/status error:', err);
     res.status(500).json({ error: err.message || 'Failed to update status' });
@@ -4813,12 +4840,21 @@ app.put('/api/lifts/:id/status', async (req, res) => {
 
 app.put('/api/lifts/:id/amc-type', async (req, res) => {
   try {
-    const { amcType } = req.body || {};
+    const { amcType } = req.body;
     const lift = await Lift.findByPk(req.params.id);
     if (!lift) return res.status(404).json({ error: 'Lift not found' });
 
-    lift.amcType = amcType || 'LABOUR_ONLY';
-    await lift.save();
+    const c = await Contract.findOne({
+      where: { liftId: lift.id, contractType: 'AMC' },
+      order: [['id', 'DESC']],
+    });
+
+    if (!c) {
+      return res.status(400).json({ error: 'No AMC contract exists for this lift yet' });
+    }
+
+    c.amcType = amcType || 'LABOUR_ONLY';
+    await c.save();
 
     res.json({ ok: true });
   } catch (err) {
@@ -4836,18 +4872,36 @@ app.put('/api/lifts/:id/amc', async (req, res) => {
       amcType,
       amcStartDate,
       amcEndDate,
-    } = req.body || {};
+      billingCycle,
+      contractValue,
+      serviceIntervalDays,
+      amcNotes,
+    } = req.body;
 
-    if (amcType !== undefined) lift.amcType = amcType || 'LABOUR_ONLY';
-    if (amcStartDate !== undefined) lift.amcStartDate = amcStartDate || null;
-    if (amcEndDate !== undefined) lift.amcEndDate = amcEndDate || null;
+    const c = await getOrCreateAmcContract(lift.id, {
+      amcType: amcType || 'LABOUR_ONLY',
+      billingCycle: billingCycle || 'ANNUAL',
+      contractValue: normalizeCost(contractValue) ?? 0,
+      serviceIntervalDays: Number(serviceIntervalDays) || 30,
+      amcNotes: amcNotes || null,
+    });
 
-    await lift.save();
+    if (amcType !== undefined) c.amcType = amcType || 'LABOUR_ONLY';
+    if (amcStartDate !== undefined) c.startDate = amcStartDate || null;
+    if (amcEndDate !== undefined) c.endDate = amcEndDate || null;
+    if (billingCycle !== undefined) c.billingCycle = billingCycle || 'ANNUAL';
+    if (contractValue !== undefined) c.contractValue = normalizeCost(contractValue) ?? 0;
+    if (serviceIntervalDays !== undefined) {
+      const n = Number(serviceIntervalDays);
+      c.serviceIntervalDays = Number.isFinite(n) ? n : 30;
+    }
+    if (amcNotes !== undefined) c.amcNotes = amcNotes || null;
 
+    await c.save();
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/lifts/:id/amc error:', err);
-    res.status(500).json({ error: err.message || 'Failed to save AMC details' });
+    res.status(500).json({ error: err.message || 'Failed to save AMC contract' });
   }
 });
 
@@ -4856,28 +4910,32 @@ app.post('/api/lifts/seed', async (req, res) => {
     const count = await Lift.count();
     if (count > 0) return res.json({ message: 'Already seeded', count });
 
-    await Lift.create({
-      liftCode: 'LIFT-A-001',
-      customerName: 'Existing Customer',
-      building: 'Building A',
-      liftPosition: 'Lobby',
-      status: 'ACTIVE',
-      amcType: 'LABOUR_ONLY',
-    });
+    const cust = await findOrCreateCustomerByName('Existing Customer');
+    const siteA = await findOrCreateSiteByName('Building A');
+    const siteB = await findOrCreateSiteByName('Building B');
 
-    await Lift.create({
-      liftCode: 'LIFT-B-001',
-      customerName: 'Existing Customer',
-      building: 'Building B',
-      liftPosition: 'Block 2',
-      status: 'MAINTENANCE',
-      amcType: 'LABOUR_ONLY',
+    const lift1 = await Lift.create({
+      liftCode: 'LIFT-A-001',
+      customerId: cust.id,
+      siteId: siteA.id,
+      location: 'Lobby',
+      status: 'ACTIVE',
     });
+    
+
+    const lift2 = await Lift.create({
+      liftCode: 'LIFT-B-001',
+      customerId: cust.id,
+      siteId: siteB.id,
+      location: 'Block 2',
+      status: 'MAINTENANCE',
+    });
+    
 
     res.json({ ok: true });
   } catch (err) {
     console.error('POST /api/lifts/seed error:', err);
-    res.status(500).json({ error: err.message || 'Failed to seed lifts' });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -4940,7 +4998,7 @@ async function buildServiceDashboardData() {
       {
         model: ProjectLift,
         include: [
-          { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+          { model: Lift, attributes: ['id', 'liftCode', 'location'] },
           {
             model: ProjectLiftAssignment,
             as: 'assignments',
@@ -5047,7 +5105,7 @@ console.log('AMC DEBUG', {
         projectLiftId: String(pl.id),
         liftId: String(pl.lift_id || pl.liftId || ''),
         liftCode: pl.lift_code || '',
-        location: pl.location_label || (pl.Lift ? pl.Lift.liftPosition : '') || '',
+        location: pl.location_label || (pl.Lift ? pl.Lift.location : '') || '',
 
         warrantyMonths: pl.warranty_months ?? null,
         warrantyStartDate: warrantyInfo.startDate,
@@ -5109,7 +5167,7 @@ console.log('AMC DEBUG', {
 
 app.get('/api/service/dashboard', async (req, res) => {
   try {
-    const data = await buildServiceDashboardDataSafe();
+    const data = await buildServiceDashboardData();
     res.json(data);
   } catch (err) {
     console.error('GET /api/service/dashboard error:', err);
@@ -5155,56 +5213,66 @@ app.post('/api/lifts/:liftId/jobs', async (req, res) => {
 // --------------------
 app.get('/api/dashboard', async (req, res) => {
   try {
-    const lifts = await Lift.findAll({
-      include: [
-        {
-          model: ProjectLift,
-          include: [
-            {
-              model: Project,
-              attributes: ['id', 'project_name', 'project_code', 'status'],
-            },
-          ],
-        },
-      ],
-      order: [['id', 'ASC']],
-    });
-
+    const lifts = await Lift.findAll({ include: [{ model: ServiceLog }, { model: Contract }] });
     const today = startOfDay(new Date());
 
-    let total = 0;
-    let active = 0;
-    let maintenance = 0;
-    let breakdown = 0;
-    let totalCost = 0;
-    let overdueServices = 0;
-    let amcActive = 0;
-    let amcExpiringSoon = 0;
-    let amcExpired = 0;
+    let total = 0,
+      active = 0,
+      maintenance = 0,
+      breakdown = 0,
+      totalCost = 0,
+      overdueServices = 0,
+      amcActive = 0,
+      amcExpiringSoon = 0,
+      amcExpired = 0;
 
     for (const lift of lifts) {
       total++;
-
       const j = lift.toJSON();
-      const status = String(j.status || '').toUpperCase();
+      const status = (j.status || '').toUpperCase();
 
       if (status === 'ACTIVE') active++;
       else if (status === 'MAINTENANCE') maintenance++;
       else if (status === 'BREAKDOWN') breakdown++;
 
-      const latestProjectLift =
-        Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
-          ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
-          : null;
+      const logs = (j.ServiceLogs || []).filter(
+        (l) => String(l.workDone || '').toUpperCase() === 'AMC SERVICE'
+      );
 
-      const warrantyEnd = parseDateOnly(latestProjectLift?.warranty_end_date || null);
-      if (warrantyEnd && today > warrantyEnd) {
-        overdueServices++;
+      totalCost += logs.reduce((sum, x) => sum + Number(x.cost || 0), 0);
+
+      const amcC = pickAmcContract(j.Contracts);
+      const amc = computeAmcStatus(amcC?.startDate || null, amcC?.endDate || null, today);
+
+      if (amc.amcStatus === 'ACTIVE') amcActive++;
+      else if (amc.amcStatus === 'EXPIRING_SOON') amcExpiringSoon++;
+      else if (amc.amcStatus === 'EXPIRED') amcExpired++;
+
+      let lastServiceDate = null;
+      if (logs.length) {
+        logs.sort((a, b) => new Date(b.serviceDate) - new Date(a.serviceDate));
+        lastServiceDate = logs[0].serviceDate || null;
       }
 
-      // AMC temporarily disabled in dashboard until contract schema is aligned
-      // Keep counters at zero for now
-    }
+      const amcC2 = pickAmcContract(j.Contracts);
+      const interval = Number(amcC2?.serviceIntervalDays || 30);
+
+      if (lastServiceDate) {
+        const last = parseDateOnly(lastServiceDate);
+        if (last) {
+          const next = new Date(last);
+          next.setDate(next.getDate() + interval);
+          if (today > next) overdueServices++;
+        }
+      } else {
+        const start = parseDateOnly(amcC2?.startDate);
+        if (start) {
+          const next = new Date(start);
+          next.setDate(next.getDate() + interval);
+          if (today > next) overdueServices++;
+        }
+      }
+    } // <-- THIS BRACE WAS MISSING
 
     res.json({
       total,
@@ -5230,7 +5298,7 @@ try {
     {
       model: ProjectLift,
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'liftPosition'] },
+        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -5293,7 +5361,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.liftPositionlocation || '',
+            location: pl.location_label || pl.Lift?.location || '',
             workflowStatus: 'HANDED OVER',
             actionHint: 'Track service lifecycle',
           });
@@ -5308,7 +5376,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.liftPosition || '',
+            location: pl.location_label || pl.Lift?.location || '',
             workflowStatus: 'READY FOR HANDOVER',
             actionHint: 'Complete Handover',
           });
@@ -5322,7 +5390,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.liftPosition || '',
+            location: pl.location_label || pl.Lift?.location || '',
             workflowStatus: 'TEST AWAITING APPROVAL',
             actionHint: 'Supervisor approval pending',
           });
@@ -5337,7 +5405,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.liftPosition || '',
+            location: pl.location_label || pl.Lift?.location || '',
             workflowStatus: 'READY FOR TEST ASSIGNMENT',
             actionHint: 'Assign Test Job',
           });
@@ -5351,7 +5419,7 @@ try {
             projectName: p.project_name || '',
             projectLiftId: pl.id,
             liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.liftPosition || '',
+            location: pl.location_label || pl.Lift?.location || '',
             workflowStatus: 'INSTALL AWAITING APPROVAL',
             actionHint: 'Supervisor approval pending',
           });
@@ -5378,7 +5446,6 @@ process.on('unhandledRejection', (reason) => console.error('❌ Unhandled Reject
 process.on('uncaughtException', (err) => console.error('❌ Uncaught Exception:', err));
 
 const PORT = Number(process.env.PORT || 5000);
-app.listen(PORT, () => console.log("Server running on " + PORT));
 
 // --------------------
 // Lightweight DB auto-migration (idempotent)
@@ -5387,79 +5454,7 @@ async function ensureSchema() {
   // Sequence for serial Project Codes
   await sequelize.query(`CREATE SEQUENCE IF NOT EXISTS public.project_code_seq START 1;`);
 
-  // -------------------------
-  // MASTER TABLES FIRST
-  // -------------------------
-
-  // Customers
-  await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS customers (
-      id BIGSERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      phone TEXT,
-      email TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-
-  // Sites
-  await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS sites (
-      id BIGSERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      address TEXT,
-      gps_lat NUMERIC,
-      gps_lng NUMERIC,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-
-  // Lifts
-  await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS lifts (
-      id BIGSERIAL PRIMARY KEY,
-      lift_code TEXT UNIQUE,
-      building TEXT,
-      location TEXT,
-      customer_name TEXT,
-      status TEXT,
-      amc_type TEXT,
-      amc_start_date DATE,
-      amc_end_date DATE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-
-  // Technicians
-  await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS technicians (
-      id BIGSERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      phone TEXT,
-      email TEXT,
-      role TEXT,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      pin_salt TEXT,
-      pin_hash TEXT,
-      must_change_pin BOOLEAN NOT NULL DEFAULT TRUE,
-      skills TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_salt TEXT;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_hash TEXT;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS must_change_pin BOOLEAN NOT NULL DEFAULT TRUE;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS skills TEXT;`);
-
-  // -------------------------
-  // PROJECTS
-  // -------------------------
-
+  // Projects table
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS projects (
       id BIGSERIAL PRIMARY KEY,
@@ -5481,10 +5476,7 @@ async function ensureSchema() {
   await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS status TEXT;`);
   await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS notes TEXT;`);
 
-  // -------------------------
-  // PROJECT LIFTS
-  // -------------------------
-
+  // Project lifts
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lifts (
       id BIGSERIAL PRIMARY KEY,
@@ -5492,17 +5484,17 @@ async function ensureSchema() {
       lift_id BIGINT REFERENCES lifts(id) ON DELETE SET NULL,
       lift_code TEXT NOT NULL,
       location_label TEXT,
+
       passenger_capacity INTEGER,
       lift_type TEXT,
       number_of_floors INTEGER,
+
       installation_start_date DATE,
       installation_end_date DATE,
       testing_start_date DATE,
       testing_end_date DATE,
       handover_date DATE,
-      handover_actual_date DATE,
       warranty_months INTEGER NOT NULL DEFAULT 12,
-      warranty_service_visits INTEGER NOT NULL DEFAULT 5,
       warranty_start_date DATE,
       warranty_end_date DATE,
       notes TEXT,
@@ -5513,12 +5505,14 @@ async function ensureSchema() {
 
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS lift_code TEXT;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS location_label TEXT;`);
+
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS passenger_capacity INTEGER;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS lift_type TEXT;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS number_of_floors INTEGER;`);
+
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_months INTEGER;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_service_visits INTEGER NOT NULL DEFAULT 5;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_actual_date DATE;`);
+await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_service_visits INTEGER NOT NULL DEFAULT 5;`);
+await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_actual_date DATE;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_start_date DATE;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_end_date DATE;`);
   await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_date DATE;`);
@@ -5529,33 +5523,27 @@ async function ensureSchema() {
 
   await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_project_lifts_lift_code ON project_lifts(lift_code);`);
 
-  // -------------------------
-  // CONTRACTS
-  // -------------------------
+// Contracts (AMC)
+await sequelize.query(`
+  CREATE TABLE IF NOT EXISTS contracts (
+    id BIGSERIAL PRIMARY KEY,
+    project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
+    amc_type TEXT,
+    start_date DATE,
+    end_date DATE,
+    service_interval_days INTEGER,
+    service_visit_count INTEGER NOT NULL DEFAULT 5,
+    billing_cycle TEXT,
+    contract_value NUMERIC,
+    amc_notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
 
-  await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS contracts (
-      id BIGSERIAL PRIMARY KEY,
-      project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
-      amc_type TEXT,
-      start_date DATE,
-      end_date DATE,
-      service_interval_days INTEGER,
-      service_visit_count INTEGER NOT NULL DEFAULT 5,
-      billing_cycle TEXT,
-      contract_value NUMERIC,
-      amc_notes TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_visit_count INTEGER NOT NULL DEFAULT 5;`);
 
-  await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_visit_count INTEGER NOT NULL DEFAULT 5;`);
-
-  // -------------------------
-  // ASSIGNMENTS
-  // -------------------------
-
+  // Assignments
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lift_assignments (
       id BIGSERIAL PRIMARY KEY,
@@ -5590,17 +5578,34 @@ async function ensureSchema() {
       notes TEXT
     );
   `);
-
   await sequelize.query(`ALTER TABLE project_lift_job_technicians ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;`);
   await sequelize.query(`ALTER TABLE project_lift_job_technicians ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;`);
   await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_project_lift_job_technicians_unique_member ON project_lift_job_technicians(assignment_id, technician_id);`);
   await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_project_lift_job_technicians_one_lead ON project_lift_job_technicians(assignment_id) WHERE team_role = 'LEAD';`);
 
-  // -------------------------
-  // SESSIONS LAST
-  // -------------------------
-
+  // Technicians + sessions
   await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS technicians (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      role TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      pin_salt TEXT,
+      pin_hash TEXT,
+      must_change_pin BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_salt TEXT;`);
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_hash TEXT;`);
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS must_change_pin BOOLEAN NOT NULL DEFAULT TRUE;`);
+  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS skills TEXT;`);
+  
+        await sequelize.query(`
     CREATE TABLE IF NOT EXISTS technician_sessions (
       id BIGSERIAL PRIMARY KEY,
       technician_id BIGINT NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
