@@ -3259,12 +3259,12 @@ async function renderMyJobs() {
     const card = root.querySelector(".card");
 
     const wrap = makeScrollableTableWrap(`
-      <table>
+      <table class="myJobsTable">
         <thead>
           <tr>
             <th class="col-job-code">Job</th>
             <th class="col-project">Project</th>
-            <th class="col-lift">Lift Code</th>
+            <th class="col-lift-code">Lift Code</th>
             <th class="col-type">Type</th>
             <th>Lead / Support</th>
             <th>Checklist</th>
@@ -3312,26 +3312,25 @@ async function renderMyJobs() {
       const leadName = getLeadName(a);
       const supportNames = getSupportNames(a);
       const supportCount = supportNames.length;
-
       const myRole = a.myRole || "";
 
       const tr = document.createElement("tr");
 
       tr.innerHTML = `
         <td class="col-job-code">
-          <span class="monoCode">A-${a.id}</span>
+          <span class="monoCode noWrapCode">A-${a.id}</span>
         </td>
 
         <td class="col-project">
           ${a.projectName || ""}
         </td>
 
-        <td class="col-lift">
-          <span class="monoCode">${a.liftCode || ""}</span>
+        <td class="col-lift-code">
+          <span class="monoCode noWrapCode">${a.liftCode || ""}</span>
         </td>
 
         <td class="col-type">
-          ${a.role || ""}
+          <span class="noWrapCode">${a.role || ""}</span>
         </td>
 
         <td>
@@ -3347,22 +3346,23 @@ async function renderMyJobs() {
           <div class="checklistOfficeBadgeWrap"></div>
         </td>
 
-        <td class="col-due">${a.dueDate || ""}</td>
+        <td class="col-due">
+          <span class="noWrapCode">${a.dueDate || ""}</span>
+        </td>
 
         <td></td>
 
         <td></td>
       `;
 
-      // badges
-      tr.children[5].querySelector(".checklistOfficeBadgeWrap")
+      tr.children[5]
+        .querySelector(".checklistOfficeBadgeWrap")
         .appendChild(badge(checklistBadgeText));
 
       tr.children[7].appendChild(badge(statusText));
 
       const cell = tr.children[8];
 
-      // checklist button
       const b0 = smallBtn("Checklist", "primary");
       b0.onclick = async () => {
         try {

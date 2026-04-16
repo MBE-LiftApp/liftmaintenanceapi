@@ -856,3 +856,47 @@ td div {
   white-space: nowrap !important;
   min-width: 110px;
 }
+/* My Jobs / Jobs no-wrap fixes */
+.noWrapCode{
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  display: inline-block;
+}
+
+.col-lift-code{
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  min-width: 120px;
+}
+
+.col-type{
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  min-width: 95px;
+}
+
+.col-due{
+  white-space: nowrap !important;
+  min-width: 120px;
+}
+
+.myJobsTable .col-project{
+  min-width: 140px;
+}
+
+.myJobsTable td.col-lift-code,
+.myJobsTable td.col-type,
+.myJobsTable td.col-due,
+.myJobsTable td.col-job-code {
+  white-space: nowrap !important;
+}
+
+.myJobsTable th.col-lift-code,
+.myJobsTable th.col-type,
+.myJobsTable th.col-due,
+.myJobsTable th.col-job-code {
+  white-space: nowrap !important;
+}
