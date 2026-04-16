@@ -2643,24 +2643,25 @@ lifts.forEach((l) => {
   }
 
   const btnHistory = smallBtn('Service History', 'secondary');
-  btnHistory.onclick = () => {
-    try {
-      showServiceHistoryModal(l);
-    } catch (e) {
-      alert(e.message || String(e));
-      console.error('Service History modal failed', e);
-    }
-  };
-  actionWrap.appendChild(btnHistory);
+btnHistory.onclick = () => {
+  try {
+    showServiceHistoryModal(l);
+  } catch (e) {
+    alert(e.message || String(e));
+    console.error('Service History modal failed', e);
+  }
+};
+actionWrap.appendChild(btnHistory);
 
-  tr.children[5].appendChild(actionWrap);
-  tb.appendChild(tr);
+tr.children[5].appendChild(actionWrap);
+tb.appendChild(tr);
 });
 
 if (lifts.length === 0) {
   const tr = document.createElement("tr");
   tr.innerHTML = `<td colspan="6" class="muted">No lifts added yet. Click <b>+ Add Lift</b> to start the project workflow.</td>`;
   tb.appendChild(tr);
+}
 }
 
 async function renderTeamLoadCard(root) {
