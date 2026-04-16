@@ -3839,9 +3839,23 @@ async function showOfficeChecklistModal(jobId, roleLabel = 'JOB') {
     body.innerHTML = `
       <div class="checklistModalTop">
         <div class="checklistSummaryRow">
-          <div><b>${roleLabel}</b> checklist</div>
-          <div class="muted">${checklistSummaryText(data.summary)}</div>
+  <div><b>${roleLabel}</b> checklist</div>
+  <div class="muted">${checklistSummaryText(data.summary)}</div>
+</div>
+
+${
+  String(data.status || '').toUpperCase() === 'DONE' &&
+  String(data.supervisorStatus || '').toUpperCase() === 'APPROVED'
+    ? `
+      <div style="border:1px solid #bfdbfe; background:#eff6ff; border-radius:10px; padding:12px; margin:10px 0;">
+        <div style="font-weight:700; color:#1d4ed8;">Approved & Locked</div>
+        <div class="muted" style="margin-top:6px;">
+          This job has been approved by supervisor. No further changes are allowed.
         </div>
+      </div>
+    `
+    : ''
+}
 
         ${
           String(data.supervisorStatus || '').toUpperCase() === 'REJECTED' &&
@@ -3993,6 +4007,10 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
     ]);
 
     const isLead = String(data.teamRole || data.myTeamRole || '').toUpperCase() === 'LEAD';
+    const isLocked =
+      String(data.status || '').toUpperCase() === 'DONE' &&
+      String(data.supervisorStatus || '').toUpperCase() === 'APPROVED';
+
     const showSupervisorAlert =
       String(data.supervisorStatus || '').toUpperCase() === 'REJECTED' &&
       String(data.supervisorRemarks || '').trim();
@@ -4001,6 +4019,15 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
 
     body.innerHTML = `
       <div class="checklistModalTop">
+
+        ${isLocked ? `
+          <div style="border:1px solid #bfdbfe; background:#eff6ff; border-radius:10px; padding:12px; margin-bottom:12px;">
+            <div style="font-weight:700; color:#1d4ed8; margin-bottom:6px;">Checklist Locked</div>
+            <div style="color:#1d4ed8; font-weight:600;">
+              Supervisor has already approved this job. Checklist, notes, service report, and parts are now read-only.
+            </div>
+          </div>
+        ` : ''}
 
         ${showSupervisorAlert ? `
           <div style="border:1px solid #f5c2c7; background:#fff5f5; border-radius:10px; padding:12px; margin-bottom:12px;">
@@ -4014,9 +4041,11 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
 
         <div class="checklistSummaryRow">
           <div class="muted" style="margin:6px 0 10px 0;">
-            ${isLead
-              ? '<b>You are LEAD</b> — you can complete checklist'
-              : '<b>You are SUPPORT</b> — view only (notes allowed)'}
+            ${isLocked
+              ? '<b>Checklist locked</b> — supervisor approved this job'
+              : isLead
+                ? '<b>You are LEAD</b> — you can complete checklist'
+                : '<b>You are SUPPORT</b> — view only (notes allowed)'}
           </div>
 
           <div><b>${escapeHtml(roleLabel)}</b> checklist</div>
@@ -4032,7 +4061,7 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
 
         <div class="field" style="grid-column:1/-1">
           <label>Add Note</label>
-          <textarea id="checklistNoteText" placeholder="Add observation / issue / service note"></textarea>
+          <textarea id="checklistNoteText" placeholder="Add observation / issue / service note" ${isLocked ? 'disabled' : ''}></textarea>
         </div>
 
         <div class="checklistNotesHead"><b>Notes</b></div>
@@ -4048,46 +4077,48 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
               <div class="formGrid">
                 <div class="field" style="grid-column:1/-1">
                   <label>Overall Condition</label>
-                  <textarea id="srOverallCondition" placeholder="Overall lift condition">${escapeHtml(reportData?.report?.overallCondition || '')}</textarea>
+                  <textarea id="srOverallCondition" ${isLocked ? 'disabled' : ''} placeholder="Overall lift condition">${escapeHtml(reportData?.report?.overallCondition || '')}</textarea>
                 </div>
 
                 <div class="field" style="grid-column:1/-1">
                   <label>Faults Observed</label>
-                  <textarea id="srFaultsObserved" placeholder="Faults observed">${escapeHtml(reportData?.report?.faultsObserved || '')}</textarea>
+                  <textarea id="srFaultsObserved" ${isLocked ? 'disabled' : ''} placeholder="Faults observed">${escapeHtml(reportData?.report?.faultsObserved || '')}</textarea>
                 </div>
 
                 <div class="field" style="grid-column:1/-1">
                   <label>Action Taken</label>
-                  <textarea id="srActionTaken" placeholder="Action taken">${escapeHtml(reportData?.report?.actionTaken || '')}</textarea>
+                  <textarea id="srActionTaken" ${isLocked ? 'disabled' : ''} placeholder="Action taken">${escapeHtml(reportData?.report?.actionTaken || '')}</textarea>
                 </div>
 
                 <div class="field" style="grid-column:1/-1">
                   <label>Recommendations</label>
-                  <textarea id="srRecommendations" placeholder="Recommendations">${escapeHtml(reportData?.report?.recommendations || '')}</textarea>
+                  <textarea id="srRecommendations" ${isLocked ? 'disabled' : ''} placeholder="Recommendations">${escapeHtml(reportData?.report?.recommendations || '')}</textarea>
                 </div>
 
                 <div class="field">
                   <label>Follow-up Required</label>
                   <div style="padding-top:10px;">
-                    <input type="checkbox" id="srFollowUpRequired" ${reportData?.report?.followUpRequired ? 'checked' : ''} />
+                    <input type="checkbox" id="srFollowUpRequired" ${isLocked ? 'disabled' : ''} ${reportData?.report?.followUpRequired ? 'checked' : ''} />
                   </div>
                 </div>
 
                 <div class="field" style="grid-column:1/-1">
                   <label>Technician Remarks</label>
-                  <textarea id="srTechnicianRemarks" placeholder="Technician remarks">${escapeHtml(reportData?.report?.technicianRemarks || '')}</textarea>
+                  <textarea id="srTechnicianRemarks" ${isLocked ? 'disabled' : ''} placeholder="Technician remarks">${escapeHtml(reportData?.report?.technicianRemarks || '')}</textarea>
                 </div>
               </div>
 
-              <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-                <button type="button" class="btn secondary" id="btnSaveServiceReport">Save Report</button>
-              </div>
+              ${isLocked ? '' : `
+                <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn secondary" id="btnSaveServiceReport">Save Report</button>
+                </div>
+              `}
 
               <div class="hr"></div>
 
               <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px;">
                 <div style="font-weight:700;">Parts Used</div>
-                <button type="button" class="btn secondary" id="btnAddServicePart">+ Add Part</button>
+                ${isLocked ? '' : `<button type="button" class="btn secondary" id="btnAddServicePart">+ Add Part</button>`}
               </div>
 
               <div id="servicePartsWrap"></div>
@@ -4160,7 +4191,7 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
         row.style.alignItems = 'flex-start';
         row.style.gap = '12px';
 
-        const canEdit = isLead;
+        const canEdit = isLead && !isLocked;
         const isBoolean = String(item.itemType || '').toUpperCase() === 'BOOLEAN';
         const isText = String(item.itemType || '').toUpperCase() === 'TEXT';
         const isNumber = String(item.itemType || '').toUpperCase() === 'NUMBER';
@@ -4276,40 +4307,48 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
         row.style.alignItems = 'start';
 
         row.innerHTML = `
-          <input type="text" value="${escapeHtml(p.itemName || '')}" placeholder="Part name" />
-          <input type="number" min="0.01" step="0.01" value="${p.qty ?? 1}" placeholder="Qty" />
-          <input type="text" value="${escapeHtml(p.remarks || '')}" placeholder="Remarks" />
-          <div style="display:flex; gap:6px;">
-            <button type="button" class="btn secondary btn-sm">Save</button>
-            <button type="button" class="btn secondary btn-sm">Delete</button>
-          </div>
+          <input type="text" value="${escapeHtml(p.itemName || '')}" placeholder="Part name" ${isLocked ? 'disabled' : ''} />
+          <input type="number" min="0.01" step="0.01" value="${p.qty ?? 1}" placeholder="Qty" ${isLocked ? 'disabled' : ''} />
+          <input type="text" value="${escapeHtml(p.remarks || '')}" placeholder="Remarks" ${isLocked ? 'disabled' : ''} />
+          ${
+            isLocked
+              ? `<div></div>`
+              : `
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="btn secondary btn-sm">Save</button>
+                  <button type="button" class="btn secondary btn-sm">Delete</button>
+                </div>
+              `
+          }
         `;
 
-        const [nameEl, qtyEl, remarksEl] = row.querySelectorAll('input');
-        const [saveBtn, deleteBtn] = row.querySelectorAll('button');
+        if (!isLocked) {
+          const [nameEl, qtyEl, remarksEl] = row.querySelectorAll('input');
+          const [saveBtn, deleteBtn] = row.querySelectorAll('button');
 
-        saveBtn.onclick = async () => {
-          try {
-            await API.updateTechServicePart(p.id, {
-              itemName: nameEl.value,
-              qty: qtyEl.value,
-              remarks: remarksEl.value,
-            });
-            await refreshServiceReportSection();
-          } catch (e) {
-            alert(e.message || String(e));
-          }
-        };
+          saveBtn.onclick = async () => {
+            try {
+              await API.updateTechServicePart(p.id, {
+                itemName: nameEl.value,
+                qty: qtyEl.value,
+                remarks: remarksEl.value,
+              });
+              await refreshServiceReportSection();
+            } catch (e) {
+              alert(e.message || String(e));
+            }
+          };
 
-        deleteBtn.onclick = async () => {
-          try {
-            if (!confirm('Delete this part?')) return;
-            await API.deleteTechServicePart(p.id);
-            await refreshServiceReportSection();
-          } catch (e) {
-            alert(e.message || String(e));
-          }
-        };
+          deleteBtn.onclick = async () => {
+            try {
+              if (!confirm('Delete this part?')) return;
+              await API.deleteTechServicePart(p.id);
+              await refreshServiceReportSection();
+            } catch (e) {
+              alert(e.message || String(e));
+            }
+          };
+        }
 
         partsWrap.appendChild(row);
       });
@@ -4319,22 +4358,25 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
     renderNotes(currentChecklist.notes || []);
     renderServiceParts(currentReportData.parts || []);
 
-    const btnAddNote = smallBtn('Add Note', 'secondary');
-    btnAddNote.onclick = async () => {
-      try {
-        const noteText = body.querySelector('#checklistNoteText').value.trim();
-        if (!noteText) throw new Error('Enter a note first');
-        await API.addTechChecklistNote(jobId, noteText);
-        await refreshChecklistModal();
-      } catch (e) {
-        alert(e.message || String(e));
-      }
-    };
-
     const btnClose = smallBtn('Close', 'secondary');
     btnClose.onclick = closeModal;
 
-    const footerNodes = [btnAddNote, btnClose];
+    const footerNodes = [btnClose];
+
+    if (!isLocked) {
+      const btnAddNote = smallBtn('Add Note', 'secondary');
+      btnAddNote.onclick = async () => {
+        try {
+          const noteText = body.querySelector('#checklistNoteText').value.trim();
+          if (!noteText) throw new Error('Enter a note first');
+          await API.addTechChecklistNote(jobId, noteText);
+          await refreshChecklistModal();
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      };
+      footerNodes.unshift(btnAddNote);
+    }
 
     openModal({
       title: `${roleLabel} Checklist`,
@@ -4342,7 +4384,7 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
       footerNodes,
     });
 
-    if (isServiceRole(roleLabel)) {
+    if (isServiceRole(roleLabel) && !isLocked) {
       const saveReportBtn = body.querySelector('#btnSaveServiceReport');
       const addPartBtn = body.querySelector('#btnAddServicePart');
 

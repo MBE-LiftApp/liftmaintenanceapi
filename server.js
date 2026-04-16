@@ -281,8 +281,16 @@ async function ensureChecklistForAssignment(assignment) {
 }
 
 async function getChecklistSummary(assignmentId) {
+  const assignment = await ProjectLiftAssignment.findByPk(assignmentId);
+
+  if (!assignment) return null;
+
+  const isLocked =
+    String(assignment.status || '').toUpperCase() === 'DONE' &&
+    String(assignment.supervisor_status || '').toUpperCase() === 'APPROVED';
+
   const items = await AssignmentChecklistItem.findAll({
-    where: { assignmentId: assignmentId },
+    where: { assignmentId },
     order: [['sortOrder', 'ASC'], ['id', 'ASC']],
   });
 
@@ -295,13 +303,16 @@ async function getChecklistSummary(assignmentId) {
   if (items.some((x) => !!x.isDone)) status = 'IN_PROGRESS';
   if (totalRequired > 0 && doneRequired >= totalRequired) status = 'COMPLETED';
 
-  await ProjectLiftAssignment.update(
-    {
-      checklist_status: status,
-      checklist_completion_percent: percent,
-    },
-    { where: { id: assignmentId } }
-  );
+  // 🔒 DO NOT UPDATE if locked
+  if (!isLocked) {
+    await ProjectLiftAssignment.update(
+      {
+        checklist_status: status,
+        checklist_completion_percent: percent,
+      },
+      { where: { id: assignmentId } }
+    );
+  }
 
   return {
     totalItems: items.length,
@@ -309,6 +320,7 @@ async function getChecklistSummary(assignmentId) {
     doneRequired,
     percent,
     status,
+    isLocked,
   };
 }
 async function getDueAmcProjectLifts() {
@@ -4060,6 +4072,16 @@ app.put('/api/tech/assignments/:jobId/checklist/:itemId', authTech, async (req, 
     const a = await ProjectLiftAssignment.findByPk(jobId);
     if (!a) return res.status(404).json({ error: 'Assignment not found' });
 
+// 🔒 LOCK CHECK (ADD THIS BLOCK)
+const isLocked =
+  String(a.status || '').toUpperCase() === 'DONE' &&
+  String(a.supervisor_status || '').toUpperCase() === 'APPROVED';
+
+if (isLocked) {
+  return res.status(400).json({
+    error: 'Checklist is locked after supervisor approval'
+  });
+}
     const member = await JobTechnician.findOne({
   where: { assignmentId: jobId, technicianId: req.tech.id }
 });
