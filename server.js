@@ -2772,32 +2772,66 @@ app.get('/api/projects', async (req, res) => {
 
 // Create project (serial code from backend)
 app.post('/api/projects', async (req, res) => {
+  const t = await sequelize.transaction();
+
   try {
     const { projectName, customerName, building, notes } = req.body || {};
 
-    if (!projectName || !String(projectName).trim()) return res.status(400).json({ error: 'Project name is required' });
-    if (!customerName || !String(customerName).trim()) return res.status(400).json({ error: 'Customer name is required' });
+    if (!projectName || !String(projectName).trim()) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Project name is required' });
+    }
+
+    if (!customerName || !String(customerName).trim()) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Customer name is required' });
+    }
 
     const custName = String(customerName).trim();
-    const [customer] = await Customer.findOrCreate({ where: { name: custName }, defaults: { name: custName } });
+    let customer = await Customer.findOne({
+      where: { name: custName },
+      transaction: t,
+    });
+
+    if (!customer) {
+      customer = await Customer.create(
+        { name: custName },
+        { transaction: t }
+      );
+    }
 
     let site = null;
     if (building && String(building).trim()) {
-      const b = String(building).trim();
-      const [s] = await Site.findOrCreate({ where: { name: b }, defaults: { name: b } });
-      site = s;
+      const siteName = String(building).trim();
+
+      site = await Site.findOne({
+        where: { name: siteName },
+        transaction: t,
+      });
+
+      if (!site) {
+        site = await Site.create(
+          { name: siteName },
+          { transaction: t }
+        );
+      }
     }
 
     const projectCode = await nextProjectCode();
 
-    const project = await Project.create({
-      project_code: projectCode,
-      project_name: String(projectName).trim(),
-      customer_id: customer.id,
-      site_id: site ? site.id : null,
-      status: 'OPEN',
-      notes: notes ? String(notes).trim() : null,
-    });
+    const project = await Project.create(
+      {
+        project_code: projectCode,
+        project_name: String(projectName).trim(),
+        customer_id: customer.id,
+        site_id: site ? site.id : null,
+        status: 'OPEN',
+        notes: notes ? String(notes).trim() : null,
+      },
+      { transaction: t }
+    );
+
+    await t.commit();
 
     res.json({
       id: project.id,
@@ -2809,8 +2843,9 @@ app.post('/api/projects', async (req, res) => {
       notes: project.notes || '',
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    await t.rollback();
+    console.error('POST /api/projects error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create project' });
   }
 });
 
