@@ -2936,16 +2936,15 @@ async function renderLifts() {
   wrap.style.overflow = "auto";
 
   wrap.innerHTML = `
-    <table>
+    <table class="liftsTable">
       <thead>
         <tr>
-          <th>Lift Code</th>
-          <th>Customer</th>
-          <th>Building</th>
-          <th>Location</th>
-          <th>Warranty Status</th>
-          <th>AMC Status</th>
-          <th>Days Remaining</th>
+          <th class="col-lift-code">Lift Code</th>
+          <th class="col-customer">Customer</th>
+          <th class="col-lift-location">Lift Location</th>
+          <th class="col-warranty">Warranty Status</th>
+          <th class="col-amc">AMC Status</th>
+          <th class="col-days">Days Remaining</th>
         </tr>
       </thead>
       <tbody id="lBody"></tbody>
@@ -2985,17 +2984,16 @@ async function renderLifts() {
           );
 
     tr.innerHTML = `
-      <td>${l.liftCode || ""}</td>
-      <td>${l.customerName || ""}</td>
-      <td>${l.building || ""}</td>
-      <td>${l.liftPosition || l.location || ""}</td>
-      <td></td>
-      <td></td>
-      <td>${daysRemaining}</td>
+      <td class="col-lift-code"><span class="monoCode">${l.liftCode || ""}</span></td>
+      <td class="col-customer">${l.customerName || ""}</td>
+      <td class="col-lift-location">${l.liftPosition || l.location || ""}</td>
+      <td class="col-warranty"></td>
+      <td class="col-amc"></td>
+      <td class="col-days">${daysRemaining}</td>
     `;
 
-    tr.children[4].appendChild(badge(normalizeWarrantyStatus(l.warrantyStatus)));
-    tr.children[5].appendChild(badge(normalizeAmcStatus(l.amcStatus)));
+    tr.children[3].appendChild(badge(normalizeWarrantyStatus(l.warrantyStatus)));
+    tr.children[4].appendChild(badge(normalizeAmcStatus(l.amcStatus)));
 
     tb.appendChild(tr);
   });
@@ -3003,7 +3001,7 @@ async function renderLifts() {
   if (!rows || !rows.length) {
     tb.innerHTML = `
       <tr>
-        <td colspan="7" class="muted text-center">No lifts found.</td>
+        <td colspan="6" class="muted text-center">No lifts found.</td>
       </tr>
     `;
   }
@@ -3026,31 +3024,32 @@ async function renderJobs() {
 
   try {
     const allRows = await API.getJobs();
-const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
+    const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
 
     root.innerHTML = `
-  <div class="card">
-    <div class="label">Project Jobs</div>
-    <div class="muted">Install and Test jobs only</div>
-    <div class="hr"></div>
-  </div>
-`;
+      <div class="card">
+        <div class="label">Project Jobs</div>
+        <div class="muted">Install and Test jobs only</div>
+        <div class="hr"></div>
+      </div>
+    `;
 
     const card = root.querySelector(".card");
+
     const wrap = makeScrollableTableWrap(`
       <table>
         <thead>
           <tr>
-            <th>Job</th>
-            <th>Project</th>
-            <th>Lift</th>
-            <th>Type</th>
+            <th class="col-job-code">Job</th>
+            <th class="col-project">Project</th>
+            <th class="col-lift">Lift Code</th>
+            <th class="col-type">Type</th>
             <th>Lead / Support</th>
             <th>Checklist</th>
-            <th>Due</th>
+            <th class="col-due">Due</th>
             <th>Status</th>
             <th>Supervisor</th>
-            <th>Actions</th>
+            <th class="col-actions">Actions</th>
           </tr>
         </thead>
         <tbody id="jBody"></tbody>
@@ -3062,16 +3061,18 @@ const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
     const tb = wrap.querySelector("#jBody");
 
     if (!rows || rows.length === 0) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="10" class="muted">No project jobs found. Click <b>+ Create Job</b>.</td>`;
-      tb.appendChild(tr);
+      tb.innerHTML = `
+        <tr>
+          <td colspan="10" class="muted">No project jobs found. Click <b>+ Create Job</b>.</td>
+        </tr>
+      `;
       return;
     }
 
-    (rows || []).forEach((a) => {
+    rows.forEach((a) => {
       const statusText = String(a.status || "").replaceAll("_", " ");
-      const checklist = a.checklistSummary || null;
 
+      const checklist = a.checklistSummary || null;
       const checklistText = checklist
         ? `${checklist.doneRequired || 0}/${checklist.totalRequired || 0} required`
         : "No checklist";
@@ -3096,23 +3097,42 @@ const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
       if (sup === "REJECTED") supText = "🔴 Rejected";
 
       const tr = document.createElement("tr");
+
       tr.innerHTML = `
-        <td>A-${a.id}</td>
-        <td>${[a.project?.projectCode, a.project?.projectName].filter(Boolean).join(" - ")}</td>
-        <td>${a.lift?.liftCode || ""}</td>
-        <td>${a.role || ""}</td>
+        <td class="col-job-code">
+          <span class="monoCode">A-${a.id}</span>
+        </td>
+
+        <td class="col-project">
+          ${[a.project?.projectCode, a.project?.projectName]
+            .filter(Boolean)
+            .join(" - ")}
+        </td>
+
+        <td class="col-lift">
+          <span class="monoCode">${a.lift?.liftCode || ""}</span>
+        </td>
+
+        <td class="col-type">
+          ${a.role || ""}
+        </td>
+
         <td>
           <div><b>Lead:</b> ${leadName}</div>
           <div class="muted">${supportCount} support${supportCount === 1 ? "" : "s"}</div>
           ${supportCount ? `<div class="muted">${supportNames.join(", ")}</div>` : ""}
         </td>
+
         <td>
           <div>${checklistText}</div>
           <div class="muted">${checklistPercent}</div>
           <div class="checklistOfficeBadgeWrap"></div>
         </td>
-        <td>${a.dueDate || ""}</td>
+
+        <td class="col-due">${a.dueDate || ""}</td>
+
         <td></td>
+
         <td>
           <div class="supervisorStatusWrap"></div>
           ${
@@ -3121,21 +3141,22 @@ const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
               : ""
           }
         </td>
+
         <td></td>
       `;
 
-      tr.children[5].querySelector(".checklistOfficeBadgeWrap").appendChild(
-        badge(checklistBadgeText)
-      );
+      // badges
+      tr.children[5].querySelector(".checklistOfficeBadgeWrap")
+        .appendChild(badge(checklistBadgeText));
 
       tr.children[7].appendChild(badge(statusText));
 
-      const supWrap = tr.children[8].querySelector(".supervisorStatusWrap");
-      supWrap.appendChild(badge(supText));
+      tr.children[8].querySelector(".supervisorStatusWrap")
+        .appendChild(badge(supText));
 
       const cell = tr.children[9];
 
-      // Read-only checklist view for management
+      // checklist button
       if (a.checklistSummary) {
         const b0 = smallBtn("Checklist", "secondary");
         b0.onclick = async () => {
@@ -3148,13 +3169,14 @@ const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
         cell.appendChild(b0);
       }
 
-      // Only management review actions after lead completes
+      // approve / reject
       if (
         String(a.status || "").toUpperCase() === "DONE" &&
         String(a.supervisorStatus || "PENDING").toUpperCase() === "PENDING"
       ) {
         const b1 = smallBtn("Approve", "primary");
         if (cell.children.length) b1.style.marginLeft = "8px";
+
         b1.onclick = async () => {
           try {
             const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
@@ -3170,10 +3192,12 @@ const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
             alert(e.message || String(e));
           }
         };
+
         cell.appendChild(b1);
 
         const b2 = smallBtn("Reject", "secondary");
         if (cell.children.length) b2.style.marginLeft = "8px";
+
         b2.onclick = async () => {
           try {
             const remarks = prompt("Reason for rejection?");
@@ -3194,6 +3218,7 @@ const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
             alert(e.message || String(e));
           }
         };
+
         cell.appendChild(b2);
       }
 
@@ -3215,6 +3240,7 @@ async function renderServiceJobs() {
   const root = setViewMode(false);
 
   setTitle("Service");
+
   const btnRefresh = smallBtn("Refresh", "secondary");
   btnRefresh.onclick = () => renderServiceJobs();
 
@@ -3235,20 +3261,21 @@ async function renderServiceJobs() {
     `;
 
     const card = root.querySelector(".card");
+
     const wrap = makeScrollableTableWrap(`
       <table>
         <thead>
           <tr>
-            <th>Job</th>
-            <th>Project</th>
-            <th>Lift</th>
-            <th>Type</th>
+            <th class="col-job-code">Job</th>
+            <th class="col-project">Project</th>
+            <th class="col-lift">Lift Code</th>
+            <th class="col-type">Type</th>
             <th>Lead / Support</th>
             <th>Checklist</th>
-            <th>Due</th>
+            <th class="col-due">Due</th>
             <th>Status</th>
             <th>Supervisor</th>
-            <th>Actions</th>
+            <th class="col-actions">Actions</th>
           </tr>
         </thead>
         <tbody id="sjBody"></tbody>
@@ -3260,14 +3287,17 @@ async function renderServiceJobs() {
     const tb = wrap.querySelector("#sjBody");
 
     if (!rows.length) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="10" class="muted">No service jobs found.</td>`;
-      tb.appendChild(tr);
+      tb.innerHTML = `
+        <tr>
+          <td colspan="10" class="muted">No service jobs found.</td>
+        </tr>
+      `;
       return;
     }
 
     rows.forEach((a) => {
       const statusText = String(a.status || "").replaceAll("_", " ");
+
       const checklist = a.checklistSummary || null;
 
       const checklistText = checklist
@@ -3294,23 +3324,42 @@ async function renderServiceJobs() {
       if (sup === "REJECTED") supText = "🔴 Rejected";
 
       const tr = document.createElement("tr");
+
       tr.innerHTML = `
-        <td>A-${a.id}</td>
-        <td>${[a.project?.projectCode, a.project?.projectName].filter(Boolean).join(" - ")}</td>
-        <td>${a.lift?.liftCode || ""}</td>
-        <td>${a.role || ""}</td>
+        <td class="col-job-code">
+          <span class="monoCode">A-${a.id}</span>
+        </td>
+
+        <td class="col-project">
+          ${[a.project?.projectCode, a.project?.projectName]
+            .filter(Boolean)
+            .join(" - ")}
+        </td>
+
+        <td class="col-lift">
+          <span class="monoCode">${a.lift?.liftCode || ""}</span>
+        </td>
+
+        <td class="col-type">
+          ${a.role || ""}
+        </td>
+
         <td>
           <div><b>Lead:</b> ${leadName}</div>
           <div class="muted">${supportCount} support${supportCount === 1 ? "" : "s"}</div>
           ${supportCount ? `<div class="muted">${supportNames.join(", ")}</div>` : ""}
         </td>
+
         <td>
           <div>${checklistText}</div>
           <div class="muted">${checklistPercent}</div>
           <div class="checklistOfficeBadgeWrap"></div>
         </td>
-        <td>${a.dueDate || ""}</td>
+
+        <td class="col-due">${a.dueDate || ""}</td>
+
         <td></td>
+
         <td>
           <div class="supervisorStatusWrap"></div>
           ${
@@ -3319,32 +3368,35 @@ async function renderServiceJobs() {
               : ""
           }
         </td>
+
         <td></td>
       `;
 
-if (window.__focusAssignmentId && Number(a.id) === Number(window.__focusAssignmentId)) {
-  tr.style.boxShadow = "inset 0 0 0 2px #3b82f6";
-tr.style.background = "#f0f7ff";
-tr.style.transition = "all 0.25s ease";
+      // focus highlight (unchanged)
+      if (window.__focusAssignmentId && Number(a.id) === Number(window.__focusAssignmentId)) {
+        tr.style.boxShadow = "inset 0 0 0 2px #3b82f6";
+        tr.style.background = "#f0f7ff";
+        tr.style.transition = "all 0.25s ease";
 
-  setTimeout(() => {
-    tr.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, 100);
+        setTimeout(() => {
+          tr.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
 
-  window.__focusAssignmentId = null;
-}
+        window.__focusAssignmentId = null;
+      }
 
-      tr.children[5].querySelector(".checklistOfficeBadgeWrap").appendChild(
-        badge(checklistBadgeText)
-      );
+      // badges
+      tr.children[5].querySelector(".checklistOfficeBadgeWrap")
+        .appendChild(badge(checklistBadgeText));
 
       tr.children[7].appendChild(badge(statusText));
 
-      const supWrap = tr.children[8].querySelector(".supervisorStatusWrap");
-      supWrap.appendChild(badge(supText));
+      tr.children[8].querySelector(".supervisorStatusWrap")
+        .appendChild(badge(supText));
 
       const cell = tr.children[9];
 
+      // checklist button
       const b0 = smallBtn("Checklist", "secondary");
       b0.onclick = async () => {
         try {
@@ -3355,29 +3407,35 @@ tr.style.transition = "all 0.25s ease";
       };
       cell.appendChild(b0);
 
+      // approve / reject
       if (
         String(a.status || "").toUpperCase() === "DONE" &&
         String(a.supervisorStatus || "PENDING").toUpperCase() === "PENDING"
       ) {
         const b1 = smallBtn("Approve", "primary");
         if (cell.children.length) b1.style.marginLeft = "8px";
+
         b1.onclick = async () => {
           try {
             const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
               method: "PUT"
             });
+
             const j = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(j?.error || "Approve failed");
+
             alert("Service job approved successfully.");
             await renderServiceDashboard();
           } catch (e) {
             alert(e.message || String(e));
           }
         };
+
         cell.appendChild(b1);
 
         const b2 = smallBtn("Reject", "secondary");
         if (cell.children.length) b2.style.marginLeft = "8px";
+
         b2.onclick = async () => {
           try {
             const remarks = prompt("Reason for rejection?");
@@ -3398,11 +3456,13 @@ tr.style.transition = "all 0.25s ease";
             alert(e.message || String(e));
           }
         };
+
         cell.appendChild(b2);
       }
 
       tb.appendChild(tr);
     });
+
   } catch (e) {
     root.innerHTML = `
       <div class="card">

@@ -789,3 +789,74 @@ td.muted.text-center{
 td div {
   line-height: 1.3;
 }
+/* ===================================== */
+/* TABLE COLUMN POLISH */
+/* ===================================== */
+
+.monoCode{
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+.col-lift-code{
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  min-width: 110px;
+}
+
+.col-job-code{
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  min-width: 70px;
+}
+
+.col-project{
+  min-width: 130px;
+}
+
+.col-lift{
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  min-width: 110px;
+}
+
+.col-type{
+  white-space: nowrap !important;
+  min-width: 90px;
+}
+
+.col-due{
+  white-space: nowrap !important;
+  min-width: 110px;
+}
+
+.col-actions{
+  white-space: nowrap !important;
+  min-width: 110px;
+}
+
+.liftsTable .col-customer{
+  min-width: 180px;
+}
+
+.liftsTable .col-lift-location{
+  min-width: 180px;
+}
+
+.liftsTable .col-warranty,
+.liftsTable .col-amc{
+  white-space: nowrap !important;
+  min-width: 150px;
+}
+
+.liftsTable .col-days{
+  white-space: nowrap !important;
+  min-width: 110px;
+}
