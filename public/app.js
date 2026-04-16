@@ -5169,30 +5169,77 @@ async function showManageTeamModal(jobId, roleLabel = "JOB", options = {}) {
 
     const leadSelect = body.querySelector("#leadSelect");
     const supportWrap = body.querySelector("#supportWrap");
+    const addSupportBtn = body.querySelector("#addSupportBtn");
 
-    function populateSelect(selectEl, selectedId = null, includeBlank = false) {
-      selectEl.innerHTML = "";
+    function getCurrentSupportIds() {
+      return Array.from(supportWrap.querySelectorAll(".supportSelect"))
+        .map((s) => Number(s.value))
+        .filter(Boolean);
+    }
 
-      if (includeBlank) {
-        const blank = document.createElement("option");
-        blank.value = "";
-        blank.textContent = "-- Select --";
-        selectEl.appendChild(blank);
-      }
+    function populateLeadSelect() {
+      const selectedSupportIds = new Set(getCurrentSupportIds());
+
+      leadSelect.innerHTML = "";
+
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "-- Select --";
+      leadSelect.appendChild(blank);
 
       (techs || []).forEach((t) => {
+        const tid = Number(t.id);
+
+        // Keep current lead visible, but do not allow support techs in lead list
+        if (tid !== Number(currentLeadId) && selectedSupportIds.has(tid)) return;
+
         const opt = document.createElement("option");
-        opt.value = t.id;
+        opt.value = tid;
         opt.textContent = t.name;
-        if (Number(t.id) === Number(selectedId)) opt.selected = true;
+        if (tid === Number(leadSelect.dataset.selectedId || currentLeadId)) {
+          opt.selected = true;
+        }
+        leadSelect.appendChild(opt);
+      });
+    }
+
+    function populateSupportSelect(selectEl, selectedId = null) {
+      const leadId = Number(leadSelect.value) || null;
+
+      selectEl.innerHTML = "";
+
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "-- Select --";
+      selectEl.appendChild(blank);
+
+      (techs || []).forEach((t) => {
+        const tid = Number(t.id);
+
+        // Do not allow current lead in support
+        if (leadId && tid === leadId) return;
+
+        const opt = document.createElement("option");
+        opt.value = tid;
+        opt.textContent = t.name;
+        if (tid === Number(selectedId)) opt.selected = true;
         selectEl.appendChild(opt);
       });
     }
 
-    populateSelect(leadSelect, currentLeadId, true);
+    function refreshAllSupportSelects() {
+      const rows = Array.from(supportWrap.querySelectorAll(".supportRow"));
+
+      rows.forEach((row) => {
+        const sel = row.querySelector(".supportSelect");
+        const currentValue = Number(sel.value) || null;
+        populateSupportSelect(sel, currentValue);
+      });
+    }
 
     function createSupportRow(selectedId = null) {
       const row = document.createElement("div");
+      row.className = "supportRow";
       row.style.display = "flex";
       row.style.gap = "8px";
       row.style.marginBottom = "6px";
@@ -5200,19 +5247,59 @@ async function showManageTeamModal(jobId, roleLabel = "JOB", options = {}) {
       const sel = document.createElement("select");
       sel.className = "supportSelect";
       sel.style.flex = "1";
-      populateSelect(sel, selectedId, true);
+      populateSupportSelect(sel, selectedId);
+
+      sel.onchange = () => {
+        const supportIds = getCurrentSupportIds();
+        const unique = new Set(supportIds);
+
+        if (supportIds.length !== unique.size) {
+          alert("Duplicate support technicians selected");
+          sel.value = "";
+        }
+
+        leadSelect.dataset.selectedId = leadSelect.value || "";
+        populateLeadSelect();
+      };
 
       const btnRemove = smallBtn("Remove", "secondary");
-      btnRemove.onclick = () => row.remove();
+      btnRemove.onclick = () => {
+        row.remove();
+        leadSelect.dataset.selectedId = leadSelect.value || "";
+        populateLeadSelect();
+        refreshAllSupportSelects();
+      };
 
       row.appendChild(sel);
       row.appendChild(btnRemove);
       supportWrap.appendChild(row);
     }
 
+    leadSelect.dataset.selectedId = currentLeadId || "";
+    populateLeadSelect();
+
     currentSupports.forEach((s) => createSupportRow(s.id));
 
-    body.querySelector("#addSupportBtn").onclick = () => createSupportRow();
+    addSupportBtn.onclick = () => {
+      createSupportRow();
+      leadSelect.dataset.selectedId = leadSelect.value || "";
+      populateLeadSelect();
+      refreshAllSupportSelects();
+    };
+
+    leadSelect.onchange = () => {
+      leadSelect.dataset.selectedId = leadSelect.value || "";
+      refreshAllSupportSelects();
+
+      const leadId = Number(leadSelect.value) || null;
+      if (!leadId) return;
+
+      Array.from(supportWrap.querySelectorAll(".supportSelect")).forEach((sel) => {
+        if (Number(sel.value) === leadId) {
+          sel.value = "";
+        }
+      });
+    };
 
     const btnCancel = smallBtn("Cancel", "secondary");
     btnCancel.onclick = closeModal;

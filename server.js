@@ -2736,23 +2736,18 @@ app.put('/api/jobs/:id/team', async (req, res) => {
 app.get('/api/projects', async (req, res) => {
   try {
     const projects = await Project.findAll({
-  include: [
-    {
-      model: ProjectLift,
       include: [
-        
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
         {
-          model: ProjectLiftAssignment,
-          as: 'assignments',
-          include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role'] }],
+          model: ProjectLift,
+          attributes: ['id'],
         },
       ],
-    },
-  ],
-  order: [['id', 'DESC']],
-});
+      order: [['id', 'DESC']],
+    });
 
-    const out = projects.map(p => ({
+    const out = projects.map((p) => ({
       id: p.id,
       projectCode: p.project_code || '',
       projectName: p.project_name,
@@ -2765,7 +2760,7 @@ app.get('/api/projects', async (req, res) => {
 
     res.json(out);
   } catch (err) {
-    console.error(err);
+    console.error('GET /api/projects error:', err);
     res.status(500).json({ error: err.message });
   }
 });
