@@ -3314,6 +3314,8 @@ async function renderMyJobs() {
       const supportCount = supportNames.length;
       const myRole = a.myRole || "";
 
+console.log("MY JOB RAW:", a.liftCode, a.role);
+
       const tr = document.createElement("tr");
 
       tr.innerHTML = `
@@ -3327,13 +3329,17 @@ async function renderMyJobs() {
 
         <td class="col-lift-code">
   <span class="monoCode noWrapCode">
-    ${String(a.liftCode || "").replace(/\s+/g, "")}
+    ${Array.isArray(a.liftCode)
+      ? a.liftCode.join("")
+      : String(a.liftCode || "").replace(/\s+/g, "")}
   </span>
 </td>
 
 <td class="col-type">
   <span class="noWrapCode">
-    ${String(a.role || "").replace(/\s+/g, " ")}
+    ${Array.isArray(a.role)
+      ? a.role.join("")
+      : String(a.role || "").replace(/\s+/g, "")}
   </span>
 </td>
 
