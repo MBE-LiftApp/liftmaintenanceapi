@@ -2897,7 +2897,7 @@ app.get('/api/projects/:projectId', async (req, res) => {
 
     const project = await Project.findByPk(projectId, {
       include: [
-        { model: Customer, attributes: ['id', 'name', 'phone', 'email'] },
+        { model: Customer, attributes: ['id', 'name'] },
         { model: Site, attributes: ['id', 'name', 'gps_lat', 'gps_lng'] },
         {
           model: ProjectLift,
@@ -3097,13 +3097,11 @@ console.log('LIFT IDS:', liftIds);
       status: project.status,
       notes: project.notes || '',
       customer: project.Customer
-        ? {
-            id: project.Customer.id,
-            name: project.Customer.name,
-            phone: project.Customer.phone,
-            email: project.Customer.email,
-          }
-        : null,
+  ? {
+      id: project.Customer.id,
+      name: project.Customer.name,
+    }
+  : null,
       site: project.Site
   ? {
       id: project.Site.id,
