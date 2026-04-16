@@ -3204,22 +3204,80 @@ app.put('/api/project-lifts/:projectLiftId/milestones', async (req, res) => {
 
     const body = req.body || {};
 
+    function parseDateOnly(v) {
+      if (!v) return null;
+      const d = new Date(`${v}T00:00:00`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function compareDateOnly(a, b) {
+      if (!a || !b) return 0;
+      const da = parseDateOnly(a);
+      const db = parseDateOnly(b);
+      if (!da || !db) return 0;
+      if (da < db) return -1;
+      if (da > db) return 1;
+      return 0;
+    }
+
+    const installationStartDate = body.installationStartDate || null;
+    const installationEndDate = body.installationEndDate || null;
+    const testingStartDate = body.testingStartDate || null;
+    const testingEndDate = body.testingEndDate || null;
+    const handoverDate = body.handoverDate || null;
+
+    const warrantyMonths = Number.isFinite(Number(body.warrantyMonths))
+      ? Number(body.warrantyMonths)
+      : (pl.warranty_months ?? pl.warrantyMonths ?? 12);
+
+    const warrantyServiceVisits = Number.isFinite(Number(body.warrantyServiceVisits))
+      ? Number(body.warrantyServiceVisits)
+      : (pl.warranty_service_visits ?? pl.warrantyServiceVisits ?? 5);
+
+    if (installationStartDate && installationEndDate && compareDateOnly(installationEndDate, installationStartDate) < 0) {
+      return res.status(400).json({
+        error: 'Installation End Date cannot be earlier than Installation Start Date'
+      });
+    }
+
+    if (installationEndDate && testingStartDate && compareDateOnly(testingStartDate, installationEndDate) < 0) {
+      return res.status(400).json({
+        error: 'Testing Start Date cannot be earlier than Installation End Date'
+      });
+    }
+
+    if (testingStartDate && testingEndDate && compareDateOnly(testingEndDate, testingStartDate) < 0) {
+      return res.status(400).json({
+        error: 'Testing End Date cannot be earlier than Testing Start Date'
+      });
+    }
+
+    if (testingEndDate && handoverDate && compareDateOnly(handoverDate, testingEndDate) < 0) {
+      return res.status(400).json({
+        error: 'Handover Target Date cannot be earlier than Testing End Date'
+      });
+    }
+
+    if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
+      return res.status(400).json({
+        error: 'Warranty Months must be at least 1'
+      });
+    }
+
+    if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+      return res.status(400).json({
+        error: 'Warranty Service Visits must be at least 1'
+      });
+    }
+
     const fields = {
-      installation_start_date: body.installationStartDate || null,
-      installation_end_date: body.installationEndDate || null,
-      testing_start_date: body.testingStartDate || null,
-      testing_end_date: body.testingEndDate || null,
-
-      handover_date: body.handoverDate || null,
-
-      warranty_months: Number.isFinite(Number(body.warrantyMonths))
-        ? Number(body.warrantyMonths)
-        : (pl.warranty_months ?? pl.warrantyMonths ?? 12),
-
-      warrantyServiceVisits: Number.isFinite(Number(body.warrantyServiceVisits))
-        ? Number(body.warrantyServiceVisits)
-        : (pl.warrantyServiceVisits ?? pl.warranty_service_visits ?? 5),
-
+      installation_start_date: installationStartDate,
+      installation_end_date: installationEndDate,
+      testing_start_date: testingStartDate,
+      testing_end_date: testingEndDate,
+      handover_date: handoverDate,
+      warranty_months: warrantyMonths,
+      warranty_service_visits: warrantyServiceVisits,
       notes: body.notes != null ? String(body.notes) : pl.notes,
     };
 
@@ -3239,7 +3297,7 @@ app.put('/api/project-lifts/:projectLiftId/milestones', async (req, res) => {
       warrantyMonths: pl.warranty_months ?? pl.warrantyMonths ?? 12,
       warrantyStartDate: pl.warranty_start_date,
       warrantyEndDate: pl.warranty_end_date,
-      warrantyServiceVisits: pl.warrantyServiceVisits ?? pl.warranty_service_visits ?? 5,
+      warrantyServiceVisits: pl.warranty_service_visits ?? pl.warrantyServiceVisits ?? 5,
       notes: pl.notes || '',
     });
   } catch (err) {

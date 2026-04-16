@@ -1271,7 +1271,7 @@ function showMilestoneModal(projectLiftId, lift) {
 
       <div class="field">
         <label>Handover Target Date</label>
-<input type="date" id="handoverDate" value="${lift.handoverDate || ""}" />
+        <input type="date" id="handoverDate" value="${lift.handoverDate || ""}" />
       </div>
 
       <div class="field">
@@ -1279,14 +1279,18 @@ function showMilestoneModal(projectLiftId, lift) {
         <input type="number" min="1" id="warrantyMonths" value="${lift.warrantyMonths ?? 12}" />
       </div>
 
-<div class="field">
-  <label>Warranty Service Visits</label>
-  <input type="number" min="1" id="warrantyServiceVisits" value="${lift.warrantyServiceVisits ?? 5}" />
-</div>
+      <div class="field">
+        <label>Warranty Service Visits</label>
+        <input type="number" min="1" id="warrantyServiceVisits" value="${lift.warrantyServiceVisits ?? 5}" />
+      </div>
 
       <div class="field" style="grid-column:1/-1">
         <label>Notes</label>
         <textarea id="milestoneNotes" placeholder="Installation / testing / handover notes...">${lift.notes || ""}</textarea>
+      </div>
+
+      <div class="field" style="grid-column:1/-1">
+        <div id="milestoneValidationBox" class="muted" style="font-size:12px;"></div>
       </div>
 
       <div class="field" style="grid-column:1/-1">
@@ -1297,26 +1301,126 @@ function showMilestoneModal(projectLiftId, lift) {
     </div>
   `;
 
+  const installationStartEl = body.querySelector("#installationStartDate");
+  const installationEndEl = body.querySelector("#installationEndDate");
+  const testingStartEl = body.querySelector("#testingStartDate");
+  const testingEndEl = body.querySelector("#testingEndDate");
+  const handoverDateEl = body.querySelector("#handoverDate");
+  const warrantyMonthsEl = body.querySelector("#warrantyMonths");
+  const warrantyVisitsEl = body.querySelector("#warrantyServiceVisits");
+  const validationBox = body.querySelector("#milestoneValidationBox");
+
+  function parseDateOnly(v) {
+    if (!v) return null;
+    const d = new Date(`${v}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function compareDateOnly(a, b) {
+    if (!a || !b) return 0;
+    const da = parseDateOnly(a);
+    const db = parseDateOnly(b);
+    if (!da || !db) return 0;
+    if (da < db) return -1;
+    if (da > db) return 1;
+    return 0;
+  }
+
+  function validateMilestones() {
+    const errors = [];
+    const warnings = [];
+
+    const installationStartDate = installationStartEl.value || null;
+    const installationEndDate = installationEndEl.value || null;
+    const testingStartDate = testingStartEl.value || null;
+    const testingEndDate = testingEndEl.value || null;
+    const handoverDate = handoverDateEl.value || null;
+    const warrantyMonths = Number(warrantyMonthsEl.value || 0);
+    const warrantyServiceVisits = Number(warrantyVisitsEl.value || 0);
+
+    if (installationStartDate && installationEndDate && compareDateOnly(installationEndDate, installationStartDate) < 0) {
+      errors.push("Installation End Date cannot be earlier than Installation Start Date.");
+    }
+
+    if (installationEndDate && testingStartDate && compareDateOnly(testingStartDate, installationEndDate) < 0) {
+      errors.push("Testing Start Date cannot be earlier than Installation End Date.");
+    }
+
+    if (testingStartDate && testingEndDate && compareDateOnly(testingEndDate, testingStartDate) < 0) {
+      errors.push("Testing End Date cannot be earlier than Testing Start Date.");
+    }
+
+    if (testingEndDate && handoverDate && compareDateOnly(handoverDate, testingEndDate) < 0) {
+      errors.push("Handover Target Date cannot be earlier than Testing End Date.");
+    }
+
+    if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
+      errors.push("Warranty Months must be at least 1.");
+    }
+
+    if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+      errors.push("Warranty Service Visits must be at least 1.");
+    }
+
+    if (installationEndDate && testingStartDate && compareDateOnly(testingStartDate, installationEndDate) > 0) {
+      warnings.push("Testing starts after installation end, which is fine if intentional.");
+    }
+
+    if (testingEndDate && handoverDate && compareDateOnly(handoverDate, testingEndDate) > 0) {
+      warnings.push("Handover target is later than testing end, which is fine if intentional.");
+    }
+
+    if (errors.length) {
+      validationBox.className = "warnText";
+      validationBox.innerHTML = errors.map(x => `• ${x}`).join("<br>");
+    } else if (warnings.length) {
+      validationBox.className = "muted";
+      validationBox.innerHTML = warnings.map(x => `• ${x}`).join("<br>");
+    } else {
+      validationBox.className = "goodText";
+      validationBox.textContent = "Milestone sequence looks valid.";
+    }
+
+    return { errors, warnings };
+  }
+
+  [
+    installationStartEl,
+    installationEndEl,
+    testingStartEl,
+    testingEndEl,
+    handoverDateEl,
+    warrantyMonthsEl,
+    warrantyVisitsEl,
+  ].forEach((el) => {
+    if (el) el.addEventListener("change", validateMilestones);
+    if (el) el.addEventListener("input", validateMilestones);
+  });
+
+  validateMilestones();
+
   const btnCancel = smallBtn("Cancel", "secondary");
   btnCancel.onclick = closeModal;
 
   const btnSave = smallBtn("Save Milestones", "primary");
   btnSave.onclick = async () => {
     try {
-      const payload = {
-  installationStartDate: body.querySelector("#installationStartDate").value || null,
-  installationEndDate: body.querySelector("#installationEndDate").value || null,
-  testingStartDate: body.querySelector("#testingStartDate").value || null,
-  testingEndDate: body.querySelector("#testingEndDate").value || null,
-  handoverDate: body.querySelector("#handoverDate").value || null,
-  warrantyMonths: Number(body.querySelector("#warrantyMonths").value || 12),
-  warrantyServiceVisits: Number(body.querySelector("#warrantyServiceVisits").value || 5),
-  notes: body.querySelector("#milestoneNotes").value || "",
-};
+      const check = validateMilestones();
+      if (check.errors.length) {
+        throw new Error(check.errors[0]);
+      }
 
-if (payload.warrantyServiceVisits < 1) {
-  throw new Error("Warranty Service Visits must be at least 1");
-}
+      const payload = {
+        installationStartDate: installationStartEl.value || null,
+        installationEndDate: installationEndEl.value || null,
+        testingStartDate: testingStartEl.value || null,
+        testingEndDate: testingEndEl.value || null,
+        handoverDate: handoverDateEl.value || null,
+        warrantyMonths: Number(warrantyMonthsEl.value || 12),
+        warrantyServiceVisits: Number(warrantyVisitsEl.value || 5),
+        notes: body.querySelector("#milestoneNotes").value || "",
+      };
+
       await API.saveProjectLiftMilestones(projectLiftId, payload);
 
       closeModal();
@@ -1333,6 +1437,7 @@ if (payload.warrantyServiceVisits < 1) {
     footerNodes: [btnCancel, btnSave],
   });
 }
+
 function renderAmcAssignmentPanel(rows = []) {
   if (!Array.isArray(rows)) rows = [];
 
