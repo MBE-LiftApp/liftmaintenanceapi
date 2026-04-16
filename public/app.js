@@ -2917,6 +2917,8 @@ async function renderLifts() {
   btnRefresh.onclick = () => renderLifts();
   setToolbar([btnRefresh]);
 
+  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
+
   const rows = await API.listLifts();
 
   root.innerHTML = `
@@ -2927,7 +2929,13 @@ async function renderLifts() {
   `;
 
   const card = root.querySelector(".card");
-  const wrap = makeScrollableTableWrap(`
+
+  const wrap = document.createElement("div");
+  wrap.className = "tableContainer";
+  wrap.style.maxHeight = "420px";
+  wrap.style.overflow = "auto";
+
+  wrap.innerHTML = `
     <table>
       <thead>
         <tr>
@@ -2942,7 +2950,7 @@ async function renderLifts() {
       </thead>
       <tbody id="lBody"></tbody>
     </table>
-  `, "420px");
+  `;
 
   card.appendChild(wrap);
 
@@ -2967,6 +2975,15 @@ async function renderLifts() {
   (rows || []).forEach((l) => {
     const tr = document.createElement("tr");
 
+    const daysRemaining =
+      String(l.warrantyStatus || "").toUpperCase() === "WARRANTY ACTIVE"
+        ? (l.warrantyDaysRemaining ?? "")
+        : (
+            ["AMC ACTIVE", "AMC EXPIRING SOON"].includes(String(l.amcStatus || "").toUpperCase())
+              ? (l.daysToExpiry ?? "")
+              : ""
+          );
+
     tr.innerHTML = `
       <td>${l.liftCode || ""}</td>
       <td>${l.customerName || ""}</td>
@@ -2974,15 +2991,7 @@ async function renderLifts() {
       <td>${l.liftPosition || l.location || ""}</td>
       <td></td>
       <td></td>
-      <td>${
-        String(l.warrantyStatus || "").toUpperCase() === "WARRANTY ACTIVE"
-          ? (l.warrantyDaysRemaining ?? "")
-          : (
-              ["AMC ACTIVE", "AMC EXPIRING SOON"].includes(String(l.amcStatus || "").toUpperCase())
-                ? (l.daysToExpiry ?? "")
-                : ""
-            )
-      }</td>
+      <td>${daysRemaining}</td>
     `;
 
     tr.children[4].appendChild(badge(normalizeWarrantyStatus(l.warrantyStatus)));
@@ -2990,6 +2999,14 @@ async function renderLifts() {
 
     tb.appendChild(tr);
   });
+
+  if (!rows || !rows.length) {
+    tb.innerHTML = `
+      <tr>
+        <td colspan="7" class="muted text-center">No lifts found.</td>
+      </tr>
+    `;
+  }
 }
 
 async function renderJobs() {
