@@ -5212,8 +5212,65 @@ function showCreateTechnicianModal() {
 }
 
 
-function showCreateAmcModal(lift) {
-  const warrantyEndDate = lift?.warrantyEndDate || '';
+function showCreateAmcModal(lift, options = {}) {
+  const currentAmc = options.currentAmc || null;
+  const isRenewal = !!currentAmc;
+
+  const warrantyEndDate =
+    lift?.warrantyEndDate ||
+    lift?.warranty_end_date ||
+    '';
+
+  const currentEndDate =
+    currentAmc?.endDate ||
+    currentAmc?.end_date ||
+    '';
+
+  function addDays(dateStr, days) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  const defaultStartDate = isRenewal
+    ? addDays(currentEndDate, 1)
+    : warrantyEndDate;
+
+  const defaultDurationMonths = Number(
+    currentAmc?.durationMonths ||
+    currentAmc?.duration_months ||
+    12
+  );
+
+  const defaultServiceVisits = Number(
+    currentAmc?.serviceVisitCount ||
+    currentAmc?.service_visit_count ||
+    lift?.amc?.serviceVisitCount ||
+    5
+  );
+
+  const defaultAmcType =
+    currentAmc?.amcType ||
+    currentAmc?.amc_type ||
+    'LABOUR_ONLY';
+
+  const defaultBillingCycle =
+    currentAmc?.billingCycle ||
+    currentAmc?.billing_cycle ||
+    'ANNUAL';
+
+  const defaultContractValue =
+    currentAmc?.contractValue ||
+    currentAmc?.contract_value ||
+    '';
+
+  const defaultNotes =
+    currentAmc?.amcNotes ||
+    currentAmc?.amc_notes ||
+    '';
+
   const body = document.createElement('div');
 
   body.innerHTML = `
@@ -5226,65 +5283,92 @@ function showCreateAmcModal(lift) {
       <div class="field">
         <label>AMC Type</label>
         <select id="amcType">
-          <option value="LABOUR_ONLY">Labour Only</option>
-          <option value="COMPREHENSIVE">Comprehensive</option>
+          <option value="LABOUR_ONLY" ${defaultAmcType === 'LABOUR_ONLY' ? 'selected' : ''}>Labour Only</option>
+          <option value="COMPREHENSIVE" ${defaultAmcType === 'COMPREHENSIVE' ? 'selected' : ''}>Comprehensive</option>
         </select>
       </div>
 
       <div class="field">
         <label>AMC Start Date</label>
-        <input type="date" id="amcStartDate" value="${warrantyEndDate}" />
+        <input type="date" id="amcStartDate" value="${defaultStartDate || ''}" />
       </div>
 
       <div class="field">
         <label>AMC Duration (Months)</label>
-        <input type="number" id="amcDurationMonths" min="1" value="12" />
+        <input type="number" id="amcDurationMonths" min="1" value="${defaultDurationMonths}" />
       </div>
 
       <div class="field">
         <label>AMC Service Visits</label>
-        <input type="number" min="1" id="amcServiceVisits" value="${lift?.amc?.serviceVisitCount ?? 5}" />
+        <input type="number" min="1" id="amcServiceVisits" value="${defaultServiceVisits}" />
       </div>
 
       <div class="field">
         <label>Service Interval (Days)</label>
-        <input type="number" id="amcServiceIntervalDays" min="1" value="90" />
+        <input type="number" id="amcServiceIntervalDays" min="1" readonly />
       </div>
 
       <div class="field">
         <label>Billing Cycle</label>
         <select id="amcBillingCycle">
-          <option value="ANNUAL">Annual</option>
-          <option value="HALF_YEARLY">Half Yearly</option>
-          <option value="QUARTERLY">Quarterly</option>
-          <option value="MONTHLY">Monthly</option>
+          <option value="ANNUAL" ${defaultBillingCycle === 'ANNUAL' ? 'selected' : ''}>Annual</option>
+          <option value="HALF_YEARLY" ${defaultBillingCycle === 'HALF_YEARLY' ? 'selected' : ''}>Half Yearly</option>
+          <option value="QUARTERLY" ${defaultBillingCycle === 'QUARTERLY' ? 'selected' : ''}>Quarterly</option>
+          <option value="MONTHLY" ${defaultBillingCycle === 'MONTHLY' ? 'selected' : ''}>Monthly</option>
         </select>
       </div>
 
       <div class="field">
         <label>Contract Value</label>
-        <input type="number" id="amcContractValue" min="0" step="0.01" placeholder="Optional" />
+        <input type="number" id="amcContractValue" min="0" step="0.01" value="${defaultContractValue}" placeholder="Optional" />
       </div>
 
       <div class="field" style="grid-column:1/-1">
         <label>Notes</label>
-        <textarea id="amcNotes" placeholder="AMC notes, exclusions, visit scope..."></textarea>
+        <textarea id="amcNotes" placeholder="AMC notes, exclusions, visit scope...">${defaultNotes}</textarea>
       </div>
+
+      ${
+        isRenewal
+          ? `
+            <div class="field" style="grid-column:1/-1">
+              <div class="muted" style="font-size:12px">
+                Renewal mode: a new AMC record will be created starting after the previous AMC end date.
+              </div>
+            </div>
+          `
+          : ''
+      }
     </div>
   `;
+
+  function recalcAmcInterval() {
+    const durationMonths = Number(body.querySelector('#amcDurationMonths').value || 12);
+    const serviceVisitCount = Number(body.querySelector('#amcServiceVisits').value || 1);
+
+    const totalDays = durationMonths * 30;
+    const intervalDays = Math.max(1, Math.floor(totalDays / serviceVisitCount));
+
+    body.querySelector('#amcServiceIntervalDays').value = intervalDays;
+  }
+
+  body.querySelector('#amcDurationMonths').addEventListener('input', recalcAmcInterval);
+  body.querySelector('#amcServiceVisits').addEventListener('input', recalcAmcInterval);
+
+  recalcAmcInterval();
 
   const btnCancel = smallBtn('Cancel', 'secondary');
   btnCancel.onclick = closeModal;
 
-  const btnSave = smallBtn('Create AMC', 'primary');
+  const btnSave = smallBtn(isRenewal ? 'Renew AMC' : 'Create AMC', 'primary');
   btnSave.onclick = async () => {
     try {
       const payload = {
         amcType: body.querySelector('#amcType').value,
         startDate: body.querySelector('#amcStartDate').value,
         durationMonths: Number(body.querySelector('#amcDurationMonths').value || 12),
-        serviceIntervalDays: Number(body.querySelector('#amcServiceIntervalDays').value || 90),
         serviceVisitCount: Number(body.querySelector('#amcServiceVisits').value || 5),
+        serviceIntervalDays: Number(body.querySelector('#amcServiceIntervalDays').value || 90),
         billingCycle: body.querySelector('#amcBillingCycle').value,
         contractValue: body.querySelector('#amcContractValue').value || null,
         amcNotes: body.querySelector('#amcNotes').value || '',
@@ -5298,24 +5382,32 @@ function showCreateAmcModal(lift) {
         throw new Error('AMC Service Visits must be at least 1');
       }
 
-      const r = await fetch(`/api/project-lifts/${lift.projectLiftId || lift.id}/amc`, {
+      if (payload.durationMonths < 1) {
+        throw new Error('AMC Duration must be at least 1 month');
+      }
+
+      const endpoint = isRenewal
+        ? `/api/amc/${currentAmc.id}/renew`
+        : `/api/project-lifts/${lift.projectLiftId || lift.id}/amc`;
+
+      const r = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || 'Failed to create AMC');
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error || (isRenewal ? 'Failed to renew AMC' : 'Failed to create AMC'));
 
       closeModal();
-      await renderServiceDashboard();
+      await renderAMC();
     } catch (e) {
       alert(e.message || String(e));
     }
   };
 
   openModal({
-    title: `Create AMC - ${lift?.liftCode || ''}`,
+    title: `${isRenewal ? 'Renew AMC' : 'Create AMC'} - ${lift?.liftCode || ''}`,
     bodyNode: body,
     footerNodes: [btnCancel, btnSave],
   });
