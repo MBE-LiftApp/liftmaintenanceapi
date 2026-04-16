@@ -1829,7 +1829,6 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
               model: ProjectLift,
               include: [
                 { model: Project, attributes: ['id', 'project_name', 'project_code'] },
-                
               ],
             },
             { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
@@ -1864,7 +1863,7 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
         role: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
         teamRole: row.teamRole,
         status: a.status,
-	resubmissionRequired: !!a.resubmission_required,
+        resubmissionRequired: !!a.resubmission_required,
         dueDate: a.due_date,
         assignedAt: a.assigned_at,
         startedAt: a.started_at,
@@ -1879,22 +1878,6 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
               role: a.Technician.role,
             }
           : null,
-
-team: Array.isArray(a.ProjectLiftJobTechnicians)
-  ? a.ProjectLiftJobTechnicians.map((m) => ({
-      technicianId: m.technicianId,
-      teamRole: m.teamRole,
-      technician: m.Technician
-        ? {
-            id: m.Technician.id,
-            name: m.Technician.name,
-            phone: m.Technician.phone,
-            role: m.Technician.role,
-            skills: m.Technician.skills || '',
-          }
-        : null,
-    }))
-  : [],
 
         leadTechnician: summary.lead
           ? summary.lead.technician
@@ -1913,11 +1896,11 @@ team: Array.isArray(a.ProjectLiftJobTechnicians)
 
         team: summary.team,
 
-        lift: a.ProjectLift?.Lift
+        lift: a.ProjectLift
           ? {
-              id: a.ProjectLift.Lift.id,
-              liftCode: a.ProjectLift.Lift.liftCode,
-              location: a.ProjectLift.Lift.location || (a.ProjectLift.location_label || ''),
+              id: a.ProjectLift.id,
+              liftCode: a.ProjectLift.lift_code || '',
+              location: a.ProjectLift.location_label || '',
             }
           : null,
 
@@ -2739,10 +2722,7 @@ app.get('/api/projects', async (req, res) => {
       include: [
         { model: Customer, attributes: ['id', 'name'] },
         { model: Site, attributes: ['id', 'name'] },
-        {
-          model: ProjectLift,
-          attributes: ['id'],
-        },
+        { model: ProjectLift, attributes: ['id'] },
       ],
       order: [['id', 'DESC']],
     });
@@ -2770,56 +2750,51 @@ app.post('/api/projects', async (req, res) => {
   try {
     const body = req.body || {};
 
-    // Accept both frontend styles for safety
-    const projectName = String(
-      body.projectName || body.project_name || ''
-    ).trim();
-
-    const customerName = String(
-      body.customerName || body.customer_name || ''
-    ).trim();
-
-    const siteName = String(
-      body.building || body.site_name || body.siteName || ''
-    ).trim();
-
+    const projectName = String(body.projectName || body.project_name || '').trim();
+    const customerName = String(body.customerName || body.customer_name || '').trim();
+    const siteName = String(body.building || body.site_name || body.siteName || '').trim();
     const notes = body.notes != null ? String(body.notes).trim() : null;
 
     if (!projectName) {
       return res.status(400).json({ error: 'Project name is required' });
     }
 
+    if (!customerName) {
+      return res.status(400).json({ error: 'Customer name is required' });
+    }
+
     let customer = null;
-    if (customerName) {
-      // direct SQL avoids model field-mapping surprises
-      const [customerRows] = await sequelize.query(
+    const [customerRows] = await sequelize.query(
+      `
+      SELECT id, name
+      FROM customers
+      WHERE name = :name
+      LIMIT 1
+      `,
+      {
+        replacements: { name: customerName },
+      }
+    );
+
+    customer = customerRows[0] || null;
+
+    if (!customer) {
+      const [insertedCustomerRows] = await sequelize.query(
         `
-        SELECT id, name
-        FROM customers
-        WHERE name = :name
-        LIMIT 1
+        INSERT INTO customers (name)
+        VALUES (:name)
+        RETURNING id, name
         `,
         {
           replacements: { name: customerName },
         }
       );
 
-      customer = customerRows[0] || null;
+      customer = insertedCustomerRows[0] || null;
+    }
 
-      if (!customer) {
-        const [insertedCustomerRows] = await sequelize.query(
-          `
-          INSERT INTO customers (name)
-          VALUES (:name)
-          RETURNING id, name
-          `,
-          {
-            replacements: { name: customerName },
-          }
-        );
-
-        customer = insertedCustomerRows[0] || null;
-      }
+    if (!customer || !customer.id) {
+      return res.status(500).json({ error: 'Failed to create or load customer' });
     }
 
     let site = null;
@@ -2869,15 +2844,13 @@ app.post('/api/projects', async (req, res) => {
         customer_id,
         site_id,
         status,
-        notes,
-        created_at,
-        updated_at
+        notes
       `,
       {
         replacements: {
           projectCode,
           projectName,
-          customerId: customer ? customer.id : null,
+          customerId: customer.id,
           siteId: site ? site.id : null,
           status: 'OPEN',
           notes: notes || null,
@@ -2887,17 +2860,15 @@ app.post('/api/projects', async (req, res) => {
 
     const project = projectRows[0];
 
-    return res.json({
+    res.json({
       id: project.id,
       projectCode: project.project_code || '',
       projectName: project.project_name || '',
       status: project.status || 'OPEN',
-      customer: customer
-        ? {
-            id: customer.id,
-            name: customer.name,
-          }
-        : null,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+      },
       site: site
         ? {
             id: site.id,
@@ -2909,9 +2880,7 @@ app.post('/api/projects', async (req, res) => {
     });
   } catch (err) {
     console.error('POST /api/projects error:', err);
-    return res.status(500).json({
-      error: err.message || 'Failed to create project',
-    });
+    res.status(500).json({ error: err.message || 'Failed to create project' });
   }
 });
 
