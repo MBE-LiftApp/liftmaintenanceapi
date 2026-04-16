@@ -4643,19 +4643,14 @@ async function getOrCreateAmcContract(liftId, defaults = {}) {
 
 app.get('/api/lifts', async (req, res) => {
   try {
-    const lifts = await Lift.findAll({
+    const projectLifts = await ProjectLift.findAll({
       include: [
         {
-          model: ProjectLift,
+          model: Project,
+          attributes: ['id', 'project_name', 'project_code', 'status'],
           include: [
-            {
-              model: Project,
-              attributes: ['id', 'project_name', 'project_code', 'status'],
-              include: [
-                { model: Customer, attributes: ['id', 'name'] },
-                { model: Site, attributes: ['id', 'name'] },
-              ],
-            },
+            { model: Customer, attributes: ['id', 'name'] },
+            { model: Site, attributes: ['id', 'name'] },
           ],
         },
       ],
@@ -4664,19 +4659,12 @@ app.get('/api/lifts', async (req, res) => {
 
     const today = startOfDay(new Date());
 
-    const result = lifts.map((lift) => {
-      const j = lift.toJSON();
+    const result = projectLifts.map((pl) => {
+      const project = pl.Project || null;
 
-      const projectLift =
-        Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
-          ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
-          : null;
-
-      const project = projectLift?.Project || null;
-
-      const warrantyStartDate = projectLift?.warranty_start_date || null;
-      const warrantyEndDate = projectLift?.warranty_end_date || null;
-      const handoverActualDate = projectLift?.handover_actual_date || null;
+      const warrantyStartDate = pl.warranty_start_date || null;
+      const warrantyEndDate = pl.warranty_end_date || null;
+      const handoverActualDate = pl.handover_actual_date || null;
 
       let warrantyStatus = 'NO WARRANTY';
       const warrantyEndOnly = parseDateOnly(warrantyEndDate);
@@ -4691,12 +4679,19 @@ app.get('/api/lifts', async (req, res) => {
       }
 
       return {
-        id: j.id,
-        liftCode: projectLift?.lift_code || j.liftCode || j.lift_code || '',
+        id: pl.id,
+        projectLiftId: pl.id,
+        projectId: project?.id || null,
+        projectCode: project?.project_code || '',
+        projectName: project?.project_name || '',
+        liftCode: pl.lift_code || '',
         customerName: project?.Customer?.name || '',
         building: project?.Site?.name || '',
-        location: projectLift?.location_label || j.location || '',
-        status: (j.status || j.current_status || 'ACTIVE').toUpperCase(),
+        location: pl.location_label || '',
+        passengerCapacity: pl.passenger_capacity ?? null,
+        liftType: pl.lift_type ?? null,
+        numberOfFloors: pl.number_of_floors ?? null,
+        status: String(project?.status || 'OPEN').toUpperCase(),
 
         warrantyStatus,
         warrantyStartDate,
@@ -4712,7 +4707,6 @@ app.get('/api/lifts', async (req, res) => {
         contractValue: null,
         serviceIntervalDays: null,
         amcNotes: null,
-
         amcLastServiceDate: null,
         amcNextServiceDue: null,
         amcOverdueDays: 0,
