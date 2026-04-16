@@ -4371,9 +4371,9 @@ function showCreateProjectModal() {
   btnSave.onclick = async () => {
     try {
       const payload = {
-  project_name: body.querySelector("#projectName").value.trim(),
-  customer_name: body.querySelector("#customerName").value.trim(),
-  site_name: body.querySelector("#building").value.trim(),
+  projectName: body.querySelector("#projectName").value.trim(),
+  customerName: body.querySelector("#customerName").value.trim(),
+  building: body.querySelector("#building").value.trim(),
   notes: body.querySelector("#notes").value || "",
 };
 

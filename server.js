@@ -5141,68 +5141,48 @@ app.post('/api/lifts/:liftId/jobs', async (req, res) => {
 // --------------------
 app.get('/api/dashboard', async (req, res) => {
   try {
-    const lifts = await Lift.findAll({ 
-  include: [{ model: ServiceLog }] 
-});
     const today = startOfDay(new Date());
 
-    let total = 0,
-      active = 0,
-      maintenance = 0,
-      breakdown = 0,
-      totalCost = 0,
-      overdueServices = 0,
-      amcActive = 0,
-      amcExpiringSoon = 0,
-      amcExpired = 0;
+    const projects = await Project.findAll({
+      include: [
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+            },
+          ],
+        },
+      ],
+      order: [['id', 'DESC']],
+    });
 
-    for (const lift of lifts) {
-      total++;
-      const j = lift.toJSON();
-      const status = (j.status || '').toUpperCase();
+    let total = 0;
+    let active = 0;
+    let maintenance = 0;
+    let breakdown = 0;
+    let totalCost = 0;
+    let overdueServices = 0;
+    let amcActive = 0;
+    let amcExpiringSoon = 0;
+    let amcExpired = 0;
 
-      if (status === 'ACTIVE') active++;
-      else if (status === 'MAINTENANCE') maintenance++;
-      else if (status === 'BREAKDOWN') breakdown++;
+    for (const p of projects) {
+      for (const pl of (p.ProjectLifts || [])) {
+        total++;
 
-      const logs = (j.ServiceLogs || []).filter(
-        (l) => String(l.workDone || '').toUpperCase() === 'AMC SERVICE'
-      );
+        const status = String(p.status || 'OPEN').toUpperCase();
+        if (status === 'ACTIVE' || status === 'OPEN') active++;
+        else if (status === 'MAINTENANCE') maintenance++;
+        else if (status === 'BREAKDOWN') breakdown++;
 
-      totalCost += logs.reduce((sum, x) => sum + Number(x.cost || 0), 0);
-
-      
-      const amc = computeAmcStatus(amcC?.startDate || null, amcC?.endDate || null, today);
-
-      if (amc.amcStatus === 'ACTIVE') amcActive++;
-      else if (amc.amcStatus === 'EXPIRING_SOON') amcExpiringSoon++;
-      else if (amc.amcStatus === 'EXPIRED') amcExpired++;
-
-      let lastServiceDate = null;
-      if (logs.length) {
-        logs.sort((a, b) => new Date(b.serviceDate) - new Date(a.serviceDate));
-        lastServiceDate = logs[0].serviceDate || null;
-      }
-
-      
-      const interval = Number(amcC2?.serviceIntervalDays || 30);
-
-      if (lastServiceDate) {
-        const last = parseDateOnly(lastServiceDate);
-        if (last) {
-          const next = new Date(last);
-          next.setDate(next.getDate() + interval);
-          if (today > next) overdueServices++;
-        }
-      } else {
-        const start = parseDateOnly(amcC2?.startDate);
-        if (start) {
-          const next = new Date(start);
-          next.setDate(next.getDate() + interval);
-          if (today > next) overdueServices++;
+        const warrantyEnd = parseDateOnly(pl.warranty_end_date || null);
+        if (warrantyEnd && today > warrantyEnd) {
+          overdueServices++;
         }
       }
-    } // <-- THIS BRACE WAS MISSING
+    }
 
     res.json({
       total,
