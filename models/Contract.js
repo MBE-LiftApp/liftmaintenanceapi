@@ -10,6 +10,23 @@ module.exports = (sequelize, DataTypes) => {
         field: 'project_lift_id',
       },
 
+liftId: {
+  type: DataTypes.BIGINT,
+  allowNull: true,
+  field: 'lift_id',
+},
+
+contractType: {
+  type: DataTypes.TEXT,
+  allowNull: true,
+  field: 'contract_type',
+},
+
+status: {
+  type: DataTypes.TEXT,
+  allowNull: true,
+  field: 'status',
+},
       amcType: {
         type: DataTypes.TEXT,
         allowNull: true,

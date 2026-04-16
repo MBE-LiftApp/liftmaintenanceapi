@@ -2417,43 +2417,47 @@ app.post('/api/service/create-all-due-jobs', async (req, res) => {
     }
 
     // AMC
-    for (const row of amcDue) {
-      try {
-        const pl = await ProjectLift.findByPk(row.projectLiftId, {
-          include: [
-            {
-              model: ProjectLiftAssignment,
-              as: 'assignments',
-              include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role', 'skills', 'isActive'] }],
-            },
-          ],
-        });
+for (const row of amcDue) {
+  try {
+    const pl = await ProjectLift.findByPk(row.projectLiftId, {
+      include: [
+        {
+          model: ProjectLiftAssignment,
+          as: 'assignments',
+          include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role', 'skills', 'isActive'] }],
+        },
+      ],
+    });
 
-        const resolvedLiftId = Number((pl && (pl.lift_id || pl.liftId)) || 0);
+    const resolvedLiftId = Number((pl && (pl.lift_id || pl.liftId)) || 0);
 
-if (!pl || !resolvedLiftId) {
-  skipped.push({
-    type: 'AMC SERVICE',
-    projectLiftId: row.projectLiftId,
-    liftCode: row.liftCode || '',
-    reason: 'Project lift is not linked to a lift record',
-  });
-  continue;
-}
+    if (!pl || !resolvedLiftId) {
+      skipped.push({
+        type: 'AMC SERVICE',
+        projectLiftId: row.projectLiftId,
+        liftCode: row.liftCode || '',
+        reason: 'Project lift is not linked to a lift record',
+      });
+      continue;
+    }
 
-const contract = await Contract.findOne({
-  where: { liftId: resolvedLiftId, contractType: 'AMC', status: 'ACTIVE' },
-});
+    const contract = await Contract.findOne({
+      where: {
+        liftId: resolvedLiftId,
+        contractType: 'AMC',
+        status: 'ACTIVE',
+      },
+    });
 
-        if (!contract) {
-          skipped.push({
-            type: 'AMC SERVICE',
-            projectLiftId: row.projectLiftId,
-            liftCode: row.liftCode || '',
-            reason: 'No active AMC contract found',
-          });
-          continue;
-        }
+    if (!contract) {
+      skipped.push({
+        type: 'AMC SERVICE',
+        projectLiftId: row.projectLiftId,
+        liftCode: row.liftCode || '',
+        reason: 'No active AMC contract found',
+      });
+      continue;
+    }
 
         const rawAssignments = Array.isArray(pl.assignments) ? pl.assignments : [];
 
@@ -2587,7 +2591,6 @@ app.post('/api/project-lifts/:projectLiftId/auto-amc-job', async (req, res) => {
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -2614,7 +2617,11 @@ app.post('/api/project-lifts/:projectLiftId/auto-amc-job', async (req, res) => {
     }
 
     const contract = await Contract.findOne({
-      where: { liftId: resolvedLiftId, contractType: 'AMC', status: 'ACTIVE' },
+      where: {
+        liftId: resolvedLiftId,
+        contractType: 'AMC',
+        status: 'ACTIVE',
+      },
     });
 
     if (!contract) {
@@ -3777,7 +3784,6 @@ app.post('/api/project-lifts/:projectLiftId/amc-service-assign', async (req, res
 
     const pl = await ProjectLift.findByPk(projectLiftId, {
       include: [
-        
         {
           model: ProjectLiftAssignment,
           as: 'assignments',
@@ -3788,14 +3794,19 @@ app.post('/api/project-lifts/:projectLiftId/amc-service-assign', async (req, res
 
     if (!pl) return res.status(404).json({ error: 'Project lift not found' });
 
-const resolvedLiftId = Number(pl.lift_id || pl.liftId || 0);
-if (!resolvedLiftId) {
-  return res.status(400).json({ error: 'Project lift is not linked to a lift record' });
-}
+    const resolvedLiftId = Number(pl.lift_id || pl.liftId || 0);
+    if (!resolvedLiftId) {
+      return res.status(400).json({ error: 'Project lift is not linked to a lift record' });
+    }
 
-const contract = await Contract.findOne({
-  where: { liftId: resolvedLiftId, contractType: 'AMC', status: 'ACTIVE' },
-});
+    const contract = await Contract.findOne({
+      where: {
+        liftId: resolvedLiftId,
+        contractType: 'AMC',
+        status: 'ACTIVE',
+      },
+    });
+
     if (!contract) return res.status(400).json({ error: 'No active AMC exists for this lift' });
 
     const rawAssignments = Array.isArray(pl.assignments) ? pl.assignments : [];
