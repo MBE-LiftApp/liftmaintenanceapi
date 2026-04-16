@@ -900,3 +900,34 @@ td div {
 .myJobsTable th.col-job-code {
   white-space: nowrap !important;
 }
+/* ===== FIX: Prevent column crushing ===== */
+
+.myJobsTable {
+  table-layout: auto !important;
+  width: max-content !important;
+  min-width: 100%;
+}
+
+/* Force important columns to stay intact */
+.myJobsTable .col-lift-code {
+  min-width: 130px;
+}
+
+.myJobsTable .col-type {
+  min-width: 110px;
+}
+
+.myJobsTable .col-due {
+  min-width: 130px;
+}
+
+.myJobsTable .col-job-code {
+  min-width: 70px;
+}
+
+/* Ensure scroll works instead of shrinking */
+.tableWrap table,
+.tableContainer table {
+  width: max-content;
+  min-width: 100%;
+}
