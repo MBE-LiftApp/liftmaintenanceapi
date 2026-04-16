@@ -2505,32 +2505,34 @@ lifts.forEach((l) => {
 
   const tr = document.createElement("tr");
   tr.innerHTML = `
-    <td style="min-width:160px">
-      <div><b>${l.liftCode || ''}</b></div>
-      <div class="muted">${l.location || '—'}</div>
-    </td>
-    <td style="min-width:220px">
-      ${infoLine('Type', l.liftType || '—')}
-      ${infoLine('Capacity', l.passengerCapacity ? `${l.passengerCapacity} persons` : '—')}
-      ${infoLine('Floors', l.numberOfFloors || '—')}
-      ${infoLine('Warranty', `${l.warrantyMonths ?? 12} months`)}
-    </td>
-    <td class="muted" style="min-width:240px">
-  ${infoLine('Installation', installRange)}
-  ${infoLine('Testing', testRange)}
-  ${infoLine('Handover Target', l.handoverDate || '—')}
-  ${infoLine('Handover Actual', l.handoverActualDate || '—')}
-  ${infoLine('Warranty Dates', warrantyRange)}
-  ${infoLine(
-    'Warranty Visits',
-    `${l?.warranty?.completedVisits ?? 0} / ${l?.warranty?.serviceVisitCount ?? l.warrantyServiceVisits ?? 5}`
-  )}
-</td>
+  <td style="min-width:160px">
+    <div><b>${l.liftCode || ''}</b></div>
+    <div class="muted">${l.location || '—'}</div>
+  </td>
 
-<td class="muted" style="min-width:300px"></td>
-<td style="white-space:nowrap"></td>
-<td style="min-width:320px"></td>
+  <td style="min-width:220px">
+    ${infoLine('Type', l.liftType || '—')}
+    ${infoLine('Capacity', l.passengerCapacity ? `${l.passengerCapacity} persons` : '—')}
+    ${infoLine('Floors', l.numberOfFloors || '—')}
+    ${infoLine('Warranty', `${l.warrantyMonths ?? 12} months`)}
+  </td>
 
+  <td class="muted" style="min-width:240px">
+    ${infoLine('Installation', installRange)}
+    ${infoLine('Testing', testRange)}
+    ${infoLine('Handover Target', l.handoverDate || '—')}
+    ${infoLine('Handover Actual', l.handoverActualDate || '—')}
+    ${infoLine('Warranty Dates', warrantyRange)}
+    ${infoLine(
+      'Warranty Visits',
+      `${l?.warranty?.completedVisits ?? 0} / ${l?.warranty?.serviceVisitCount ?? l.warrantyServiceVisits ?? 5}`
+    )}
+  </td>
+
+  <td class="muted" style="min-width:300px"></td>
+  <td style="white-space:nowrap"></td>
+  <td style="min-width:320px"></td>
+`;
   tr.children[4].innerHTML = `
     <div class="statusCell">
       <div class="statusBadgeWrap"></div>
