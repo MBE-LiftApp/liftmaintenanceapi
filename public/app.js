@@ -3494,33 +3494,38 @@ async function showCreateAmcSelectionModal() {
 
     for (const p of (projects || [])) {
       const r = await fetch(`/api/projects/${p.id}`);
-      const pj = await r.json();
+      const pj = await r.json().catch(() => ({}));
       if (!r.ok) continue;
 
       (pj.lifts || []).forEach((l) => {
-        const handedOver = l.handoverActualDate || l.handover_actual_date;
+        const handedOver =
+          l.handoverActualDate ||
+          l.handover_actual_date ||
+          null;
         if (!handedOver) return;
 
-        const warrantyEndDate = l.warrantyEndDate || l.warranty_end_date;
+        const warrantyEndDate =
+          l.warrantyEndDate ||
+          l.warranty_end_date ||
+          null;
         if (!warrantyEndDate) return;
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         const warrantyEnd = new Date(warrantyEndDate);
+        if (Number.isNaN(warrantyEnd.getTime())) return;
         warrantyEnd.setHours(0, 0, 0, 0);
 
         if (today < warrantyEnd) return;
 
-        const amcStatus = String(l?.amc?.status || '').toUpperCase();
-        if (['AMC ACTIVE'].includes(amcStatus)) return;
-
-        console.log('AMC candidate lift', l);
+        const amcStatus = String(l?.amc?.status || "").toUpperCase();
+        if (["AMC ACTIVE", "AMC EXPIRING SOON"].includes(amcStatus)) return;
 
         eligibleLifts.push({
           ...l,
           projectLiftId: l.id,
-          label: `${l.liftCode} — ${pj.projectCode} (${pj.customer?.name || ''})`,
+          label: `${l.liftCode || "—"} — ${pj.projectCode || ""} (${pj.customer?.name || ""})`,
         });
       });
     }
@@ -3533,13 +3538,23 @@ async function showCreateAmcSelectionModal() {
           <label>Select Lift</label>
           <select id="amcLiftSelect">
             <option value="">-- Select Lift --</option>
-            ${eligibleLifts.map(l => `
+            ${eligibleLifts.map((l) => `
               <option value="${l.projectLiftId}">
                 ${l.label}
               </option>
             `).join("")}
           </select>
         </div>
+
+        ${
+          !eligibleLifts.length
+            ? `
+              <div class="field" style="grid-column:1/-1">
+                <div class="muted">No lifts are currently eligible for AMC creation.</div>
+              </div>
+            `
+            : ""
+        }
       </div>
     `;
 
@@ -3555,15 +3570,13 @@ async function showCreateAmcSelectionModal() {
       }
 
       const lift = eligibleLifts.find(
-        l => String(l.projectLiftId) === String(selectedId)
+        (x) => String(x.projectLiftId) === String(selectedId)
       );
 
       if (!lift) {
         alert("Selected lift could not be resolved");
         return;
       }
-
-      console.log("Selected AMC lift", lift);
 
       closeModal();
       showCreateAmcModal(lift);
@@ -3574,7 +3587,6 @@ async function showCreateAmcSelectionModal() {
       bodyNode: body,
       footerNodes: [btnCancel, btnNext],
     });
-
   } catch (e) {
     alert(e.message || String(e));
   }
@@ -5305,9 +5317,13 @@ function showCreateAmcModal(lift, options = {}) {
         throw new Error('AMC Duration must be at least 1 month');
       }
 
-      const endpoint = isRenewal
-        ? `/api/amc/${currentAmc.id}/renew`
-        : `/api/project-lifts/${lift.projectLiftId || lift.id}/amc`;
+      if (!lift?.projectLiftId) {
+  throw new Error('Invalid project lift reference');
+}
+
+const endpoint = isRenewal
+  ? `/api/amc/${currentAmc.id}/renew`
+  : `/api/project-lifts/${lift.projectLiftId}/amc`;
 
       const r = await fetch(endpoint, {
         method: 'POST',
