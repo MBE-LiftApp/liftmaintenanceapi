@@ -3466,23 +3466,117 @@ async function renderAMC() {
 
   setTitle("AMC");
 
-  const btnCreate = smallBtn("+ Create AMC", "primary");
-  btnCreate.onclick = () => {
-    alert("Create AMC modal coming next");
-  };
-
   const btnRefresh = smallBtn("Refresh", "secondary");
   btnRefresh.onclick = () => renderAMC();
 
-  setToolbar([btnCreate, btnRefresh]);
+  setToolbar([btnRefresh]);
 
   root.innerHTML = `
     <div class="card">
       <div class="label">AMC Management</div>
       <div class="hr"></div>
-      <div class="muted">AMC contracts will be managed here.</div>
+      <div class="muted">Loading handed-over lifts...</div>
     </div>
   `;
+
+  try {
+    const projects = await API.listProjects();
+    const rows = [];
+
+    (projects || []).forEach((p) => {
+      (p.lifts || []).forEach((l) => {
+        if (!l.handoverActualDate) return;
+
+        rows.push({
+          ...l,
+          projectName: p.projectName || '',
+          projectCode: p.projectCode || '',
+          customerName: p.customer?.name || '',
+        });
+      });
+    });
+
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">AMC Management</div>
+        <div class="hr"></div>
+      </div>
+    `;
+
+    const card = root.querySelector(".card");
+    const wrap = makeScrollableTableWrap(`
+      <table>
+        <thead>
+          <tr>
+            <th>Lift</th>
+            <th>Project</th>
+            <th>Customer</th>
+            <th>Warranty End</th>
+            <th>AMC Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="amcBody"></tbody>
+      </table>
+    `, "520px");
+
+    card.appendChild(wrap);
+
+    const tb = wrap.querySelector("#amcBody");
+
+    if (!rows.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="6" class="muted">No handed-over lifts available for AMC.</td>`;
+      tb.appendChild(tr);
+      return;
+    }
+
+    rows.forEach((l) => {
+      const tr = document.createElement("tr");
+
+      const amcStatus = l?.amc?.status || "NO AMC";
+      const warrantyEndDate = l?.warrantyEndDate || l?.warranty_end_date || '—';
+
+      tr.innerHTML = `
+        <td>
+          <div><b>${l.liftCode || ''}</b></div>
+          <div class="muted">${l.location || '—'}</div>
+        </td>
+        <td>${[l.projectCode, l.projectName].filter(Boolean).join(" - ")}</td>
+        <td>${l.customerName || '—'}</td>
+        <td>${warrantyEndDate}</td>
+        <td></td>
+        <td></td>
+      `;
+
+      tr.children[4].appendChild(badge(amcStatus));
+
+      const actionWrap = document.createElement("div");
+      actionWrap.className = "rowActions";
+
+      if (!l.amc || ["AMC EXPIRED", "AMC NOT STARTED", "NO AMC"].includes(String(amcStatus).toUpperCase())) {
+        const btnCreate = smallBtn("Create AMC", "primary");
+        btnCreate.onclick = () => showCreateAmcModal(l);
+        actionWrap.appendChild(btnCreate);
+      } else {
+        const hint = document.createElement("div");
+        hint.className = "muted";
+        hint.textContent = "AMC already exists";
+        actionWrap.appendChild(hint);
+      }
+
+      tr.children[5].appendChild(actionWrap);
+      tb.appendChild(tr);
+    });
+  } catch (e) {
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">AMC failed to load</div>
+        <div class="hr"></div>
+        <div class="muted">${String(e.message || e)}</div>
+      </div>
+    `;
+  }
 }
 
 async function renderMyJobs() {
