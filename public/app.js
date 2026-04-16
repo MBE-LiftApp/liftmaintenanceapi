@@ -1911,8 +1911,14 @@ async function renderProjects() {
   `;
 
   const card = root.querySelector(".card");
-  const wrap = makeScrollableTableWrap(`
-    <table>
+
+  const wrap = document.createElement("div");
+  wrap.className = "tableContainer";
+  wrap.style.maxHeight = "420px";
+  wrap.style.overflow = "auto";
+
+  wrap.innerHTML = `
+    <table class="table">
       <thead>
         <tr>
           <th>Project Code</th>
@@ -1926,7 +1932,7 @@ async function renderProjects() {
       </thead>
       <tbody id="pBody"></tbody>
     </table>
-  `, "420px");
+  `;
 
   card.appendChild(wrap);
 
@@ -1934,17 +1940,19 @@ async function renderProjects() {
 
   (rows || []).forEach((p) => {
     const tr = document.createElement("tr");
+
     tr.innerHTML = `
       <td>${p.projectCode || ""}</td>
       <td>${p.projectName || ""}</td>
       <td>${p.customer?.name || ""}</td>
       <td>${p.site?.name || ""}</td>
       <td>${p.liftCount ?? 0}</td>
-      <td></td>
-      <td></td>
+      <td class="text-center"></td>
+      <td class="text-center"></td>
     `;
 
-    tr.children[5].appendChild(badge(p.status || "OPEN"));
+    const statusEl = badge(p.status || "OPEN");
+    tr.children[5].appendChild(statusEl);
 
     const openBtn = smallBtn("Open", "secondary");
     openBtn.onclick = async () => {
@@ -1954,6 +1962,14 @@ async function renderProjects() {
 
     tb.appendChild(tr);
   });
+
+  if (!rows || !rows.length) {
+    tb.innerHTML = `
+      <tr>
+        <td colspan="7" class="muted text-center">No projects found.</td>
+      </tr>
+    `;
+  }
 }
 
 async function openProject(projectId) {
