@@ -4644,147 +4644,81 @@ async function getOrCreateAmcContract(liftId, defaults = {}) {
 app.get('/api/lifts', async (req, res) => {
   try {
     const lifts = await Lift.findAll({
-  include: [
-    { model: Customer },
-    { model: Site },
-    { model: Contract },
-    { model: ServiceLog },
-    { model: ProjectLift },
-  ],
-  order: [['id', 'ASC']],
-});
+      include: [
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Project,
+              attributes: ['id', 'project_name', 'project_code', 'status'],
+              include: [
+                { model: Customer, attributes: ['id', 'name'] },
+                { model: Site, attributes: ['id', 'name'] },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
 
     const today = startOfDay(new Date());
 
     const result = lifts.map((lift) => {
       const j = lift.toJSON();
 
-const projectLift = Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
-  ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
-  : null;
+      const projectLift =
+        Array.isArray(j.ProjectLifts) && j.ProjectLifts.length
+          ? [...j.ProjectLifts].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0]
+          : null;
 
-const warrantyStartDate = projectLift?.warranty_start_date || null;
-const warrantyEndDate = projectLift?.warranty_end_date || null;
-const handoverActualDate = projectLift?.handover_actual_date || null;
+      const project = projectLift?.Project || null;
 
-let warrantyStatus = 'NO WARRANTY';
+      const warrantyStartDate = projectLift?.warranty_start_date || null;
+      const warrantyEndDate = projectLift?.warranty_end_date || null;
+      const handoverActualDate = projectLift?.handover_actual_date || null;
 
-const warrantyEndOnly = parseDateOnly(warrantyEndDate);
+      let warrantyStatus = 'NO WARRANTY';
+      const warrantyEndOnly = parseDateOnly(warrantyEndDate);
 
-if (handoverActualDate && warrantyEndOnly) {
-  warrantyStatus = today > warrantyEndOnly ? 'WARRANTY EXPIRED' : 'WARRANTY ACTIVE';
-}
-
-let warrantyDaysRemaining = null;
-
-if (warrantyStatus === 'WARRANTY ACTIVE' && warrantyEndOnly) {
-  warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
-}
-      const customerName = j.Customer?.name || '';
-      const building = j.Site?.name || '';
-
-      const amc = pickAmcContract(j.Contracts);
-
-      const hasValidAmc = !!(
-        amc &&
-        String(amc.contractType || amc.contract_type || '').toUpperCase() === 'AMC'
-      );
-
-      const amcStartDate = hasValidAmc ? (amc.startDate || amc.start_date || null) : null;
-      const amcEndDate = hasValidAmc ? (amc.endDate || amc.end_date || null) : null;
-      const amcType = hasValidAmc ? (amc.amcType || amc.amc_type || 'LABOUR_ONLY') : null;
-      const billingCycle = hasValidAmc ? (amc.billingCycle || amc.billing_cycle || 'ANNUAL') : null;
-      const contractValue = hasValidAmc ? (amc.contractValue ?? amc.contract_value ?? 0) : null;
-      const serviceIntervalDays = hasValidAmc
-        ? (amc.serviceIntervalDays ?? amc.service_interval_days ?? 30)
-        : null;
-      const amcNotes = hasValidAmc ? (amc.amcNotes || amc.amc_notes || null) : null;
-
-      const amcLogs = (j.ServiceLogs || []).filter(
-        (l) => String(l.workDone || '').toUpperCase() === 'AMC SERVICE'
-      );
-
-      let amcLastServiceDate = null;
-      if (amcLogs.length) {
-        amcLogs.sort((a, b) => new Date(b.serviceDate) - new Date(a.serviceDate));
-        amcLastServiceDate = amcLogs[0].serviceDate || null;
+      if (handoverActualDate && warrantyEndOnly) {
+        warrantyStatus = today > warrantyEndOnly ? 'WARRANTY EXPIRED' : 'WARRANTY ACTIVE';
       }
 
-      let amcNextServiceDue = null;
-      let amcOverdueDays = 0;
-
-      if (hasValidAmc) {
-        const interval = Number(serviceIntervalDays || 30);
-
-        if (amcLastServiceDate) {
-          const last = parseDateOnly(amcLastServiceDate);
-          if (last) {
-            const next = new Date(last);
-            next.setDate(next.getDate() + interval);
-            amcNextServiceDue = next.toISOString().slice(0, 10);
-
-            const nextOnly = parseDateOnly(amcNextServiceDue);
-            if (nextOnly && today > nextOnly) {
-              amcOverdueDays = daysBetween(nextOnly, today);
-            }
-          }
-        } else if (amcStartDate) {
-          const start = parseDateOnly(amcStartDate);
-          if (start) {
-            const next = new Date(start);
-            next.setDate(next.getDate() + interval);
-            amcNextServiceDue = next.toISOString().slice(0, 10);
-
-            const nextOnly = parseDateOnly(amcNextServiceDue);
-            if (nextOnly && today > nextOnly) {
-              amcOverdueDays = daysBetween(nextOnly, today);
-            }
-          }
-        }
+      let warrantyDaysRemaining = null;
+      if (warrantyStatus === 'WARRANTY ACTIVE' && warrantyEndOnly) {
+        warrantyDaysRemaining = Math.max(0, daysBetween(today, warrantyEndOnly));
       }
-
-      const totalCost = amcLogs.reduce((sum, x) => sum + Number(x.cost || 0), 0);
-
-      const computedAmc = hasValidAmc
-        ? computeAmcStatus(amcStartDate, amcEndDate, today)
-        : { amcStatus: 'NO AMC', daysToExpiry: null };
-
-      let amcStatus = computedAmc.amcStatus;
-      if (amcStatus === 'ACTIVE') amcStatus = 'AMC ACTIVE';
-      else if (amcStatus === 'EXPIRING_SOON') amcStatus = 'AMC EXPIRING SOON';
-      else if (amcStatus === 'EXPIRED') amcStatus = 'AMC EXPIRED';
-      else if (amcStatus === 'NOT_STARTED') amcStatus = 'AMC NOT STARTED';
-      else amcStatus = 'NO AMC';
 
       return {
         id: j.id,
-        liftCode: j.liftCode || j.lift_label || '',
-        customerName,
-        building,
-        location: j.location,
+        liftCode: projectLift?.lift_code || j.liftCode || j.lift_code || '',
+        customerName: project?.Customer?.name || '',
+        building: project?.Site?.name || '',
+        location: projectLift?.location_label || j.location || '',
         status: (j.status || j.current_status || 'ACTIVE').toUpperCase(),
 
-warrantyStatus,
-warrantyStartDate,
-warrantyEndDate,
-handoverActualDate,
-warrantyDaysRemaining,
+        warrantyStatus,
+        warrantyStartDate,
+        warrantyEndDate,
+        handoverActualDate,
+        warrantyDaysRemaining,
 
-        hasAmcContract: hasValidAmc,
-        amcType,
-        amcStartDate,
-        amcEndDate,
-        billingCycle,
-        contractValue,
-        serviceIntervalDays,
-        amcNotes,
+        hasAmcContract: false,
+        amcType: null,
+        amcStartDate: null,
+        amcEndDate: null,
+        billingCycle: null,
+        contractValue: null,
+        serviceIntervalDays: null,
+        amcNotes: null,
 
-        amcLastServiceDate,
-        amcNextServiceDue,
-        amcOverdueDays,
-        totalCost: Number(totalCost.toFixed(2)),
-        amcStatus,
-        daysToExpiry: computedAmc.daysToExpiry,
+        amcLastServiceDate: null,
+        amcNextServiceDue: null,
+        amcOverdueDays: 0,
+        totalCost: 0,
+        amcStatus: 'NO AMC',
+        daysToExpiry: null,
       };
     });
 
@@ -5292,22 +5226,23 @@ app.get('/api/dashboard', async (req, res) => {
 });
 
 app.get('/api/dashboard/workflow-readiness', async (req, res) => {
-try {
-  const projects = await Project.findAll({
-  include: [
-    {
-      model: ProjectLift,
+  try {
+    const projects = await Project.findAll({
       include: [
-        { model: Lift, attributes: ['id', 'liftCode', 'location'] },
         {
-          model: ProjectLiftAssignment,
-          as: 'assignments',
+          model: ProjectLift,
+          include: [
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+            },
+          ],
         },
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
       ],
-    },
-  ],
-  order: [['id', 'DESC']],
-});
+      order: [['id', 'DESC']],
+    });
 
     const norm = (v) => String(v || '').toUpperCase();
 
@@ -5353,15 +5288,21 @@ try {
             norm(a.supervisor_status) !== 'APPROVED'
         );
 
+        const baseRow = {
+          projectId: p.id,
+          projectCode: p.project_code || '',
+          projectName: p.project_name || '',
+          customerName: p.Customer?.name || '',
+          building: p.Site?.name || '',
+          projectLiftId: pl.id,
+          liftCode: pl.lift_code || '',
+          location: pl.location_label || '',
+        };
+
         if (hasActualHandover) {
           handedOver++;
           rows.push({
-            projectId: p.id,
-            projectCode: p.project_code || '',
-            projectName: p.project_name || '',
-            projectLiftId: pl.id,
-            liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            ...baseRow,
             workflowStatus: 'HANDED OVER',
             actionHint: 'Track service lifecycle',
           });
@@ -5371,12 +5312,7 @@ try {
         if (hasTestApproved) {
           readyForHandover++;
           rows.push({
-            projectId: p.id,
-            projectCode: p.project_code || '',
-            projectName: p.project_name || '',
-            projectLiftId: pl.id,
-            liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            ...baseRow,
             workflowStatus: 'READY FOR HANDOVER',
             actionHint: 'Complete Handover',
           });
@@ -5385,12 +5321,7 @@ try {
 
         if (hasTestDonePendingApproval) {
           rows.push({
-            projectId: p.id,
-            projectCode: p.project_code || '',
-            projectName: p.project_name || '',
-            projectLiftId: pl.id,
-            liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            ...baseRow,
             workflowStatus: 'TEST AWAITING APPROVAL',
             actionHint: 'Supervisor approval pending',
           });
@@ -5400,12 +5331,7 @@ try {
         if (hasInstallApproved && !hasAssignedOrInProgressTest && !hasTestApproved && !hasTestDonePendingApproval) {
           readyForTestAssignment++;
           rows.push({
-            projectId: p.id,
-            projectCode: p.project_code || '',
-            projectName: p.project_name || '',
-            projectLiftId: pl.id,
-            liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            ...baseRow,
             workflowStatus: 'READY FOR TEST ASSIGNMENT',
             actionHint: 'Assign Test Job',
           });
@@ -5414,12 +5340,7 @@ try {
 
         if (hasInstallDonePendingApproval) {
           rows.push({
-            projectId: p.id,
-            projectCode: p.project_code || '',
-            projectName: p.project_name || '',
-            projectLiftId: pl.id,
-            liftCode: pl.lift_code || pl.Lift?.liftCode || '',
-            location: pl.location_label || pl.Lift?.location || '',
+            ...baseRow,
             workflowStatus: 'INSTALL AWAITING APPROVAL',
             actionHint: 'Supervisor approval pending',
           });
