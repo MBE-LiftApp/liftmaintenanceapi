@@ -2978,13 +2978,13 @@ console.log('LIFT IDS:', liftIds);
         const warrantyInfo = buildWarrantyInfo(pl, rawAssignments, today);
 
         const amcInfo = buildAmcInfo(
-          amcByLiftId.get(Number(pl.lift_id || pl.liftId)) || null,
-          today,
-          {
-            assignments: rawAssignments,
-            activeServiceAssignment: activeAmcServiceAssignment,
-          }
-        );
+  amcByProjectLiftId.get(Number(pl.id)) || null,
+  today,
+  {
+    assignments: rawAssignments,
+    activeServiceAssignment: activeAmcServiceAssignment,
+  }
+);
 
         const serviceHistory = await buildServiceHistoryForLift(pl, rawAssignments, {
           today,
@@ -5149,14 +5149,13 @@ async function buildServiceDashboardData() {
     order: [['id', 'DESC']],
   });
 
-  const liftIds = projects.flatMap((p) =>
-    (p.ProjectLifts || []).map((pl) => pl.lift_id || pl.liftId).filter(Boolean)
-  );
-  
-// 🔥 FETCH ALL contracts first (no filtering)
-const allAmcCandidates = liftIds.length
+  const projectLiftIds = projects.flatMap((p) =>
+  (p.ProjectLifts || []).map((pl) => pl.id).filter(Boolean)
+);
+
+const allAmcCandidates = projectLiftIds.length
   ? await Contract.findAll({
-      where: { liftId: liftIds },
+      where: { projectLiftId: projectLiftIds },
     })
   : [];
 
@@ -5180,8 +5179,8 @@ console.log('ALL AMC CANDIDATES RAW', allAmcCandidates.map((c) => ({
 })));
 
 // 🔥 BUILD MAP (handle liftId vs lift_id)
-const amcByLiftId = new Map(
-  activeAmcContracts.map((c) => [Number(c.liftId || c.lift_id), c])
+const amcByProjectLiftId = new Map(
+  activeAmcContracts.map((c) => [Number(c.projectLiftId), c])
 );
 
 // 🔥 DEBUG LOG
@@ -5218,8 +5217,10 @@ console.log(
 
       const liftKey = Number(pl.lift_id || pl.liftId);
 
-      const amcInfo = buildAmcInfo(
-  amcByLiftId.get(Number(pl.lift_id || pl.liftId)) || null,
+      const contract = amcByProjectLiftId.get(Number(pl.id)) || null;
+
+const amcInfo = buildAmcInfo(
+  contract,
   today,
   {
     assignments: rawAssignments,
@@ -5227,10 +5228,11 @@ console.log(
   }
 );
 
-// 🔥 ADD THIS BLOCK
+// 🔥 DEBUG (UPDATED)
 console.log('AMC DEBUG', {
+  projectLiftId: pl.id,
   lift: pl.lift_code || pl.liftId,
-  contract: amcByLiftId.get(Number(pl.lift_id || pl.liftId)) || null,
+  contract,
   amcInfo,
   today,
 });
