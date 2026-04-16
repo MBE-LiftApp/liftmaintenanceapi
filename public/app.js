@@ -2502,148 +2502,161 @@ lifts.forEach((l) => {
   const installRange = formatDateRange(l.installationStartDate, l.installationEndDate);
   const testRange = formatDateRange(l.testingStartDate, l.testingEndDate);
   const warrantyRange = formatDateRange(l.warrantyStartDate, l.warrantyEndDate);
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td style="min-width:160px"><div><b>${l.liftCode || ''}</b></div><div class="muted">${l.location || '—'}</div></td>
-      <td style="min-width:220px">${infoLine('Type', l.liftType || '—')}${infoLine('Capacity', l.passengerCapacity ? `${l.passengerCapacity} persons` : '—')}${infoLine('Floors', l.numberOfFloors || '—')}${infoLine('Warranty', `${l.warrantyMonths ?? 12} months`)}</td>
-      <td class="muted" style="min-width:240px">${infoLine('Installation', installRange)}${infoLine('Testing', testRange)}${infoLine('Handover Target', l.handoverDate || '—')}
-${infoLine('Handover Actual', l.handoverActualDate || '—')}${infoLine('Warranty Dates', warrantyRange)}${infoLine('Warranty Visits', `${l?.warranty?.completedVisits ?? 0} / ${l?.warranty?.serviceVisitCount ?? l.warrantyServiceVisits ?? 5}`)}
-      
-      <td class="muted" style="min-width:300px"></td>
-<td style="white-space:nowrap"></td>
-<td style="min-width:320px"></td>
-    `;
 
-    tr.children[4].innerHTML = `
-  <div class="statusCell">
-    <div class="statusBadgeWrap"></div>
-    ${renderLiftProgress(l)}
-  </div>
-`;
-tr.children[4].querySelector(".statusBadgeWrap").appendChild(badge(getLiftExecutionStatus(l)));
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td style="min-width:160px">
+      <div><b>${l.liftCode || ''}</b></div>
+      <div class="muted">${l.location || '—'}</div>
+    </td>
+    <td style="min-width:220px">
+      ${infoLine('Type', l.liftType || '—')}
+      ${infoLine('Capacity', l.passengerCapacity ? `${l.passengerCapacity} persons` : '—')}
+      ${infoLine('Floors', l.numberOfFloors || '—')}
+      ${infoLine('Warranty', `${l.warrantyMonths ?? 12} months`)}
+    </td>
+    <td class="muted" style="min-width:240px">
+      ${infoLine('Installation', installRange)}
+      ${infoLine('Testing', testRange)}
+      ${infoLine('Handover Target', l.handoverDate || '—')}
+      ${infoLine('Handover Actual', l.handoverActualDate || '—')}
+      ${infoLine('Warranty Dates', warrantyRange)}
+      ${infoLine('Warranty Visits', `${l?.warranty?.completedVisits ?? 0} / ${l?.warranty?.serviceVisitCount ?? l.warrantyServiceVisits ?? 5}`)}
+    </td>
+    <td class="muted" style="min-width:300px"></td>
+    <td style="white-space:nowrap"></td>
+    <td style="min-width:320px"></td>
+  `;
 
-    const jobsCell = tr.children[3];
-if (!assignments.length) {
-  jobsCell.innerHTML = 'No jobs yet';
-} else {
-  assignments.forEach((job) => {
-    const block = document.createElement('div');
-    block.className = 'jobTeamBlock';
-    block.innerHTML = renderJobSummaryHtml(job);
+  tr.children[4].innerHTML = `
+    <div class="statusCell">
+      <div class="statusBadgeWrap"></div>
+      ${renderLiftProgress(l)}
+    </div>
+  `;
+  tr.children[4].querySelector(".statusBadgeWrap").appendChild(badge(getLiftExecutionStatus(l)));
 
-    const manageBtn = smallBtn('Manage Team', 'secondary');
-    manageBtn.style.marginTop = '8px';
-    manageBtn.onclick = () => {
-    showManageTeamModal(job.id, job.role || 'JOB');
-};
+  const jobsCell = tr.children[3];
+  if (!assignments.length) {
+    jobsCell.innerHTML = 'No jobs yet';
+  } else {
+    assignments.forEach((job) => {
+      const block = document.createElement('div');
+      block.className = 'jobTeamBlock';
+      block.innerHTML = renderJobSummaryHtml(job);
 
-    block.appendChild(manageBtn);
-    jobsCell.appendChild(block);
-  });
-}
+      const manageBtn = smallBtn('Manage Team', 'secondary');
+      manageBtn.style.marginTop = '8px';
+      manageBtn.onclick = () => {
+        showManageTeamModal(job.id, job.role || 'JOB');
+      };
 
-const actionWrap = document.createElement("div");
-actionWrap.className = "actionStack";
-
-const projectLiftId = l.projectLiftId || l.id;
-const workflowStatus = String(getLiftExecutionStatus(l) || "").toUpperCase();
-const hasActiveAmcService = !!l?.amc?.activeServiceAssignment;
-const hasEligibleAmcContract =
-  !!l?.amc && ['AMC ACTIVE', 'AMC EXPIRING SOON'].includes(String(l.amc.status || '').toUpperCase());
-
-const btnMilestone = smallBtn("Milestones", "secondary");
-btnMilestone.onclick = () => showMilestoneModal(projectLiftId, l);
-actionWrap.appendChild(btnMilestone);
-
-// INSTALL
-const hasActiveInstallJob = assignments.some((a) =>
-  String(a.role || '').toUpperCase() === 'INSTALL' &&
-  ['ASSIGNED', 'IN_PROGRESS'].includes(String(a.status || '').toUpperCase())
-);
-
-if (!hasActiveInstallJob && workflowStatus === 'NOT STARTED') {
-  const btnAssignInstall = smallBtn("Create Install Job", "primary");
-  btnAssignInstall.onclick = () => showCreateJobModalForProjectLift(projectLiftId, l.liftCode, "INSTALL");
-  actionWrap.appendChild(btnAssignInstall);
-}
-
-// TEST
-if (
-  workflowStatus === 'READY FOR TEST ASSIGNMENT' &&
-  !l.hasActiveTestJob
-) {
-  const btnCreateTest = smallBtn('Create Test Job', 'primary');
-  btnCreateTest.onclick = () =>
-    showCreateJobModalForProjectLift(projectLiftId, l.liftCode, 'TEST');
-  actionWrap.appendChild(btnCreateTest);
-}
-
-// HANDOVER
-if (workflowStatus === 'READY FOR HANDOVER') {
-  const btnHandover = smallBtn("Complete Handover", "primary");
-  btnHandover.onclick = () => showCompleteHandoverModal(projectLiftId, l);
-  actionWrap.appendChild(btnHandover);
-}
-
-// HANDED OVER → SERVICE INFO ONLY
-if (workflowStatus === 'HANDED OVER') {
-  const isAmcServiceDueNow = !!l?.amc?.isDueNow;
-  const isWarrantyServiceDueNow = !!l?.warranty?.isDueNow;
-
-  const hasActiveAmcService = !!l?.amc?.activeServiceAssignment;
-  const hasActiveWarrantyService = !!l?.warranty?.activeServiceAssignment;
-
-  const hasEligibleAmcContract =
-    !!l?.amc &&
-    ['AMC ACTIVE', 'AMC EXPIRING SOON'].includes(
-      String(l.amc.status || '').toUpperCase()
-    );
-
-  // AMC not yet created
-  if (!l.amc) {
-    const hint = document.createElement('div');
-    hint.className = 'muted';
-    hint.textContent = 'AMC not created (manage in Service)';
-    actionWrap.appendChild(hint);
+      block.appendChild(manageBtn);
+      jobsCell.appendChild(block);
+    });
   }
 
-  // Warranty service info only
-  if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
-    const btn = document.createElement('button');
-    btn.className = 'btn secondary';
-    btn.textContent = 'Manage Service';
-    btn.onclick = goToService;
-    actionWrap.appendChild(btn);
+  const actionWrap = document.createElement("div");
+  actionWrap.className = "actionStack";
+
+  const projectLiftId = l.projectLiftId || l.id;
+  const workflowStatus = String(getLiftExecutionStatus(l) || "").toUpperCase();
+
+  const goToService = () => {
+    location.hash = '#service';
+  };
+
+  const btnMilestone = smallBtn("Milestones", "secondary");
+  btnMilestone.onclick = () => showMilestoneModal(projectLiftId, l);
+  actionWrap.appendChild(btnMilestone);
+
+  const hasActiveInstallJob = assignments.some((a) =>
+    String(a.role || '').toUpperCase() === 'INSTALL' &&
+    ['ASSIGNED', 'IN_PROGRESS'].includes(String(a.status || '').toUpperCase())
+  );
+
+  if (!hasActiveInstallJob && workflowStatus === 'NOT STARTED') {
+    const btnAssignInstall = smallBtn("Create Install Job", "primary");
+    btnAssignInstall.onclick = () => showCreateJobModalForProjectLift(projectLiftId, l.liftCode, "INSTALL");
+    actionWrap.appendChild(btnAssignInstall);
   }
 
-  // AMC service info only
-  if (hasEligibleAmcContract && isAmcServiceDueNow && !hasActiveAmcService) {
-    const hint = document.createElement('div');
-    hint.className = 'muted';
-    hint.textContent = 'AMC service due (manage in Service)';
-    actionWrap.appendChild(hint);
+  if (workflowStatus === 'READY FOR TEST ASSIGNMENT' && !l.hasActiveTestJob) {
+    const btnCreateTest = smallBtn('Create Test Job', 'primary');
+    btnCreateTest.onclick = () =>
+      showCreateJobModalForProjectLift(projectLiftId, l.liftCode, 'TEST');
+    actionWrap.appendChild(btnCreateTest);
   }
 
-  // Active service info
-  if (hasActiveWarrantyService || hasActiveAmcService) {
-    const hint = document.createElement('div');
-    hint.className = 'muted';
-    hint.textContent = 'Active service job in progress';
-    actionWrap.appendChild(hint);
+  if (workflowStatus === 'READY FOR HANDOVER') {
+    const btnHandover = smallBtn("Complete Handover", "primary");
+    btnHandover.onclick = () => showCompleteHandoverModal(projectLiftId, l);
+    actionWrap.appendChild(btnHandover);
   }
+
+  if (workflowStatus === 'HANDED OVER') {
+    const isAmcServiceDueNow = !!l?.amc?.isDueNow;
+    const isWarrantyServiceDueNow = !!l?.warranty?.isDueNow;
+
+    const hasActiveAmcService = !!l?.amc?.activeServiceAssignment;
+    const hasActiveWarrantyService = !!l?.warranty?.activeServiceAssignment;
+
+    const hasEligibleAmcContract =
+      !!l?.amc &&
+      ['AMC ACTIVE', 'AMC EXPIRING SOON'].includes(
+        String(l.amc.status || '').toUpperCase()
+      );
+
+    if (!l.amc) {
+      const hint = document.createElement('div');
+      hint.className = 'muted';
+      hint.textContent = 'AMC not created (manage in Service)';
+      actionWrap.appendChild(hint);
+    }
+
+    if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
+      const btn = document.createElement('button');
+      btn.className = 'btn secondary';
+      btn.textContent = 'Manage Service';
+      btn.onclick = goToService;
+      actionWrap.appendChild(btn);
+    }
+
+    if (hasEligibleAmcContract && isAmcServiceDueNow && !hasActiveAmcService) {
+      const hint = document.createElement('div');
+      hint.className = 'muted';
+      hint.textContent = 'AMC service due (manage in Service)';
+      actionWrap.appendChild(hint);
+    }
+
+    if (hasActiveWarrantyService || hasActiveAmcService) {
+      const hint = document.createElement('div');
+      hint.className = 'muted';
+      hint.textContent = 'Active service job in progress';
+      actionWrap.appendChild(hint);
+    }
+  }
+
+  const btnHistory = smallBtn('Service History', 'secondary');
+  btnHistory.onclick = () => {
+    try {
+      showServiceHistoryModal(l);
+    } catch (e) {
+      alert(e.message || String(e));
+      console.error('Service History modal failed', e);
+    }
+  };
+  actionWrap.appendChild(btnHistory);
+
+  tr.children[5].appendChild(actionWrap);
+  tb.appendChild(tr);
+});
+
+if (lifts.length === 0) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td colspan="6" class="muted">No lifts added yet. Click <b>+ Add Lift</b> to start the project workflow.</td>`;
+  tb.appendChild(tr);
 }
-
-// Always show service history button
-const btnHistory = smallBtn('Service History', 'secondary');
-btnHistory.onclick = () => {
-  try {
-    showServiceHistoryModal(l);
-  } catch (e) {
-    alert(e.message || String(e));
-    console.error('Service History modal failed', e);
-  }
-};
-actionWrap.appendChild(btnHistory);
 
 async function renderTeamLoadCard(root) {
   const rows = await API.getTeamLoad();
