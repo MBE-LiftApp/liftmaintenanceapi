@@ -3326,12 +3326,16 @@ async function renderMyJobs() {
         </td>
 
         <td class="col-lift-code">
-          <span class="monoCode noWrapCode">${a.liftCode || ""}</span>
-        </td>
+  <span class="monoCode noWrapCode">
+    ${String(a.liftCode || "").replace(/\s+/g, "")}
+  </span>
+</td>
 
-        <td class="col-type">
-          <span class="noWrapCode">${a.role || ""}</span>
-        </td>
+<td class="col-type">
+  <span class="noWrapCode">
+    ${String(a.role || "").replace(/\s+/g, " ")}
+  </span>
+</td>
 
         <td>
           <div><b>Lead:</b> ${leadName}</div>
