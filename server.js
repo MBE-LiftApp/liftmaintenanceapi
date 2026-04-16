@@ -3049,18 +3049,20 @@ console.log('LIFT IDS:', liftIds);
 app.post('/api/projects/:projectId/lifts', async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
-    const {
-  liftCode,
-  location,
-  passengerCapacity,
-  liftType,
-  numberOfFloors,
-  warrantyMonths,
-  warrantyServiceVisits,
-  notes,
-} = req.body || {};
+    const body = req.body || {};
 
-    if (!liftCode || !String(liftCode).trim()) return res.status(400).json({ error: 'Lift Code is required' });
+    const liftCode = body.liftCode || body.lift_code;
+    const location = body.location || body.location_label;
+    const passengerCapacity = body.passengerCapacity ?? body.passenger_capacity;
+    const liftType = body.liftType ?? body.lift_type;
+    const numberOfFloors = body.numberOfFloors ?? body.number_of_floors;
+    const warrantyMonths = body.warrantyMonths ?? body.warranty_months;
+    const warrantyServiceVisits = body.warrantyServiceVisits ?? body.warranty_service_visits;
+    const notes = body.notes;
+
+    if (!liftCode || !String(liftCode).trim()) {
+      return res.status(400).json({ error: 'Lift Code is required' });
+    }
 
     const project = await Project.findByPk(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -3089,14 +3091,12 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       lift_id: lift.id,
       lift_code: code,
       location_label: location ? String(location).trim() : null,
-
       passenger_capacity: Number.isFinite(Number(passengerCapacity)) ? Number(passengerCapacity) : null,
       lift_type: liftType ? String(liftType).trim().toUpperCase() : null,
       number_of_floors: Number.isFinite(Number(numberOfFloors)) ? Number(numberOfFloors) : null,
-
       warranty_months: Number.isFinite(Number(warrantyMonths)) ? Number(warrantyMonths) : 12,
+      warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
       notes: notes ? String(notes) : null,
-warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
     });
 
     res.json({
@@ -3109,7 +3109,7 @@ warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number
       liftType: pl.lift_type ?? null,
       numberOfFloors: pl.number_of_floors ?? null,
       warrantyMonths: pl.warranty_months,
-warrantyServiceVisits: getWarrantyServiceVisitCount(pl, 5),
+      warrantyServiceVisits: getWarrantyServiceVisitCount(pl, 5),
       notes: pl.notes || '',
     });
   } catch (err) {
