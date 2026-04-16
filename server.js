@@ -2772,77 +2772,119 @@ app.get('/api/projects', async (req, res) => {
 
 // Create project (serial code from backend)
 app.post('/api/projects', async (req, res) => {
+  const t = await sequelize.transaction();
+
   try {
     const { projectName, customerName, building, notes } = req.body || {};
 
     if (!projectName || !String(projectName).trim()) {
+      await t.rollback();
       return res.status(400).json({ error: 'Project name is required' });
     }
+
     if (!customerName || !String(customerName).trim()) {
+      await t.rollback();
       return res.status(400).json({ error: 'Customer name is required' });
     }
 
-    const custName = String(customerName).trim();
+    const projectNameClean = String(projectName).trim();
+    const customerNameClean = String(customerName).trim();
+    const buildingClean = building && String(building).trim() ? String(building).trim() : null;
+    const notesClean = notes && String(notes).trim() ? String(notes).trim() : null;
 
-    let customer = await Customer.findOne({
-      where: { name: custName },
-    });
+    // 1) Find or create customer
+    let [customerRows] = await sequelize.query(
+      `SELECT id, name FROM customers WHERE name = :name LIMIT 1`,
+      {
+        replacements: { name: customerNameClean },
+        transaction: t,
+      }
+    );
+
+    let customer = customerRows[0] || null;
 
     if (!customer) {
-      customer = await Customer.create({
-        name: custName,
-      });
+      const [insertedCustomerRows] = await sequelize.query(
+        `INSERT INTO customers (name)
+         VALUES (:name)
+         RETURNING id, name`,
+        {
+          replacements: { name: customerNameClean },
+          transaction: t,
+        }
+      );
+      customer = insertedCustomerRows[0];
     }
 
-    // verify customer really exists in DB
-    const freshCustomer = await Customer.findByPk(customer.id);
-    if (!freshCustomer) {
-      throw new Error(`Customer record was not created correctly for "${custName}"`);
+    if (!customer || !customer.id) {
+      throw new Error('Failed to create or load customer');
     }
 
+    // 2) Find or create site
     let site = null;
-    if (building && String(building).trim()) {
-      const siteName = String(building).trim();
 
-      site = await Site.findOne({
-        where: { name: siteName },
-      });
+    if (buildingClean) {
+      let [siteRows] = await sequelize.query(
+        `SELECT id, name FROM sites WHERE name = :name LIMIT 1`,
+        {
+          replacements: { name: buildingClean },
+          transaction: t,
+        }
+      );
+
+      site = siteRows[0] || null;
 
       if (!site) {
-        site = await Site.create({
-          name: siteName,
-        });
+        const [insertedSiteRows] = await sequelize.query(
+          `INSERT INTO sites (name)
+           VALUES (:name)
+           RETURNING id, name`,
+          {
+            replacements: { name: buildingClean },
+            transaction: t,
+          }
+        );
+        site = insertedSiteRows[0];
       }
-
-      const freshSite = await Site.findByPk(site.id);
-      if (!freshSite) {
-        throw new Error(`Site record was not created correctly for "${siteName}"`);
-      }
-
-      site = freshSite;
     }
 
     const projectCode = await nextProjectCode();
 
-    const project = await Project.create({
-      project_code: projectCode,
-      project_name: String(projectName).trim(),
-      customer_id: freshCustomer.id,
-      site_id: site ? site.id : null,
-      status: 'OPEN',
-      notes: notes ? String(notes).trim() : null,
-    });
+    // 3) Create project
+    const [projectRows] = await sequelize.query(
+      `INSERT INTO projects
+         (project_code, project_name, customer_id, site_id, status, notes)
+       VALUES
+         (:project_code, :project_name, :customer_id, :site_id, :status, :notes)
+       RETURNING id, project_code, project_name, customer_id, site_id, status, notes`,
+      {
+        replacements: {
+          project_code: projectCode,
+          project_name: projectNameClean,
+          customer_id: customer.id,
+          site_id: site ? site.id : null,
+          status: 'OPEN',
+          notes: notesClean,
+        },
+        transaction: t,
+      }
+    );
+
+    await t.commit();
+
+    const project = projectRows[0];
 
     res.json({
       id: project.id,
       projectCode: project.project_code || '',
       projectName: project.project_name,
       status: project.status,
-      customer: { id: freshCustomer.id, name: freshCustomer.name },
+      customer: { id: customer.id, name: customer.name },
       site: site ? { id: site.id, name: site.name } : null,
       notes: project.notes || '',
     });
   } catch (err) {
+    await t.rollback();
     console.error('POST /api/projects error:', err);
     res.status(500).json({ error: err.message || 'Failed to create project' });
   }
