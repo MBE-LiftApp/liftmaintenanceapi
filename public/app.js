@@ -1280,9 +1280,16 @@ function showMilestoneModal(projectLiftId, lift) {
       </div>
 
       <div class="field">
-        <label>Warranty Service Visits</label>
-        <input type="number" min="1" id="warrantyServiceVisits" value="${lift.warrantyServiceVisits ?? 5}" />
-      </div>
+  <label>Warranty Service Visits</label>
+  <input
+    type="number"
+    min="1"
+    step="1"
+    id="warrantyServiceVisits"
+    value="${lift.warrantyServiceVisits ?? 5}"
+    required
+  />
+</div>
 
       <div class="field" style="grid-column:1/-1">
         <label>Notes</label>
@@ -1336,8 +1343,19 @@ function showMilestoneModal(projectLiftId, lift) {
     const testingEndDate = testingEndEl.value || null;
     const handoverDate = handoverDateEl.value || null;
     const warrantyMonths = Number(warrantyMonthsEl.value || 0);
-    const warrantyServiceVisits = Number(warrantyVisitsEl.value || 0);
+    const warrantyServiceVisits = Number(warrantyVisitsEl.value);
+if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+  errors.push("Warranty Service Visits must be at least 1.");
+}
 
+// 🔒 Warranty validation (ADD THIS)
+if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+  errors.push("Warranty Service Visits must be at least 1.");
+}
+
+if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
+  errors.push("Warranty Months must be at least 1.");
+}
     if (installationStartDate && installationEndDate && compareDateOnly(installationEndDate, installationStartDate) < 0) {
       errors.push("Installation End Date cannot be earlier than Installation Start Date.");
     }
@@ -1417,7 +1435,7 @@ function showMilestoneModal(projectLiftId, lift) {
         testingEndDate: testingEndEl.value || null,
         handoverDate: handoverDateEl.value || null,
         warrantyMonths: Number(warrantyMonthsEl.value || 12),
-        warrantyServiceVisits: Number(warrantyVisitsEl.value || 5),
+        warrantyServiceVisits: Number(warrantyVisitsEl.value),
         notes: body.querySelector("#milestoneNotes").value || "",
       };
 
@@ -2118,6 +2136,7 @@ async function openProjectAndRunAction(projectId, projectLiftId, actionType) {
     showMilestoneModal(projectLiftId, lift);
   }
 }
+
 function showCompleteHandoverModal(projectLiftId, lift) {
   const body = document.createElement("div");
   body.innerHTML = `
@@ -2129,7 +2148,7 @@ function showCompleteHandoverModal(projectLiftId, lift) {
 
       <div class="field">
         <label>Handover Target Date</label>
-        <input type="date" value="${lift.handoverDate || ""}" disabled />
+        <input type="date" id="handoverTargetDate" value="${lift.handoverDate || ""}" disabled />
       </div>
 
       <div class="field">
@@ -2142,14 +2161,18 @@ function showCompleteHandoverModal(projectLiftId, lift) {
         <input type="number" min="1" id="handoverWarrantyMonths" value="${lift.warrantyMonths ?? 12}" />
       </div>
 
-<div class="field">
-  <label>Warranty Service Visits</label>
-  <input type="number" min="1" id="handoverWarrantyServiceVisits" value="${lift.warrantyServiceVisits ?? 5}" />
-</div>
+      <div class="field">
+        <label>Warranty Service Visits</label>
+        <input type="number" min="1" id="handoverWarrantyServiceVisits" value="${lift.warrantyServiceVisits ?? 5}" />
+      </div>
 
       <div class="field" style="grid-column:1/-1">
         <label>Notes</label>
         <textarea id="handoverNotes" placeholder="Actual handover notes...">${lift.notes || ""}</textarea>
+      </div>
+
+      <div class="field" style="grid-column:1/-1">
+        <div id="handoverValidationBox" class="muted" style="font-size:12px;"></div>
       </div>
 
       <div class="field" style="grid-column:1/-1">
@@ -2160,26 +2183,123 @@ function showCompleteHandoverModal(projectLiftId, lift) {
     </div>
   `;
 
+  const actualHandoverDateEl = body.querySelector("#actualHandoverDate");
+  const warrantyMonthsEl = body.querySelector("#handoverWarrantyMonths");
+  const warrantyVisitsEl = body.querySelector("#handoverWarrantyServiceVisits");
+  const validationBox = body.querySelector("#handoverValidationBox");
+
+  function parseDateOnly(v) {
+    if (!v) return null;
+    const d = new Date(`${v}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function compareDateOnly(a, b) {
+    if (!a || !b) return 0;
+    const da = parseDateOnly(a);
+    const db = parseDateOnly(b);
+    if (!da || !db) return 0;
+    if (da < db) return -1;
+    if (da > db) return 1;
+    return 0;
+  }
+
+  function validateCompleteHandover() {
+    const errors = [];
+    const warnings = [];
+
+    const installationStartDate = lift.installationStartDate || null;
+    const installationEndDate = lift.installationEndDate || null;
+    const testingStartDate = lift.testingStartDate || null;
+    const testingEndDate = lift.testingEndDate || null;
+    const handoverTargetDate = lift.handoverDate || null;
+
+    const actualHandoverDate = actualHandoverDateEl.value || null;
+    const warrantyMonths = Number(warrantyMonthsEl.value || 0);
+    const warrantyServiceVisits = Number(warrantyVisitsEl.value);
+if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+  errors.push("Warranty Service Visits must be at least 1.");
+}
+
+// 🔒 Warranty validation (ADD THIS)
+if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+  errors.push("Warranty Service Visits must be at least 1.");
+}
+
+if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
+  errors.push("Warranty Months must be at least 1.");
+}
+    if (!actualHandoverDate) {
+      errors.push("Actual Handover Date is required.");
+    }
+
+    if (installationStartDate && actualHandoverDate && compareDateOnly(actualHandoverDate, installationStartDate) < 0) {
+      errors.push("Actual Handover Date cannot be earlier than Installation Start Date.");
+    }
+
+    if (installationEndDate && actualHandoverDate && compareDateOnly(actualHandoverDate, installationEndDate) < 0) {
+      errors.push("Actual Handover Date cannot be earlier than Installation End Date.");
+    }
+
+    if (testingStartDate && actualHandoverDate && compareDateOnly(actualHandoverDate, testingStartDate) < 0) {
+      errors.push("Actual Handover Date cannot be earlier than Testing Start Date.");
+    }
+
+    if (testingEndDate && actualHandoverDate && compareDateOnly(actualHandoverDate, testingEndDate) < 0) {
+      errors.push("Actual Handover Date cannot be earlier than Testing End Date.");
+    }
+
+    if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
+      errors.push("Warranty Months must be at least 1.");
+    }
+
+    if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+      errors.push("Warranty Service Visits must be at least 1.");
+    }
+
+    if (handoverTargetDate && actualHandoverDate && compareDateOnly(actualHandoverDate, handoverTargetDate) > 0) {
+      warnings.push("Actual handover is later than the planned handover target date.");
+    }
+
+    if (errors.length) {
+      validationBox.className = "warnText";
+      validationBox.innerHTML = errors.map(x => `• ${x}`).join("<br>");
+    } else if (warnings.length) {
+      validationBox.className = "muted";
+      validationBox.innerHTML = warnings.map(x => `• ${x}`).join("<br>");
+    } else {
+      validationBox.className = "goodText";
+      validationBox.textContent = "Complete handover data looks valid.";
+    }
+
+    return { errors, warnings };
+  }
+
+  [actualHandoverDateEl, warrantyMonthsEl, warrantyVisitsEl].forEach((el) => {
+    if (el) el.addEventListener("change", validateCompleteHandover);
+    if (el) el.addEventListener("input", validateCompleteHandover);
+  });
+
+  validateCompleteHandover();
+
   const btnCancel = smallBtn("Cancel", "secondary");
   btnCancel.onclick = closeModal;
 
   const btnSave = smallBtn("Complete Handover", "primary");
   btnSave.onclick = async () => {
     try {
-      const payload = {
-  actualHandoverDate: body.querySelector("#actualHandoverDate").value || null,
-  warrantyMonths: Number(body.querySelector("#handoverWarrantyMonths").value || 12),
-  warrantyServiceVisits: Number(body.querySelector("#handoverWarrantyServiceVisits").value || 5),
-  notes: body.querySelector("#handoverNotes").value || "",
-};
-
-      if (!payload.actualHandoverDate) {
-        throw new Error("Please enter the actual handover date");
+      const check = validateCompleteHandover();
+      if (check.errors.length) {
+        throw new Error(check.errors[0]);
       }
 
-if (payload.warrantyServiceVisits < 1) {
-  throw new Error("Warranty Service Visits must be at least 1");
-}
+      const payload = {
+        actualHandoverDate: actualHandoverDateEl.value || null,
+        warrantyMonths: Number(warrantyMonthsEl.value || 12),
+        warrantyServiceVisits: Number(warrantyVisitsEl.value),
+        notes: body.querySelector("#handoverNotes").value || "",
+      };
+
       await API.completeProjectLiftHandover(projectLiftId, payload);
 
       closeModal();

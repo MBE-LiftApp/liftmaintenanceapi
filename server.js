@@ -3151,7 +3151,6 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
 
     const code = String(liftCode).trim();
 
-    // prevent duplicate lift code within this project
     const existing = await ProjectLift.findOne({
       where: {
         project_id: project.id,
@@ -3163,6 +3162,21 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       return res.status(409).json({ error: 'This lift code already exists in the project.' });
     }
 
+    const warrantyMonthsNum = Number(warrantyMonths);
+    const warrantyVisitsNum = Number(warrantyServiceVisits);
+
+    if (!Number.isFinite(warrantyMonthsNum) || warrantyMonthsNum < 1) {
+      return res.status(400).json({
+        error: 'Warranty Months must be at least 1',
+      });
+    }
+
+    if (!Number.isFinite(warrantyVisitsNum) || warrantyVisitsNum < 1) {
+      return res.status(400).json({
+        error: 'Warranty Service Visits must be at least 1',
+      });
+    }
+
     const pl = await ProjectLift.create({
       project_id: project.id,
       lift_id: null, // intentionally not using Lift master table for now
@@ -3171,8 +3185,8 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       passenger_capacity: Number.isFinite(Number(passengerCapacity)) ? Number(passengerCapacity) : null,
       lift_type: liftType ? String(liftType).trim().toUpperCase() : null,
       number_of_floors: Number.isFinite(Number(numberOfFloors)) ? Number(numberOfFloors) : null,
-      warranty_months: Number.isFinite(Number(warrantyMonths)) ? Number(warrantyMonths) : 12,
-      warranty_service_visits: Number.isFinite(Number(warrantyServiceVisits)) ? Number(warrantyServiceVisits) : 5,
+      warranty_months: warrantyMonthsNum,
+      warranty_service_visits: warrantyVisitsNum,
       notes: notes ? String(notes).trim() : null,
     });
 
@@ -3186,7 +3200,7 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       liftType: pl.lift_type ?? null,
       numberOfFloors: pl.number_of_floors ?? null,
       warrantyMonths: pl.warranty_months,
-      warrantyServiceVisits: pl.warranty_service_visits ?? 5,
+      warrantyServiceVisits: pl.warranty_service_visits,
       notes: pl.notes || '',
     });
   } catch (err) {
@@ -3226,13 +3240,8 @@ app.put('/api/project-lifts/:projectLiftId/milestones', async (req, res) => {
     const testingEndDate = body.testingEndDate || null;
     const handoverDate = body.handoverDate || null;
 
-    const warrantyMonths = Number.isFinite(Number(body.warrantyMonths))
-      ? Number(body.warrantyMonths)
-      : (pl.warranty_months ?? pl.warrantyMonths ?? 12);
-
-    const warrantyServiceVisits = Number.isFinite(Number(body.warrantyServiceVisits))
-      ? Number(body.warrantyServiceVisits)
-      : (pl.warranty_service_visits ?? pl.warrantyServiceVisits ?? 5);
+    const warrantyMonths = Number(body.warrantyMonths);
+    const warrantyServiceVisits = Number(body.warrantyServiceVisits);
 
     if (installationStartDate && installationEndDate && compareDateOnly(installationEndDate, installationStartDate) < 0) {
       return res.status(400).json({
@@ -3294,10 +3303,10 @@ app.put('/api/project-lifts/:projectLiftId/milestones', async (req, res) => {
       testingEndDate: pl.testing_end_date,
       handoverDate: pl.handover_date,
       handoverActualDate: pl.handover_actual_date,
-      warrantyMonths: pl.warranty_months ?? pl.warrantyMonths ?? 12,
+      warrantyMonths: pl.warranty_months,
       warrantyStartDate: pl.warranty_start_date,
       warrantyEndDate: pl.warranty_end_date,
-      warrantyServiceVisits: pl.warranty_service_visits ?? pl.warrantyServiceVisits ?? 5,
+      warrantyServiceVisits: pl.warranty_service_visits,
       notes: pl.notes || '',
     });
   } catch (err) {
@@ -3622,6 +3631,23 @@ app.put('/api/project-lifts/:projectLiftId/complete-handover', async (req, res) 
     if (!pl) return res.status(404).json({ error: 'Project lift not found' });
 
     const body = req.body || {};
+
+    function parseDateOnly(v) {
+      if (!v) return null;
+      const d = new Date(`${v}T00:00:00`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function compareDateOnly(a, b) {
+      if (!a || !b) return 0;
+      const da = parseDateOnly(a);
+      const db = parseDateOnly(b);
+      if (!da || !db) return 0;
+      if (da < db) return -1;
+      if (da > db) return 1;
+      return 0;
+    }
+
     const actualHandoverDate = body.actualHandoverDate || null;
     const notes = body.notes != null ? String(body.notes) : pl.notes;
 
@@ -3629,27 +3655,73 @@ app.put('/api/project-lifts/:projectLiftId/complete-handover', async (req, res) 
       return res.status(400).json({ error: 'Actual handover date is required' });
     }
 
-    const warrantyMonths = Number.isFinite(Number(body.warrantyMonths))
-      ? Number(body.warrantyMonths)
-      : (pl.warranty_months || 12);
+    const installationStartDate = pl.installation_start_date || null;
+    const installationEndDate = pl.installation_end_date || null;
+    const testingStartDate = pl.testing_start_date || null;
+    const testingEndDate = pl.testing_end_date || null;
+    const handoverTargetDate = pl.handover_date || null;
+
+    if (installationStartDate && compareDateOnly(actualHandoverDate, installationStartDate) < 0) {
+      return res.status(400).json({
+        error: 'Actual handover date cannot be earlier than Installation Start Date'
+      });
+    }
+
+    if (installationEndDate && compareDateOnly(actualHandoverDate, installationEndDate) < 0) {
+      return res.status(400).json({
+        error: 'Actual handover date cannot be earlier than Installation End Date'
+      });
+    }
+
+    if (testingStartDate && compareDateOnly(actualHandoverDate, testingStartDate) < 0) {
+      return res.status(400).json({
+        error: 'Actual handover date cannot be earlier than Testing Start Date'
+      });
+    }
+
+    if (testingEndDate && compareDateOnly(actualHandoverDate, testingEndDate) < 0) {
+      return res.status(400).json({
+        error: 'Actual handover date cannot be earlier than Testing End Date'
+      });
+    }
+
+    // 🔒 STRICT INPUT (NO FALLBACK DEFAULTS)
+    const warrantyMonths =
+      body.warrantyMonths != null
+        ? Number(body.warrantyMonths)
+        : Number(pl.warranty_months);
+
+    const warrantyServiceVisits =
+      body.warrantyServiceVisits != null
+        ? Number(body.warrantyServiceVisits)
+        : Number(pl.warranty_service_visits);
+
+    if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
+      return res.status(400).json({
+        error: 'Warranty Months must be at least 1'
+      });
+    }
+
+    if (!Number.isFinite(warrantyServiceVisits) || warrantyServiceVisits < 1) {
+      return res.status(400).json({
+        error: 'Warranty Service Visits must be at least 1'
+      });
+    }
 
     const warrantyStartDate = actualHandoverDate;
     const end = addMonths(actualHandoverDate, warrantyMonths);
     const warrantyEndDate = end ? startOfDay(end) : null;
-
-const warrantyServiceVisits = Number.isFinite(Number(body.warrantyServiceVisits))
-  ? Number(body.warrantyServiceVisits)
-  : (pl.warranty_service_visits ?? 5);
 
     await pl.update({
       handover_actual_date: actualHandoverDate,
       warranty_months: warrantyMonths,
       warranty_start_date: warrantyStartDate,
       warranty_end_date: warrantyEndDate,
-warranty_service_visits: warrantyServiceVisits,
+      warranty_service_visits: warrantyServiceVisits,
       notes,
     });
 
+    // ✅ WARRANTY CONTRACT SYNC (UNCHANGED LOGIC)
     if (pl.lift_id && warrantyStartDate && warrantyEndDate) {
       const [w, created] = await Contract.findOrCreate({
         where: { liftId: pl.lift_id, contractType: 'WARRANTY' },
@@ -3673,18 +3745,27 @@ warranty_service_visits: warrantyServiceVisits,
       }
     }
 
+    await pl.reload();
+
     res.json({
-      ok: true,
       id: pl.id,
       liftId: pl.lift_id,
       liftCode: pl.lift_code,
+      installationStartDate: pl.installation_start_date,
+      installationEndDate: pl.installation_end_date,
+      testingStartDate: pl.testing_start_date,
+      testingEndDate: pl.testing_end_date,
       handoverDate: pl.handover_date,
       handoverActualDate: pl.handover_actual_date,
       warrantyMonths: pl.warranty_months,
       warrantyStartDate: pl.warranty_start_date,
       warrantyEndDate: pl.warranty_end_date,
-warrantyServiceVisits: pl.warranty_service_visits ?? 5,
+      warrantyServiceVisits: pl.warranty_service_visits,
       notes: pl.notes || '',
+      warning:
+        handoverTargetDate && compareDateOnly(actualHandoverDate, handoverTargetDate) > 0
+          ? 'Actual handover is later than the planned handover target date'
+          : null,
     });
   } catch (err) {
     console.error(err);
