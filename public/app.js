@@ -3466,18 +3466,23 @@ async function renderAMC() {
 
   setTitle("AMC");
 
-  const btnRefresh = smallBtn("Refresh", "secondary");
-  btnRefresh.onclick = () => renderAMC();
+  const btnCreate = smallBtn("+ Create AMC", "primary");
+btnCreate.onclick = () => {
+  showCreateAmcSelectionModal();
+};
 
-  setToolbar([btnRefresh]);
+const btnRefresh = smallBtn("Refresh", "secondary");
+btnRefresh.onclick = () => renderAMC();
+
+setToolbar([btnCreate, btnRefresh]);
 
   root.innerHTML = `
-    <div class="card">
-      <div class="label">AMC Management</div>
-      <div class="hr"></div>
-      <div class="muted">Loading handed-over lifts...</div>
-    </div>
-  `;
+  <div class="card">
+    <div class="label">AMC Management</div>
+    <div class="hr"></div>
+    <div class="muted">Create and manage AMC contracts.</div>
+  </div>
+`;
 
   try {
     const projects = await API.listProjects();
@@ -3562,21 +3567,7 @@ async function renderAMC() {
 
       tr.children[4].appendChild(badge(amcStatus));
 
-      const actionWrap = document.createElement("div");
-      actionWrap.className = "rowActions";
-
-      if (!l.amc || ["AMC EXPIRED", "AMC NOT STARTED", "NO AMC"].includes(String(amcStatus).toUpperCase())) {
-        const btnCreate = smallBtn("Create AMC", "primary");
-        btnCreate.onclick = () => showCreateAmcModal(l);
-        actionWrap.appendChild(btnCreate);
-      } else {
-        const hint = document.createElement("div");
-        hint.className = "muted";
-        hint.textContent = "AMC already exists";
-        actionWrap.appendChild(hint);
-      }
-
-      tr.children[5].appendChild(actionWrap);
+      
       tb.appendChild(tr);
     });
   } catch (e) {
@@ -3587,6 +3578,86 @@ async function renderAMC() {
         <div class="muted">${String(e.message || e)}</div>
       </div>
     `;
+  }
+}
+
+async function showCreateAmcSelectionModal() {
+  try {
+    const projects = await API.listProjects();
+    const eligibleLifts = [];
+
+    for (const p of (projects || [])) {
+      const r = await fetch(`/api/projects/${p.id}`);
+      const pj = await r.json();
+      if (!r.ok) continue;
+
+      (pj.lifts || []).forEach((l) => {
+        const handedOver = l.handoverActualDate || l.handover_actual_date;
+        if (!handedOver) return;
+
+        const warrantyEndDate = l.warrantyEndDate || l.warranty_end_date;
+        if (!warrantyEndDate) return;
+
+        const today = new Date();
+        const warrantyEnd = new Date(warrantyEndDate);
+
+        if (today < warrantyEnd) return;
+
+        const amcStatus = String(l?.amc?.status || '').toUpperCase();
+        if (['AMC ACTIVE'].includes(amcStatus)) return;
+
+        eligibleLifts.push({
+          ...l,
+          label: `${l.liftCode} — ${pj.projectCode} (${pj.customer?.name || ''})`,
+        });
+      });
+    }
+
+    const body = document.createElement("div");
+
+    body.innerHTML = `
+      <div class="formGrid">
+        <div class="field" style="grid-column:1/-1">
+          <label>Select Lift</label>
+          <select id="amcLiftSelect">
+            <option value="">-- Select Lift --</option>
+            ${eligibleLifts.map(l => `
+              <option value="${l.projectLiftId || l.id}">
+                ${l.label}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+      </div>
+    `;
+
+    const btnCancel = smallBtn("Cancel", "secondary");
+    btnCancel.onclick = closeModal;
+
+    const btnNext = smallBtn("Next", "primary");
+    btnNext.onclick = () => {
+      const selectedId = body.querySelector("#amcLiftSelect").value;
+      if (!selectedId) {
+        alert("Please select a lift");
+        return;
+      }
+
+      const lift = eligibleLifts.find(
+        l => String(l.projectLiftId || l.id) === selectedId
+      );
+
+      closeModal();
+      showCreateAmcModal(lift); // 👈 reuse your existing modal
+    };
+
+    openModal({
+      title: "Select Lift for AMC",
+      bodyNode: body,
+      footerNodes: [btnCancel, btnNext],
+    });
+
+  } catch (e) {
+    alert(e.message || String(e));
   }
 }
 
