@@ -745,3 +745,47 @@ td.muted.text-center{
     grid-template-columns:1fr;
   }
 }
+/* ===================================== */
+/* FINAL UI POLISH (SAFE) */
+/* ===================================== */
+
+/* tighter table rows */
+.tableWrap td,
+.tableContainer td {
+  padding: 10px 14px;
+}
+
+/* slightly tighter headers */
+.tableWrap th,
+.tableContainer th {
+  padding: 10px 14px;
+}
+
+/* fix button vertical alignment in tables */
+.tableWrap .btn,
+.tableContainer .btn {
+  height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* fix badge alignment */
+.badge {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ensure consistent row height */
+.tableWrap tr,
+.tableContainer tr {
+  height: 44px;
+}
+
+/* fix multi-line cell spacing */
+td div {
+  line-height: 1.3;
+}
