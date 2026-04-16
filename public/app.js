@@ -3007,29 +3007,27 @@ async function renderLifts() {
   }
 }
 
-async function renderJobs() {
+async function renderMyJobs() {
   const root = setViewMode(false);
 
-  setTitle("Jobs");
-
-  const btnCreate = smallBtn("+ Create Job", "primary");
-  btnCreate.onclick = () => showCreateJobModal();
+  setTitle("My Jobs");
 
   const btnRefresh = smallBtn("Refresh", "secondary");
-  btnRefresh.onclick = () => renderJobs();
+  btnRefresh.onclick = () => renderMyJobs();
 
-  setToolbar([btnCreate, btnRefresh]);
+  const btnLogout = smallBtn("Logout", "secondary");
+  btnLogout.onclick = () => logout();
+
+  setToolbar([btnRefresh, btnLogout]);
 
   root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
 
   try {
-    const allRows = await API.getJobs();
-    const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
+    const rows = await API.getMyJobs();
 
     root.innerHTML = `
       <div class="card">
-        <div class="label">Project Jobs</div>
-        <div class="muted">Install and Test jobs only</div>
+        <div class="label">Assigned Jobs</div>
         <div class="hr"></div>
       </div>
     `;
@@ -3048,22 +3046,21 @@ async function renderJobs() {
             <th>Checklist</th>
             <th class="col-due">Due</th>
             <th>Status</th>
-            <th>Supervisor</th>
             <th class="col-actions">Actions</th>
           </tr>
         </thead>
-        <tbody id="jBody"></tbody>
+        <tbody id="mjBody"></tbody>
       </table>
     `, "420px");
 
     card.appendChild(wrap);
 
-    const tb = wrap.querySelector("#jBody");
+    const tb = wrap.querySelector("#mjBody");
 
     if (!rows || rows.length === 0) {
       tb.innerHTML = `
         <tr>
-          <td colspan="10" class="muted">No project jobs found. Click <b>+ Create Job</b>.</td>
+          <td colspan="9" class="muted">No assigned jobs.</td>
         </tr>
       `;
       return;
@@ -3073,8 +3070,9 @@ async function renderJobs() {
       const statusText = String(a.status || "").replaceAll("_", " ");
 
       const checklist = a.checklistSummary || null;
+
       const checklistText = checklist
-        ? `${checklist.doneRequired || 0}/${checklist.totalRequired || 0} required`
+        ? `${checklist.doneRequired || 0}/${checklist.totalRequired || 0} required complete`
         : "No checklist";
 
       const checklistPercent = checklist ? `(${checklist.percent || 0}%)` : "";
@@ -3091,10 +3089,7 @@ async function renderJobs() {
       const supportNames = getSupportNames(a);
       const supportCount = supportNames.length;
 
-      const sup = String(a.supervisorStatus || "PENDING").toUpperCase();
-      let supText = "🟡 Pending";
-      if (sup === "APPROVED") supText = "🟢 Approved";
-      if (sup === "REJECTED") supText = "🔴 Rejected";
+      const myRole = a.myRole || "";
 
       const tr = document.createElement("tr");
 
@@ -3104,13 +3099,11 @@ async function renderJobs() {
         </td>
 
         <td class="col-project">
-          ${[a.project?.projectCode, a.project?.projectName]
-            .filter(Boolean)
-            .join(" - ")}
+          ${a.projectName || ""}
         </td>
 
         <td class="col-lift">
-          <span class="monoCode">${a.lift?.liftCode || ""}</span>
+          <span class="monoCode">${a.liftCode || ""}</span>
         </td>
 
         <td class="col-type">
@@ -3121,6 +3114,7 @@ async function renderJobs() {
           <div><b>Lead:</b> ${leadName}</div>
           <div class="muted">${supportCount} support${supportCount === 1 ? "" : "s"}</div>
           ${supportCount ? `<div class="muted">${supportNames.join(", ")}</div>` : ""}
+          ${myRole ? `<div class="muted">My Role: ${myRole}</div>` : ""}
         </td>
 
         <td>
@@ -3133,15 +3127,6 @@ async function renderJobs() {
 
         <td></td>
 
-        <td>
-          <div class="supervisorStatusWrap"></div>
-          ${
-            sup === "REJECTED" && a.supervisorRemarks
-              ? `<div class="muted" style="margin-top:6px; color:#b42318; font-size:12px;">${a.supervisorRemarks}</div>`
-              : ""
-          }
-        </td>
-
         <td></td>
       `;
 
@@ -3151,76 +3136,19 @@ async function renderJobs() {
 
       tr.children[7].appendChild(badge(statusText));
 
-      tr.children[8].querySelector(".supervisorStatusWrap")
-        .appendChild(badge(supText));
-
-      const cell = tr.children[9];
+      const cell = tr.children[8];
 
       // checklist button
-      if (a.checklistSummary) {
-        const b0 = smallBtn("Checklist", "secondary");
-        b0.onclick = async () => {
-          try {
-            await showOfficeChecklistModal(a.id, a.role || "JOB");
-          } catch (e) {
-            alert(e.message || String(e));
-          }
-        };
-        cell.appendChild(b0);
-      }
+      const b0 = smallBtn("Checklist", "primary");
+      b0.onclick = async () => {
+        try {
+          await showTechnicianChecklistModal(a.id, a.role || "JOB");
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      };
 
-      // approve / reject
-      if (
-        String(a.status || "").toUpperCase() === "DONE" &&
-        String(a.supervisorStatus || "PENDING").toUpperCase() === "PENDING"
-      ) {
-        const b1 = smallBtn("Approve", "primary");
-        if (cell.children.length) b1.style.marginLeft = "8px";
-
-        b1.onclick = async () => {
-          try {
-            const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
-              method: "PUT"
-            });
-
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(j?.error || "Approve failed");
-
-            alert("Job approved successfully.");
-            await renderJobs();
-          } catch (e) {
-            alert(e.message || String(e));
-          }
-        };
-
-        cell.appendChild(b1);
-
-        const b2 = smallBtn("Reject", "secondary");
-        if (cell.children.length) b2.style.marginLeft = "8px";
-
-        b2.onclick = async () => {
-          try {
-            const remarks = prompt("Reason for rejection?");
-            if (remarks === null) return;
-
-            const r = await fetch(`/api/supervisor/assignments/${a.id}/reject`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ remarks })
-            });
-
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(j?.error || "Reject failed");
-
-            alert("Job returned to In Progress with supervisor remarks.");
-            await renderJobs();
-          } catch (e) {
-            alert(e.message || String(e));
-          }
-        };
-
-        cell.appendChild(b2);
-      }
+      cell.appendChild(b0);
 
       tb.appendChild(tr);
     });
@@ -3228,7 +3156,7 @@ async function renderJobs() {
   } catch (e) {
     root.innerHTML = `
       <div class="card">
-        <div class="label">Jobs failed to load</div>
+        <div class="label">My Jobs failed to load</div>
         <div class="hr"></div>
         <div class="muted">${String(e.message || e)}</div>
       </div>
