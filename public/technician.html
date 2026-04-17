@@ -1315,7 +1315,7 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
     }
   }
 
-/*if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
       await navigator.serviceWorker.register('/sw.js');
@@ -1325,7 +1325,7 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
     }
   });
 }
-*/
+
   boot();
 </script>
 </body>
