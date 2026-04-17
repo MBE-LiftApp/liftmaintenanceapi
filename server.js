@@ -5215,21 +5215,22 @@ async function buildServiceDashboardData() {
   const today = startOfDay(new Date());
 
   const projects = await Project.findAll({
-    include: [
-      {
-        model: ProjectLift,
-        include: [
-          
-          {
-            model: ProjectLiftAssignment,
-            as: 'assignments',
-            include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role'] }],
-          },
-        ],
-      },
-    ],
-    order: [['id', 'DESC']],
-  });
+  include: [
+    { model: Customer, attributes: ['id', 'name'] },
+    { model: Site, attributes: ['id', 'name'] },
+    {
+      model: ProjectLift,
+      include: [
+        {
+          model: ProjectLiftAssignment,
+          as: 'assignments',
+          include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role'] }],
+        },
+      ],
+    },
+  ],
+  order: [['id', 'DESC']],
+});
 
   const projectLiftIds = projects.flatMap((p) =>
   (p.ProjectLifts || []).map((pl) => pl.id).filter(Boolean)
@@ -5319,48 +5320,51 @@ console.log('AMC DEBUG', {
       const warrantyInfo = buildWarrantyInfo(pl, rawAssignments, today);
 
       rows.push({
-        projectId: String(p.id),
-        projectName: p.project_name || '',
-        customerName: p.customer_name || '',
-        projectLiftId: String(pl.id),
-        liftId: String(pl.lift_id || pl.liftId || ''),
-        liftCode: pl.lift_code || '',
-        location: pl.location_label || (pl.Lift ? pl.Lift.location : '') || '',
+  projectId: String(p.id),
+  projectName: p.project_name || '',
+  customerName: p.Customer?.name || '',
+  building: p.Site?.name || '',
+  projectLiftId: String(pl.id),
+  liftId: String(pl.lift_id || pl.liftId || ''),
+  liftCode: pl.lift_code || '',
+  location: pl.location_label || (pl.Lift ? pl.Lift.location : '') || '',
 
-        warrantyMonths: pl.warranty_months ?? null,
-        warrantyStartDate: warrantyInfo.startDate,
-        warrantyEndDate: warrantyInfo.endDate,
-        warrantyStatus: warrantyInfo.status,
-        warrantyServiceVisits: warrantyInfo.serviceVisitCount,
-        warrantyCompletedVisits: warrantyInfo.completedVisits,
-        warrantyNextVisitNumber: warrantyInfo.nextVisitNumber,
-        warrantyNextServiceDue: warrantyInfo.nextServiceDue,
-        warrantyCreateJobFromDate: warrantyInfo.createJobFromDate,
-        warrantyIsDueNow: warrantyInfo.isDueNow,
-        warrantyIsOverdue: warrantyInfo.isOverdue,
-        warrantyOverdueDays: warrantyInfo.overdueDays || 0,
-        warrantyActiveServiceAssignment: warrantyInfo.activeServiceAssignment,
+  warrantyMonths: pl.warranty_months ?? null,
+  warrantyStartDate: warrantyInfo.startDate,
+  warrantyEndDate: warrantyInfo.endDate,
+  warrantyStatus: warrantyInfo.status,
+  warrantyServiceVisits: warrantyInfo.serviceVisitCount,
+  warrantyCompletedVisits: warrantyInfo.completedVisits,
+  warrantyNextVisitNumber: warrantyInfo.nextVisitNumber,
+  warrantyNextServiceDue: warrantyInfo.nextServiceDue,
+  warrantyCreateJobFromDate: warrantyInfo.createJobFromDate,
+  warrantyIsDueNow: warrantyInfo.isDueNow,
+  warrantyIsOverdue: warrantyInfo.isOverdue,
+  warrantyOverdueDays: warrantyInfo.overdueDays || 0,
+  warrantyActiveServiceAssignment: warrantyInfo.activeServiceAssignment,
 
-        amc: amcInfo,
-        amcStatus: amcInfo.status || 'NO AMC',
-        amcServiceVisits: amcInfo.serviceVisitCount,
-        amcCompletedVisits: amcInfo.completedVisits,
-        amcNextVisitNumber: amcInfo.nextVisitNumber,
-        lastServiceDate: amcInfo.lastServiceDate || null,
-        nextServiceDue: amcInfo.nextServiceDue || warrantyInfo.nextServiceDue || null,
-        amcNextServiceDue: amcInfo.nextServiceDue || null,
-        amcCreateJobFromDate: amcInfo.createJobFromDate || null,
-        amcIsDueNow: amcInfo.isDueNow,
-        amcIsOverdue: amcInfo.isOverdue,
-        amcOverdueDays: amcInfo.overdueDays || 0,
-        amcActiveServiceAssignment: amcInfo.activeServiceAssignment,
+  amc: amcInfo,
+  amcStatus: amcInfo.status || 'NO AMC',
+  amcStartDate: contract?.startDate || contract?.start_date || null,
+  amcEndDate: contract?.endDate || contract?.end_date || null,
+  amcServiceVisits: amcInfo.serviceVisitCount,
+  amcCompletedVisits: amcInfo.completedVisits,
+  amcNextVisitNumber: amcInfo.nextVisitNumber,
+  lastServiceDate: amcInfo.lastServiceDate || null,
+  nextServiceDue: amcInfo.nextServiceDue || warrantyInfo.nextServiceDue || null,
+  amcNextServiceDue: amcInfo.nextServiceDue || null,
+  amcCreateJobFromDate: amcInfo.createJobFromDate || null,
+  amcIsDueNow: amcInfo.isDueNow,
+  amcIsOverdue: amcInfo.isOverdue,
+  amcOverdueDays: amcInfo.overdueDays || 0,
+  amcActiveServiceAssignment: amcInfo.activeServiceAssignment,
 
-        serviceIsDueNow: !!(warrantyInfo.isDueNow || amcInfo.isDueNow),
-        overdueDays: Math.max(
-          Number(warrantyInfo.overdueDays || 0),
-          Number(amcInfo.overdueDays || 0)
-        ),
-      });
+  serviceIsDueNow: !!(warrantyInfo.isDueNow || amcInfo.isDueNow),
+  overdueDays: Math.max(
+    Number(warrantyInfo.overdueDays || 0),
+    Number(amcInfo.overdueDays || 0)
+  ),
+});
     }
   }
 
