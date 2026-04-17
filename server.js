@@ -441,6 +441,12 @@ function parseDateOnly(s) {
   return startOfDay(d);
 }
 
+function toDateOnlyString(d) {
+  if (!d) return null;
+  const dt = new Date(d);
+  return dt.toISOString().slice(0, 10);
+}
+
 function daysBetween(a, b) {
   const MS = 1000 * 60 * 60 * 24;
   const da = startOfDay(a);
