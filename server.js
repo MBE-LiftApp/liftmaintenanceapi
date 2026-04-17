@@ -3412,14 +3412,6 @@ app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
     }
 
     const resolvedLiftId = Number(pl.lift_id || pl.liftId || 0);
-    if (!resolvedLiftId) {
-      return res.status(400).json({ error: 'Project lift is not linked to a lift record' });
-    }
-
-    const linkedLift = await Lift.findByPk(resolvedLiftId);
-    if (!linkedLift) {
-      return res.status(400).json({ error: 'Linked lift record not found' });
-    }
 
     if (!pl.handover_actual_date || !pl.warranty_end_date) {
       return res.status(400).json({ error: 'Handover and warranty must be completed before AMC creation' });
@@ -3447,7 +3439,11 @@ app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
     }
 
     const existingActive = await Contract.findOne({
-      where: { projectLiftId },
+      where: {
+        projectLiftId,
+        contractType: 'AMC',
+        status: 'ACTIVE',
+      },
       order: [['id', 'DESC']],
     });
 
@@ -3461,6 +3457,9 @@ app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
 
     const contract = await Contract.create({
       projectLiftId,
+      liftId: resolvedLiftId || null,
+      contractType: 'AMC',
+      status: 'ACTIVE',
       amcType: amcType || 'LABOUR_ONLY',
       startDate: toDateOnlyString(start),
       endDate: end.toISOString().slice(0, 10),
