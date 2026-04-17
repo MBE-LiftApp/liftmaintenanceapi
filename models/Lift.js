@@ -36,14 +36,16 @@ module.exports = (sequelize, DataTypes) => {
 
       createdAt: {
         type: DataTypes.DATE,
-        allowNull: true,
+        allowNull: false,
         field: 'createdAt',
+        defaultValue: DataTypes.NOW,
       },
 
       updatedAt: {
         type: DataTypes.DATE,
-        allowNull: true,
+        allowNull: false,
         field: 'updatedAt',
+        defaultValue: DataTypes.NOW,
       },
 
       liftPosition: {
