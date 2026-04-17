@@ -46,7 +46,6 @@ module.exports = (sequelize, DataTypes) => {
         field: 'updatedAt',
       },
 
-      // compatibility alias for any code still using liftPosition
       liftPosition: {
         type: DataTypes.VIRTUAL,
         get() {

@@ -3150,6 +3150,18 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       notes,
     } = req.body || {};
 
+    console.log('ADD LIFT INPUT', {
+      projectId,
+      liftCode,
+      location,
+      passengerCapacity,
+      liftType,
+      numberOfFloors,
+      warrantyMonths,
+      warrantyServiceVisits,
+      notes,
+    });
+
     if (!liftCode || !String(liftCode).trim()) {
       await t.rollback();
       return res.status(400).json({ error: 'Lift Code is required' });
@@ -3163,6 +3175,14 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       transaction: t,
     });
 
+    console.log('PROJECT FOUND', project ? {
+      id: project.id,
+      customer_id: project.customer_id,
+      site_id: project.site_id,
+      customerName: project.Customer?.name || null,
+      siteName: project.Site?.name || null,
+    } : null);
+
     if (!project) {
       await t.rollback();
       return res.status(404).json({ error: 'Project not found' });
@@ -3175,6 +3195,8 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       transaction: t,
     });
 
+    console.log('EXISTING MASTER LIFT', lift ? lift.toJSON() : null);
+
     if (!lift) {
       lift = await Lift.create(
         {
@@ -3186,6 +3208,8 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
         },
         { transaction: t }
       );
+
+      console.log('CREATED MASTER LIFT', lift.toJSON());
     }
 
     const existingProjectLift = await ProjectLift.findOne({
@@ -3195,6 +3219,8 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       },
       transaction: t,
     });
+
+    console.log('EXISTING PROJECT LIFT', existingProjectLift ? existingProjectLift.toJSON() : null);
 
     if (existingProjectLift) {
       await t.rollback();
@@ -3217,6 +3243,8 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       { transaction: t }
     );
 
+    console.log('CREATED PROJECT LIFT', projectLift.toJSON());
+
     await t.commit();
 
     return res.json({
@@ -3227,7 +3255,10 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
   } catch (err) {
     await t.rollback();
     console.error('POST /api/projects/:projectId/lifts error:', err);
-    return res.status(500).json({ error: 'Failed to create lift' });
+    return res.status(500).json({
+      error: err.message || 'Failed to create lift',
+      detail: Array.isArray(err.errors) ? err.errors.map((e) => e.message) : null,
+    });
   }
 });
 
