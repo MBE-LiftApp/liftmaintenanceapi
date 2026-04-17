@@ -3463,28 +3463,81 @@ async function renderJobs() {
 
 async function renderAMC() {
   const root = setViewMode(false);
-
   setTitle("AMC");
 
   const btnCreate = smallBtn("+ Create AMC", "primary");
-  btnCreate.onclick = () => {
-    showCreateAmcSelectionModal();
-  };
+  btnCreate.onclick = () => showCreateAmcSelectionModal();
 
   const btnRefresh = smallBtn("Refresh", "secondary");
   btnRefresh.onclick = () => renderAMC();
 
   setToolbar([btnCreate, btnRefresh]);
 
-  root.innerHTML = `
-    <div class="card">
-      <div class="label">AMC Management</div>
-      <div class="hr"></div>
-      <div class="muted">
-        Use "Create AMC" to start a new contract.
+  root.innerHTML = `<div class="card"><div class="label">Loading AMC...</div></div>`;
+
+  try {
+    const data = await API.getServiceDashboard(); // 🔥 IMPORTANT
+    const rows = Array.isArray(data?.rows) ? data.rows : [];
+
+    const amcRows = rows.filter(
+      (r) => String(r.amcStatus || "").toUpperCase() !== "NO AMC"
+    );
+
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">AMC Management</div>
+        <div class="hr"></div>
+
+        ${
+          !amcRows.length
+            ? `<div class="muted">No AMC records found.</div>`
+            : `
+              <div class="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Lift</th>
+                      <th>Customer / Site</th>
+                      <th>Status</th>
+                      <th>Start</th>
+                      <th>End</th>
+                      <th>Next Service</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${amcRows
+                      .map(
+                        (r) => `
+                      <tr>
+                        <td><b>${r.liftCode || ""}</b></td>
+                        <td>${[r.customerName, r.building]
+                          .filter(Boolean)
+                          .join(" - ")}</td>
+                        <td>${r.amcStatus || ""}</td>
+                        <td>${r.amcStartDate || "—"}</td>
+                        <td>${r.amcEndDate || "—"}</td>
+                        <td>${r.amcNextServiceDue || "—"}</td>
+                      </tr>
+                    `
+                      )
+                      .join("")}
+                  </tbody>
+                </table>
+              </div>
+            `
+        }
       </div>
-    </div>
-  `;
+    `;
+  } catch (e) {
+    console.error(e);
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">AMC failed</div>
+        <div class="hr"></div>
+        <div class="muted">${e.message || e}</div>
+      </div>
+    `;
+  }
 }
 
 async function showCreateAmcSelectionModal() {
