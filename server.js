@@ -5242,7 +5242,7 @@ const allAmcCandidates = projectLiftIds.length
   : [];
 
 // 🔥 FILTER manually (robust against snake_case / casing)
-const activeAmcContracts = allAmcCandidates; // ✅ take all contracts
+const activeAmcContracts = allAmcCandidates;
 
 console.log('ALL AMC CANDIDATES RAW', allAmcCandidates.map((c) => ({
   id: c.id,
@@ -5394,13 +5394,6 @@ app.get('/api/service/dashboard', async (req, res) => {
     res.status(500).json({ error: err.message || 'Failed to load service dashboard' });
   }
 });
-
-async getServiceDashboard() {
-  const r = await fetch('/api/service/dashboard');
-  const j = await r.json();
-  if (!r.ok) throw new Error(j?.error || 'Failed to load service dashboard');
-  return j;
-}
 
 app.post('/api/project-lifts/:projectLiftId/jobs', async (req, res) => {
   try {

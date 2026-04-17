@@ -980,6 +980,13 @@ async dueAmcJobs() {
   return j;
 },
 
+async getServiceDashboard() {
+  const r = await fetch('/api/service/dashboard');
+  const j = await r.json();
+  if (!r.ok) throw new Error(j?.error || 'Failed to load service dashboard');
+  return j;
+}
+
 async autoCreateAmcJob(projectLiftId, payload) {
   const r = await fetch(`/api/project-lifts/${projectLiftId}/auto-amc-job`, {
     method: 'POST',
