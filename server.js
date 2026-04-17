@@ -3151,6 +3151,7 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
     } = req.body || {};
 
     if (!liftCode || !String(liftCode).trim()) {
+      await t.rollback();
       return res.status(400).json({ error: 'Lift Code is required' });
     }
 
@@ -3167,40 +3168,66 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // ✅ STEP 1: Create LIFT (master)
-    const lift = await Lift.create({
-      job_no: `JOB-${Date.now()}`, // or your own numbering logic
-      customer_id: project.customer_id,
-      site_id: project.site_id,
-      lift_label: liftCode,
-      current_status: 'ACTIVE',
-    }, { transaction: t });
+    const code = String(liftCode).trim();
 
-    // ✅ STEP 2: Create PROJECT_LIFT (linked)
-    const projectLift = await ProjectLift.create({
-      project_id: projectId,
-      lift_id: lift.id,
-      location,
-      passenger_capacity: passengerCapacity,
-      lift_type: liftType,
-      number_of_floors: numberOfFloors,
-      warranty_months: warrantyMonths,
-      warranty_service_visits: warrantyServiceVisits,
-      notes,
-    }, { transaction: t });
+    let lift = await Lift.findOne({
+      where: { liftCode: code },
+      transaction: t,
+    });
+
+    if (!lift) {
+      lift = await Lift.create(
+        {
+          liftCode: code,
+          customerName: project.Customer?.name || null,
+          building: project.Site?.name || null,
+          location: location || null,
+          status: 'ACTIVE',
+        },
+        { transaction: t }
+      );
+    }
+
+    const existingProjectLift = await ProjectLift.findOne({
+      where: {
+        project_id: projectId,
+        lift_code: code,
+      },
+      transaction: t,
+    });
+
+    if (existingProjectLift) {
+      await t.rollback();
+      return res.status(400).json({ error: 'This lift is already added to the project' });
+    }
+
+    const projectLift = await ProjectLift.create(
+      {
+        project_id: projectId,
+        liftId: lift.id,
+        lift_code: code,
+        location_label: location || null,
+        passenger_capacity: passengerCapacity || null,
+        lift_type: liftType || null,
+        number_of_floors: numberOfFloors || null,
+        warranty_months: Number(warrantyMonths || 12),
+        warrantyServiceVisits: Number(warrantyServiceVisits || 5),
+        notes: notes || '',
+      },
+      { transaction: t }
+    );
 
     await t.commit();
 
-    res.json({
+    return res.json({
       success: true,
       lift,
       projectLift,
     });
-
   } catch (err) {
     await t.rollback();
-    console.error(err);
-    res.status(500).json({ error: 'Failed to create lift' });
+    console.error('POST /api/projects/:projectId/lifts error:', err);
+    return res.status(500).json({ error: 'Failed to create lift' });
   }
 });
 
