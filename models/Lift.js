@@ -16,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
         field: 'building',
       },
 
-      liftPosition: {
+      location: {
         type: DataTypes.TEXT,
         allowNull: true,
         field: 'location',
@@ -44,6 +44,17 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: true,
         field: 'updatedAt',
+      },
+
+      // compatibility alias for any code still using liftPosition
+      liftPosition: {
+        type: DataTypes.VIRTUAL,
+        get() {
+          return this.getDataValue('location');
+        },
+        set(value) {
+          this.setDataValue('location', value);
+        },
       },
     },
     {
