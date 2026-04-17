@@ -7,7 +7,7 @@ module.exports = (sequelize, DataTypes) => {
       liftCode: {
         type: DataTypes.TEXT,
         allowNull: false,
-        field: 'lift_code',
+        field: 'liftCode',
       },
 
       building: {
@@ -16,7 +16,6 @@ module.exports = (sequelize, DataTypes) => {
         field: 'building',
       },
 
-      // Keep compatibility with newer code that expects liftPosition
       liftPosition: {
         type: DataTypes.TEXT,
         allowNull: true,
@@ -26,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
       customerName: {
         type: DataTypes.TEXT,
         allowNull: true,
-        field: 'customer_name',
+        field: 'customerName',
       },
 
       status: {
@@ -35,38 +34,20 @@ module.exports = (sequelize, DataTypes) => {
         field: 'status',
       },
 
-      amcType: {
-        type: DataTypes.TEXT,
-        allowNull: true,
-        field: 'amc_type',
-      },
-
-      amcStartDate: {
-        type: DataTypes.DATEONLY,
-        allowNull: true,
-        field: 'amc_start_date',
-      },
-
-      amcEndDate: {
-        type: DataTypes.DATEONLY,
-        allowNull: true,
-        field: 'amc_end_date',
-      },
-
       createdAt: {
         type: DataTypes.DATE,
         allowNull: true,
-        field: 'created_at',
+        field: 'createdAt',
       },
 
       updatedAt: {
         type: DataTypes.DATE,
         allowNull: true,
-        field: 'updated_at',
+        field: 'updatedAt',
       },
     },
     {
-      tableName: 'lifts',
+      tableName: 'Lifts',
       timestamps: false,
     }
   );
@@ -77,7 +58,6 @@ module.exports = (sequelize, DataTypes) => {
       sourceKey: 'id',
     });
 
-    // Optional compatibility for any old code that still reads Lift.ServiceLogs
     if (models.ServiceLog) {
       Lift.hasMany(models.ServiceLog, {
         foreignKey: 'liftId',
