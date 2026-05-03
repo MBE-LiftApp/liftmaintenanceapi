@@ -48,12 +48,18 @@ const ContractFactory = require('./Contract');
 const ServiceLogFactory = require('./ServiceLog');
 const TechnicianFactory = require('./Technician');
 const TechnicianSessionFactory = require('./TechnicianSession');
+
 const ProjectFactory = require('./Project');
 const ProjectLiftFactory = require('./ProjectLift');
 const ProjectLiftAssignmentFactory = require('./ProjectLiftAssignment');
 const JobFactory = require("./Job");
 const JobAssignmentFactory = require("./JobAssignment");
-
+const RoleFactory = require('./Role');
+const PermissionFactory = require('./Permission');
+const RolePermissionFactory = require('./RolePermission');
+const UserFactory = require('./User');
+const TechnicianLeaveFactory = require('./TechnicianLeave');
+const BreakdownJobPartFactory = require('./BreakdownJobPart');
 const models = {};
 models.Customer = CustomerFactory(sequelize, DataTypes);
 models.Site = SiteFactory(sequelize, DataTypes);
@@ -62,11 +68,17 @@ models.Contract = ContractFactory(sequelize, DataTypes);
 models.ServiceLog = ServiceLogFactory(sequelize, DataTypes);
 models.Technician = TechnicianFactory(sequelize, DataTypes);
 models.TechnicianSession = TechnicianSessionFactory(sequelize, DataTypes);
+models.TechnicianLeave = TechnicianLeaveFactory(sequelize, DataTypes);
 models.Project = ProjectFactory(sequelize, DataTypes);
 models.ProjectLift = ProjectLiftFactory(sequelize, DataTypes);
 models.ProjectLiftAssignment = ProjectLiftAssignmentFactory(sequelize, DataTypes);
 models.Job = JobFactory(sequelize, DataTypes);
 models.JobAssignment = JobAssignmentFactory(sequelize, DataTypes);
+models.Role = RoleFactory(sequelize, DataTypes);
+models.Permission = PermissionFactory(sequelize, DataTypes);
+models.RolePermission = RolePermissionFactory(sequelize, DataTypes);
+models.User = UserFactory(sequelize, DataTypes);
+models.BreakdownJobPart = BreakdownJobPartFactory(sequelize, DataTypes);
 
 // Associations
 Object.values(models).forEach((m) => {

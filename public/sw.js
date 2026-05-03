@@ -1,4 +1,4 @@
-const CACHE_NAME = 'technician-app-v1';
+const CACHE_NAME = 'technician-app-v2';
 const APP_SHELL = [
   '/technician.html',
   '/manifest.webmanifest'
@@ -27,17 +27,28 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
 
+  if (req.url.includes('/alert.mp3')) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  if (req.url.includes('/api/')) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
   if (req.method !== 'GET') return;
 
+  // ✅ Cache only static files
   event.respondWith(
-    fetch(req)
-      .then((networkRes) => {
+    caches.match(req).then((cached) => {
+      return cached || fetch(req).then((networkRes) => {
         const copy = networkRes.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(req, copy);
         });
         return networkRes;
-      })
-      .catch(() => caches.match(req).then((cached) => cached || caches.match('/technician.html')))
+      });
+    })
   );
 });

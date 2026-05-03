@@ -15,6 +15,28 @@ module.exports = (sequelize, DataTypes) => {
 
       assigned_at: { type: DataTypes.DATE, allowNull: false },
       unassigned_at: { type: DataTypes.DATE, allowNull: true },
+
+      technician_response_status: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: "PENDING", // PENDING | ACKNOWLEDGED
+      },
+
+      technician_responded_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+
+      escalation_status: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: "NONE", // NONE | ESCALATED
+      },
+
+      escalated_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "job_assignments",

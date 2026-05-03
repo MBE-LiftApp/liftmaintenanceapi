@@ -6,7 +6,22 @@ module.exports = (sequelize, DataTypes) => {
       name: { type: DataTypes.TEXT, allowNull: false },
       phone: { type: DataTypes.TEXT, allowNull: true },
       email: { type: DataTypes.TEXT, allowNull: true },
+
+      // Keep old role for backward compatibility during migration
       role: { type: DataTypes.TEXT, allowNull: true },
+
+      // New RBAC role link
+      roleId: {
+        type: DataTypes.BIGINT,
+        allowNull: true, // make true first, then false after backfill
+        field: 'role_id',
+      },
+
+availability_status: {
+  type: DataTypes.ENUM("AVAILABLE", "OFF_DUTY", "ON_LEAVE", "SUSPENDED"),
+  allowNull: false,
+  defaultValue: "AVAILABLE",
+},
       skills: { type: DataTypes.TEXT, allowNull: true },
 
       isActive: {
@@ -18,6 +33,7 @@ module.exports = (sequelize, DataTypes) => {
 
       pinHash: { type: DataTypes.TEXT, allowNull: true, field: 'pin_hash' },
       pinSalt: { type: DataTypes.TEXT, allowNull: true, field: 'pin_salt' },
+
       mustChangePin: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
@@ -30,6 +46,18 @@ module.exports = (sequelize, DataTypes) => {
       timestamps: false,
     }
   );
+
+  Technician.associate = (models) => {
+    Technician.belongsTo(models.Role, {
+      foreignKey: 'role_id',
+      as: 'roleRef',
+    });
+
+    Technician.hasMany(models.TechnicianSession, {
+      foreignKey: 'technician_id',
+      as: 'sessions',
+    });
+  };
 
   return Technician;
 };

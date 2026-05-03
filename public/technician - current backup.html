@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Technician App</title>
+
+  <link rel="stylesheet" href="app.css" />
+
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f7fb;
+    }
+
+    .header {
+      background: #111827;
+      color: #fff;
+      padding: 14px 16px;
+      font-weight: 600;
+    }
+
+    .container {
+      padding: 12px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+    }
+
+    .btn {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: none;
+      background: #2563eb;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn.secondary {
+      background: #e5e7eb;
+      color: #111;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .muted {
+      color: #6b7280;
+      font-size: 13px;
+    }
+
+    .checklistItem {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+    }
+
+    input, textarea {
+      width: 100%;
+      padding: 8px;
+      margin-top: 6px;
+      border-radius: 6px;
+      border: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">Technician Dashboard</div>
+
+<div class="container" id="appRoot"></div>
+
+<script>
+const root = document.getElementById("appRoot");
+
+let currentJob = null;
+let checklistCache = [];
+
+// ---------- SAFE RENDER ----------
+function renderJobs(jobs) {
+  root.innerHTML = "";
+
+  if (!jobs.length) {
+    root.innerHTML = "<div class='muted'>No jobs assigned</div>";
+    return;
+  }
+
+  jobs.forEach(job => {
+    const card = document.createElement("div");
+    card.className = "card";
+
+    card.innerHTML = `
+      <div class="row">
+        <div>
+          <b>${job.role}</b>
+          <div class="muted">${job.liftCode || ""}</div>
+        </div>
+        <button class="btn" data-open="${job.id}">Open</button>
+      </div>
+    `;
+
+    root.appendChild(card);
+  });
+
+  // ✅ SINGLE event delegation (fixes double trigger)
+  root.onclick = async (e) => {
+    const id = e.target.dataset.open;
+    if (!id) return;
+
+    openJob(id);
+  };
+}
+
+// ---------- OPEN JOB ----------
+async function openJob(jobId) {
+  currentJob = jobId;
+
+  root.innerHTML = "<div class='card'>Loading...</div>";
+
+  const checklist = await fetch(`/api/tech/assignments/${jobId}/checklist`)
+    .then(r => r.json());
+
+  checklistCache = checklist || [];
+
+  renderChecklist();
+}
+
+// ---------- CHECKLIST ----------
+function renderChecklist() {
+  root.innerHTML = "";
+
+  const card = document.createElement("div");
+  card.className = "card";
+
+  card.innerHTML = `
+    <div class="row">
+      <b>Checklist</b>
+      <button class="btn" id="saveBtn">Save</button>
+    </div>
+    <div id="itemsWrap"></div>
+  `;
+
+  root.appendChild(card);
+
+  const wrap = card.querySelector("#itemsWrap");
+
+  checklistCache.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "checklistItem";
+
+    row.innerHTML = `
+      <div>${item.label}</div>
+      ${
+        item.itemType === "BOOLEAN"
+          ? `<input type="checkbox" ${item.isDone ? "checked" : ""} data-id="${item.id}" />`
+          : `<input type="text" value="${item.value || ""}" data-id="${item.id}" />`
+      }
+    `;
+
+    wrap.appendChild(row);
+  });
+
+  // ✅ SAVE BUTTON (single handler only)
+  card.querySelector("#saveBtn").onclick = saveChecklist;
+}
+
+// ---------- SAVE ----------
+async function saveChecklist() {
+  const inputs = document.querySelectorAll("[data-id]");
+
+  const updates = [];
+
+  inputs.forEach(input => {
+    const id = input.dataset.id;
+
+    if (input.type === "checkbox") {
+      updates.push({
+        itemId: id,
+        isDone: input.checked
+      });
+    } else {
+      updates.push({
+        itemId: id,
+        value: input.value
+      });
+    }
+  });
+
+  try {
+    // ✅ SINGLE API CALL (prevents duplicate save)
+    await Promise.all(
+      updates.map(u =>
+        fetch(`/api/tech/assignments/${currentJob}/checklist/${u.itemId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(u)
+        })
+      )
+    );
+
+    alert("Saved successfully");
+  } catch (e) {
+    alert("Save failed");
+  }
+}
+
+// ---------- INIT ----------
+async function init() {
+  const jobs = await fetch("/api/tech/assignments")
+    .then(r => r.json());
+
+  renderJobs(jobs);
+}
+
+init();
+</script>
+
+</body>
+</html>

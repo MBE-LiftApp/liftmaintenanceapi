@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Technician App</title>
 
-<link rel="manifest" href="/manifest.webmanifest" />
-<meta name="theme-color" content="#0f172a" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="Technician App" />
-<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Technician App" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
   <style>
     :root{
@@ -31,6 +31,7 @@
     }
 
     *{ box-sizing:border-box; }
+
     body{
       margin:0;
       background:var(--bg);
@@ -39,121 +40,123 @@
     }
 
     .wrap{
-      max-width: 920px;
-      margin: 22px auto;
-      padding: 0 14px 40px;
+      max-width:920px;
+      margin:22px auto;
+      padding:0 14px 40px;
     }
 
     .card{
       background:var(--card);
       border:1px solid var(--line);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 16px;
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:16px;
     }
 
     h1{
-      margin: 10px 0 8px;
-      font-size: 24px;
+      margin:10px 0 8px;
+      font-size:24px;
     }
 
     .muted{
       color:var(--muted);
-      font-size: 13px;
+      font-size:13px;
     }
 
     label{
       display:block;
-      font-size: 12px;
+      font-size:12px;
       color:var(--muted);
-      margin-bottom: 6px;
+      margin-bottom:6px;
     }
 
     input, select, textarea{
       width:100%;
       border:1px solid var(--line);
-      border-radius: 12px;
-      padding: 10px 12px;
-      font-size: 14px;
+      border-radius:12px;
+      padding:10px 12px;
+      font-size:14px;
       outline:none;
       background:#fff;
-      font-family: inherit;
+      font-family:inherit;
     }
 
     textarea{
-      min-height: 88px;
-      resize: vertical;
+      min-height:88px;
+      resize:vertical;
     }
 
     input:focus, select:focus, textarea:focus{
       border-color:#cbd5e1;
-      box-shadow: 0 0 0 4px rgba(37,99,235,0.08);
+      box-shadow:0 0 0 4px rgba(37,99,235,0.08);
     }
 
     .row{
       display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
     }
 
     .btn{
       border:1px solid var(--line);
-      border-radius: 12px;
-      padding: 10px 14px;
-      font-size: 14px;
+      border-radius:12px;
+      padding:10px 14px;
+      font-size:14px;
       cursor:pointer;
       background:#fff;
     }
 
     .btnPrimary{
-  background:var(--btn);
-  color:#fff;
-  font-weight:800;
-}
+      background:var(--btn);
+      color:#fff;
+      font-weight:800;
+    }
 
-.btnSecondary{
-  background:#f1f5f9;
-}
+    .btnSecondary{
+      background:#f1f5f9;
+    }
 
     .btnSmall{
-  padding:10px 12px;
-  font-size:14px;
-}
+      padding:10px 12px;
+      font-size:14px;
+    }
 
     .btn:disabled{
-  opacity:0.4;
-  background:#f1f5f9;
-}
+      opacity:0.4;
+      background:#f1f5f9;
+      cursor:not-allowed;
+    }
+
+    .btn:active{
+      transform:scale(0.97);
+    }
 
     .top{
       display:flex;
-      gap: 10px;
+      gap:10px;
       align-items:center;
       justify-content:space-between;
-      margin-bottom: 12px;
+      margin-bottom:12px;
+      position:sticky;
+      top:0;
+      background:var(--bg);
+      z-index:10;
+      padding-bottom:8px;
     }
-
-.top{
-  position:sticky;
-  top:0;
-  background:var(--bg);
-  z-index:10;
-  padding-bottom:8px;
-}
 
     .chips{
       display:flex;
-      gap: 8px;
+      gap:8px;
       flex-wrap:wrap;
     }
 
     .chip{
       border:1px solid var(--line);
       background:#fff;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 900;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:900;
       cursor:pointer;
     }
 
@@ -165,48 +168,41 @@
 
     .grid{
       display:grid;
-      gap: 12px;
-      margin-top: 12px;
+      gap:12px;
+      margin-top:12px;
     }
 
     .ticket{
-  padding:14px;
-}
-.ticket{
-  box-shadow: 0 4px 10px rgba(0,0,0,0.04);
-}
+      padding:14px;
+      box-shadow:0 4px 10px rgba(0,0,0,0.04);
+      border-left:4px solid #e5e7eb;
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:16px;
+    }
+
     .ticketHead{
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap:10px;
-}
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
 
     .code{
-  font-weight:1000;
-  font-size:16px;
-}
+      font-weight:1000;
+      font-size:16px;
+    }
 
-.ticket .muted{
-  opacity:0.85;
-}
+    .ticket .muted{
+      opacity:0.85;
+    }
 
-.ticket{
-  border-left: 4px solid #e5e7eb;
-}
-
-.btn:active{
-  transform: scale(0.97);
-}
-
-.badge{
-  letter-spacing:0.3px;
-}
     .badge{
-      font-size: 12px;
-      font-weight: 900;
-      padding: 4px 10px;
-      border-radius: 999px;
+      letter-spacing:0.3px;
+      font-size:12px;
+      font-weight:900;
+      padding:4px 10px;
+      border-radius:999px;
       border:1px solid var(--line);
       display:inline-flex;
       align-items:center;
@@ -220,18 +216,18 @@
     .bCancel{ background:#fee2e2; }
     .bWarn{ background:#fff7ed; border-color:#fdba74; }
     .bDanger{
-  background:#fee2e2;
-  border-color:#f87171;
-  color:#991b1b;
-}
+      background:#fee2e2;
+      border-color:#f87171;
+      color:#991b1b;
+    }
     .bInfo{ background:#eff6ff; border-color:#93c5fd; }
 
     .actions{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap:8px;
-  margin-top:10px;
-}
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      margin-top:10px;
+    }
 
     .hide{ display:none; }
 
@@ -243,13 +239,13 @@
     }
 
     .field{
-      margin-top: 12px;
+      margin-top:12px;
     }
 
     .kv{
       display:grid;
-      grid-template-columns: 110px 1fr;
-      gap: 6px 10px;
+      grid-template-columns:110px 1fr;
+      gap:6px 10px;
       margin-top:12px;
       font-size:14px;
     }
@@ -259,28 +255,15 @@
     }
 
     .summaryBox{
-  border:1px solid var(--line);
-  border-radius:12px;
-  padding:12px;
-  background:#f8fafc;
-  margin-top:12px;
-}
-.summaryBox .badge{
-  margin-top:6px;
-}
-
-    .checkRow{
       border:1px solid var(--line);
       border-radius:12px;
       padding:12px;
-      margin-top:10px;
+      background:#f8fafc;
+      margin-top:12px;
     }
 
-    .checkTop{
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      align-items:flex-start;
+    .summaryBox .badge{
+      margin-top:6px;
     }
 
     .noteItem, .partItem{
@@ -308,7 +291,7 @@
       overflow:auto;
       background:#fff;
       border-radius:18px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.18);
+      box-shadow:0 20px 40px rgba(0,0,0,0.18);
       border:1px solid var(--line);
     }
 
@@ -364,24 +347,164 @@
 
     .toast.show{ opacity:1; }
 
-    @media (max-width: 700px){
-      .row{ grid-template-columns: 1fr; }
-      .kv{ grid-template-columns: 1fr; }
+    .checklistCard{
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      padding:12px;
+      margin-bottom:10px;
+      background:#fff;
+    }
+
+    .checkTopRow{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .checkTitleWrap{
+      flex:1;
+      min-width:0;
+    }
+
+    .checkTitle{
+      font-weight:600;
+      line-height:1.35;
+    }
+
+    .checkReq{
+      color:#b42318;
+      margin-left:4px;
+    }
+
+    .checkMeta{
+      font-size:12px;
+      color:#6b7280;
+      margin-top:4px;
+    }
+
+    .checkSaveState{
+      font-size:12px;
+      white-space:nowrap;
+      min-width:58px;
+      text-align:right;
+    }
+
+    .checkControlWrap{
+      margin-top:10px;
+    }
+
+    .checkBooleanRow{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-height:40px;
+    }
+
+    .checkBooleanRow input[type="checkbox"]{
+      width:20px;
+      height:20px;
+      margin:0;
+      flex:0 0 auto;
+    }
+
+    .checkBooleanText{
+      font-size:14px;
+    }
+
+    .checkInputText,
+    .checkInputNumber{
+      width:100%;
+      border:1px solid #d0d5dd;
+      border-radius:10px;
+      padding:10px 12px;
+      font:inherit;
+      box-sizing:border-box;
+      background:#fff;
+    }
+
+    .checkInputText:disabled,
+    .checkInputNumber:disabled,
+    .checkInputBool:disabled{
+      background:#f9fafb;
+    }
+.techChecklistCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.techChecklistTitle {
+  font-size: 15px;
+  line-height: 1.4;
+  color: #111827;
+}
+
+.techChecklistTitle .checkReq {
+  color: #dc2626;
+  margin-left: 4px;
+}
+
+.techChecklistMeta {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.techChecklistControlWrap {
+  margin-top: 8px;
+}
+
+.techChecklistBooleanRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.techChecklistBooleanText {
+  font-size: 14px;
+  color: #374151;
+}
+
+.techChecklistInput {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.techChecklistSave {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+    @media (max-width:700px){
+      .row{ grid-template-columns:1fr; }
+      .kv{ grid-template-columns:1fr; }
       .ticketHead{ flex-direction:column; }
       .top{ align-items:flex-start; }
+    }
+
+    @media (max-width:640px){
+      .checklistCard{ padding:10px; }
+      .checkTitle{ font-size:14px; }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="top">
-  <div>
-    <h1>Technician App</h1>
-    <div class="muted">
-      Login with phone + PIN. Your assignments sync automatically from the office system.
+      <div>
+        <h1>Technician App</h1>
+        <div class="muted">
+          Login with phone + PIN. Your assignments sync automatically from the office system.
+        </div>
+      </div>
     </div>
-  </div>
-</div>
 
     <div id="loginCard" class="card">
       <div class="row">
@@ -434,7 +557,45 @@
   <div id="toast" class="toast"></div>
 
 <script>
-  const API_BASE = location.origin;
+ 
+let alertAudio = null;
+let lastBreakdownIds = new Set();
+let breakdownIdsInitialized = false;
+
+function unlockAlertAudio() {
+  if (!alertAudio) {
+    alertAudio = new Audio('/alert.mp3');
+    alertAudio.volume = 1.0;
+  }
+
+  alertAudio.play()
+    .then(() => {
+      alertAudio.pause();
+      alertAudio.currentTime = 0;
+    })
+    .catch(() => {});
+}
+
+document.addEventListener('click', unlockAlertAudio, { once: true });
+document.addEventListener('touchstart', unlockAlertAudio, { once: true });
+
+function playAlertSound() {
+  if (!alertAudio) {
+    alertAudio = new Audio('/alert.mp3');
+    alertAudio.volume = 1.0;
+  }
+
+  alertAudio.currentTime = 0;
+  alertAudio.play().catch((err) => {
+    console.log('Alert sound blocked:', err);
+  });
+
+  if (navigator.vibrate) {
+    navigator.vibrate([300, 150, 300]);
+  }
+}
+
+const API_BASE = location.origin;
   const LS_TOKEN = "liftapp.tech.token";
   const LS_TECH = "liftapp.tech.profile";
 
@@ -470,11 +631,15 @@
   }
 
   function setFilter(chip){
-    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
-    filterStatus = chip.getAttribute('data-filter') || 'ALL';
-    renderJobCards();
-  }
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+
+  filterStatus = chip.getAttribute('data-filter') || 'ALL';
+
+  console.log('FILTER CHANGED TO:', filterStatus); // 👈 ADD THIS
+
+  renderJobCards();
+}
 
   function getToken(){ return localStorage.getItem(LS_TOKEN) || ''; }
   function setToken(token){ localStorage.setItem(LS_TOKEN, token); }
@@ -483,6 +648,7 @@
     localStorage.removeItem(LS_TOKEN);
     localStorage.removeItem(LS_TECH);
   }
+
 
   async function parseResponse(res, fallback){
     const text = await res.text();
@@ -497,6 +663,13 @@
     }
     return data;
   }
+
+function getTechAuthHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${localStorage.getItem('liftapp.tech.token') || ''}`,
+  };
+}
 
   async function apiFetch(path, options = {}, fallback = 'Request failed'){
     const res = await fetch(API_BASE + path, options);
@@ -515,12 +688,8 @@
 
   function renderChecklistStatusBadge(summary){
     const raw = String(summary?.status || 'NOT_STARTED').toUpperCase();
-    if (raw === 'COMPLETED') {
-      return `<span class="badge bDone">Checklist Complete</span>`;
-    }
-    if (raw === 'IN_PROGRESS') {
-      return `<span class="badge bInfo">Checklist In Progress</span>`;
-    }
+    if (raw === 'COMPLETED') return `<span class="badge bDone">Checklist Complete</span>`;
+    if (raw === 'IN_PROGRESS') return `<span class="badge bInfo">Checklist In Progress</span>`;
     return `<span class="badge">Checklist Not Started</span>`;
   }
 
@@ -542,11 +711,8 @@
 
   function formatDate(v){
     if (!v) return '—';
-    try {
-      return new Date(v).toLocaleDateString();
-    } catch {
-      return String(v);
-    }
+    try { return new Date(v).toLocaleDateString(); }
+    catch { return String(v); }
   }
 
   function getMyRole(job){
@@ -558,10 +724,30 @@
   }
 
   function filterJobs(rows){
-    if (filterStatus === 'ALL') return rows;
-    if (filterStatus === 'NEEDS_FIX') return rows.filter(r => !!r.resubmissionRequired);
-    return rows.filter(r => String(r.status || '').toUpperCase() === filterStatus);
+  if (filterStatus === 'ALL') return rows;
+
+  if (filterStatus === 'NEEDS_FIX') {
+    return rows.filter(r => !!r.resubmissionRequired);
   }
+
+  return rows.filter(r => {
+    const s = String(r.status || '').toUpperCase().trim();
+
+    if (filterStatus === 'DONE') {
+      return ['DONE', 'COMPLETED', 'CLOSED', 'RESOLVED'].includes(s);
+    }
+
+    if (filterStatus === 'IN_PROGRESS') {
+      return s === 'IN_PROGRESS';
+    }
+
+    if (filterStatus === 'ASSIGNED') {
+      return s === 'ASSIGNED';
+    }
+
+    return false;
+  });
+}
 
   function openModal(title, bodyHtml, footerHtml = ''){
     byId('modalTitle').textContent = title;
@@ -635,75 +821,147 @@
   }
 
   async function refreshJobs(){
-    const token = getToken();
-    if(!token) return;
+  const token = getToken();
+  if(!token) return;
 
-    setBusy(true);
-    try {
-      const data = await apiFetch('/api/tech/assignments', {
-        headers:{ 'Authorization':'Bearer ' + token }
-      }, 'Failed to load assignments');
+  setBusy(true);
+  try {
+    const assignments = await apiFetch('/api/tech/assignments', {
+      headers:{ 'Authorization':'Bearer ' + token }
+    }, 'Failed to load assignments');
 
-      jobsCache = Array.isArray(data) ? data : [];
-      console.log('Technician assignments loaded:', jobsCache);
-      renderChips();
-      renderJobCards();
+    const breakdowns = await apiFetch('/api/tech/breakdown-jobs', {
+  headers:{ 'Authorization':'Bearer ' + token }
+}, 'Failed to load breakdown jobs');
 
-      if (activeJobId) {
-        const active = jobsCache.find(j => Number(j.id) === Number(activeJobId));
-        if (active) {
-          // keep context only logically; detail modal is reopened by explicit action
-        } else {
-          activeJobId = null;
-        }
-      }
-    } catch (e) {
-      alert(e.message || 'Failed to load assignments');
-    } finally {
-      setBusy(false);
+console.log('RAW BREAKDOWNS FROM API:', JSON.stringify(breakdowns, null, 2));
+
+    const mappedBreakdowns = (Array.isArray(breakdowns) ? breakdowns : []).map(b => ({
+  id: b.id,
+  assignmentId: b.assignmentId,
+  technicianResponseStatus: b.technicianResponseStatus,
+  escalationStatus: b.escalationStatus,
+  status: (() => {
+    const s = String(b.status || '').toUpperCase().trim();
+    if (['DONE', 'COMPLETED', 'CLOSED', 'RESOLVED'].includes(s)) return 'DONE';
+    if (s === 'IN_PROGRESS') return 'IN_PROGRESS';
+    if (s === 'ASSIGNED') return 'ASSIGNED';
+    return 'ASSIGNED';
+  })(),
+  role: 'BREAKDOWN',
+  teamRole: b.assignment_role || 'LEAD',
+  lift: {
+    liftCode: b.liftCode || '',
+    location: ''
+  },
+  project: {
+    projectName: b.project || b.projectName || '',
+    projectCode: b.projectCode || ''
+  },
+  notes: b.complaint || '',
+  priority: b.priority || 'NORMAL',
+  isBreakdown: true
+}));
+
+    jobsCache = [
+      ...(Array.isArray(assignments) ? assignments : []),
+      ...mappedBreakdowns
+    ];
+
+    const currentBreakdownIds = new Set(
+      mappedBreakdowns
+        .filter(j => String(j.status || '').toUpperCase() !== 'DONE')
+        .map(j => String(j.id))
+    );
+
+    const newBreakdowns = [...currentBreakdownIds].filter(id => !lastBreakdownIds.has(id));
+
+    console.log("BREAKDOWN ALERT DEBUG", {
+      initialized: breakdownIdsInitialized,
+      previous: [...lastBreakdownIds],
+      current: [...currentBreakdownIds],
+      newBreakdowns
+    });
+
+    if (newBreakdowns.length > 0) {
+      playAlertSound();
+      showToast('New breakdown job assigned', 'warn');
     }
+
+    lastBreakdownIds = currentBreakdownIds;
+    breakdownIdsInitialized = true;
+
+    renderChips();
+    renderJobCards();
+
+  } catch (e) {
+    alert(e.message || 'Failed to load jobs');
+  } finally {
+    setBusy(false);
+  }
+}
+
+  function renderChips() {
+    const container = byId('chips');
+    const hasNeedsFix = jobsCache.some(j => j.resubmissionRequired);
+
+    if (filterStatus === 'NEEDS_FIX' && !hasNeedsFix) {
+      filterStatus = 'ALL';
+    }
+
+    container.innerHTML = `
+      <div class="chip ${filterStatus === 'ALL' ? 'active' : ''}" data-filter="ALL" onclick="setFilter(this)">All</div>
+      <div class="chip ${filterStatus === 'ASSIGNED' ? 'active' : ''}" data-filter="ASSIGNED" onclick="setFilter(this)">Assigned</div>
+      <div class="chip ${filterStatus === 'IN_PROGRESS' ? 'active' : ''}" data-filter="IN_PROGRESS" onclick="setFilter(this)">In Progress</div>
+      <div class="chip ${filterStatus === 'DONE' ? 'active' : ''}" data-filter="DONE" onclick="setFilter(this)">Done</div>
+      ${hasNeedsFix ? `<div class="chip ${filterStatus === 'NEEDS_FIX' ? 'active' : ''}" data-filter="NEEDS_FIX" onclick="setFilter(this)">Needs Fix</div>` : ''}
+    `;
   }
 
-
-function renderChips() {
-  
-const container = document.getElementById('chips');
-
-  const hasNeedsFix = jobsCache.some(j => j.resubmissionRequired);
-
-if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)) {
-  filterStatus = 'ALL';
-}
-
-  container.innerHTML = `
-    <div class="chip ${filterStatus === 'ALL' ? 'active' : ''}" data-filter="ALL" onclick="setFilter(this)">All</div>
-    <div class="chip ${filterStatus === 'ASSIGNED' ? 'active' : ''}" data-filter="ASSIGNED" onclick="setFilter(this)">Assigned</div>
-    <div class="chip ${filterStatus === 'IN_PROGRESS' ? 'active' : ''}" data-filter="IN_PROGRESS" onclick="setFilter(this)">In Progress</div>
-    <div class="chip ${filterStatus === 'DONE' ? 'active' : ''}" data-filter="DONE" onclick="setFilter(this)">Done</div>
-    ${hasNeedsFix ? `<div class="chip ${filterStatus === 'NEEDS_FIX' ? 'active' : ''}" data-filter="NEEDS_FIX" onclick="setFilter(this)">Needs Fix</div>` : ''}
-  `;
-}
-
   function renderJobCards(){
-    const list = byId('list');
-    const empty = byId('empty');
-    list.innerHTML = '';
+  console.log('✅ renderJobCards running', {
+    filterStatus,
+    jobsCacheLength: jobsCache.length,
+    jobsCache
+  });
+
+console.log('JOB STATUS CHECK:', JSON.stringify(jobsCache.map(j => ({
+  id: j.id,
+  status: j.status,
+  assignmentStatus: j.assignmentStatus,
+  jobStatus: j.jobStatus,
+  checklistStatus: j.checklistSummary?.status,
+  role: j.role,
+  isBreakdown: j.isBreakdown
+})), null, 2));
+
+console.log('FILTERED ROWS:', JSON.stringify(filterJobs(jobsCache).map(j => ({
+  id: j.id,
+  status: j.status,
+  checklistStatus: j.checklistSummary?.status,
+  role: j.role,
+  isBreakdown: j.isBreakdown
+})), null, 2));
+
+
+  const list = byId('list');
+  const empty = byId('empty');
+  list.innerHTML = '';
 
     const rows = filterJobs(jobsCache);
 
     if (!rows.length) {
-  const labelMap = {
-    ALL: 'assignments',
-    ASSIGNED: 'assigned jobs',
-    IN_PROGRESS: 'in-progress jobs',
-    DONE: 'completed jobs',
-    NEEDS_FIX: 'jobs needing fixes'
-  };
-
-  empty.textContent = `No ${labelMap[filterStatus] || 'assignments'} found.`;
-  empty.style.display = 'block';
-  return;
-}
+      const labelMap = {
+        ALL: 'assignments',
+        ASSIGNED: 'assigned jobs',
+        IN_PROGRESS: 'in-progress jobs',
+        DONE: 'completed jobs',
+        NEEDS_FIX: 'jobs needing fixes'
+      };
+      empty.textContent = `No ${labelMap[filterStatus] || 'assignments'} found.`;
+      empty.style.display = 'block';
+      return;
+    }
 
     empty.style.display = 'none';
 
@@ -715,23 +973,46 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
       const due = formatDate(a.dueDate);
       const myRole = getMyRole(a) || '—';
       const checklistText = checklistSummaryText(a.checklistSummary || null);
-      const canStart = isLead(a) && String(a.status || '').toUpperCase() === 'ASSIGNED';
       const totalRequired = Number(a.checklistSummary?.totalRequired || 0);
       const doneRequired = Number(a.checklistSummary?.doneRequired || 0);
       const checklistComplete = totalRequired > 0 && doneRequired >= totalRequired;
+      const canStart = isLead(a) && String(a.status || '').toUpperCase() === 'ASSIGNED';
       const canComplete =
-        isLead(a) &&
-        String(a.status || '').toUpperCase() === 'IN_PROGRESS' &&
-        checklistComplete &&
-        !a.resubmissionRequired;
+  isLead(a) &&
+  String(a.status || '').toUpperCase() === 'IN_PROGRESS' &&
+  !a.resubmissionRequired &&
+  (a.isBreakdown || checklistComplete);
 
+const completeTitle = canComplete
+  ? ''
+  : (!isLead(a)
+      ? 'Only lead can complete the job'
+      : (String(a.status || '').toUpperCase() !== 'IN_PROGRESS'
+          ? 'Job must be in progress first'
+          : (a.resubmissionRequired
+              ? 'Supervisor requested changes — update checklist or add note'
+              : (a.isBreakdown
+                  ? 'Ready to complete breakdown job'
+                  : `Complete ${doneRequired}/${totalRequired} required items first`
+                )
+            )
+        )
+    );
       const card = document.createElement('div');
-      card.className = 'ticket';
+card.className = 'ticket';
+
+if (a.isBreakdown) {
+  card.style.borderLeft = '4px solid #dc2626'; // red alert
+}
 
       card.innerHTML = `
         <div class="ticketHead">
           <div>
-            <div class="code">${escapeHtml(liftCode)} <span class="muted">• ${escapeHtml(role)}</span></div>
+            <div class="code">
+  ${escapeHtml(liftCode)}
+  ${a.isBreakdown ? `<span class="badge bDanger">BREAKDOWN</span>` : ''}
+  <span class="muted">• ${escapeHtml(role)}</span>
+</div>
             <div class="muted">${escapeHtml(projectName)}${location ? ' • ' + escapeHtml(location) : ''}${a.dueDate ? ' • Due: ' + escapeHtml(due) : ''}</div>
             <div class="muted" style="margin-top:6px;">My Role: <b>${escapeHtml(myRole || '—')}</b></div>
           </div>
@@ -747,120 +1028,220 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
             : ''
         }
 
-        <div class="summaryBox">
-          <div class="muted">${escapeHtml(checklistText)}</div>
-          <div style="margin-top:8px;">${renderChecklistStatusBadge(a.checklistSummary || null)}</div>
-        </div>
+        ${a.isBreakdown ? `
+  <div class="summaryBox" style="border-color:#fecaca;background:#fff1f2;">
+    <div style="font-weight:700;color:#b91c1c;">Breakdown Job</div>
+    <div class="muted" style="margin-top:4px;">Immediate attention required</div>
+  </div>
+` : `
+  <div class="summaryBox">
+    <div class="muted">${escapeHtml(checklistText)}</div>
+    <div style="margin-top:8px;">${renderChecklistStatusBadge(a.checklistSummary || null)}</div>
+  </div>
+`}
 
         <div class="muted" style="margin-top:10px;">${escapeHtml(a.notes || '')}</div>
 
         <div class="actions">
-          <button class="btn btnSmall" data-act="details">Details</button>
-          <button class="btn btnSmall" data-act="checklist">Checklist</button>
-          <button class="btn btnSmall" data-act="start" ${canStart ? '' : 'disabled'}>Start</button>
-          <button class="btn btnSmall" data-act="done" ${canComplete ? '' : 'disabled'} title="${
-            canComplete ? '' :
-            (!isLead(a) ? 'Only lead can complete the job' :
-            (String(a.status || '').toUpperCase() !== 'IN_PROGRESS' ? 'Job must be in progress first' :
-            (a.resubmissionRequired ? 'Supervisor requested changes — update checklist or add note' :
-            `Complete ${doneRequired}/${totalRequired} required items first`)))
-          }">Complete</button>
-        </div>
+  <button class="btn btnSmall" data-act="details">Details</button>
+
+  ${a.isBreakdown && a.technicianResponseStatus !== 'ACKNOWLEDGED' ? `
+    <button class="btn btnSmall btnPrimary" data-act="ack">Acknowledge</button>
+  ` : ''}
+
+  ${a.isBreakdown ? '' : `<button class="btn btnSmall" data-act="checklist">Checklist</button>`}
+
+  <button class="btn btnSmall" data-act="start" ${canStart ? '' : 'disabled'}>Start</button>
+  <button class="btn btnSmall" data-act="done" ${canComplete ? '' : 'disabled'} title="${escapeHtml(completeTitle)}">Complete</button>
+</div>
       `;
 
       card.querySelector('[data-act="details"]').onclick = () => showJobDetails(a.id);
-      card.querySelector('[data-act="checklist"]').onclick = () => showTechChecklistModal(a.id, a.role || 'JOB');
-      card.querySelector('[data-act="start"]').onclick = async () => {
-        try {
-          await updateJobStatus(a.id, 'IN_PROGRESS');
-          showToast('Job started', 'success');
-        } catch (e) {
-          alert(e.message || String(e));
-        }
-      };
-      card.querySelector('[data-act="done"]').onclick = async () => {
-        if (!confirm('Are you sure you completed this job?')) return;
-        try {
-          await updateJobStatus(a.id, 'DONE');
-          showToast('Job completed', 'success');
-        } catch (e) {
-          alert(e.message || String(e));
-        }
-      };
 
-      list.appendChild(card);
+const checklistBtn = card.querySelector('[data-act="checklist"]');
+if (checklistBtn) {
+  checklistBtn.onclick = () => showTechChecklistModal(a.id, a.role || 'JOB');
+}
+
+card.querySelector('[data-act="start"]').onclick = async () => {
+  try {
+    await updateJobStatus(a, 'IN_PROGRESS');
+    showToast('Job started', 'success');
+  } catch (e) {
+    alert(e.message || String(e));
+  }
+};
+
+card.querySelector('[data-act="done"]').onclick = async () => {
+  if (!confirm('Are you sure you completed this job?')) return;
+  try {
+    await updateJobStatus(a, 'DONE');
+    showToast('Job completed', 'success');
+  } catch (e) {
+    alert(e.message || String(e));
+  }
+};
+
+// ✅ ADD THIS BLOCK HERE
+const ackBtn = card.querySelector('[data-act="ack"]');
+if (ackBtn) {
+  ackBtn.onclick = async () => {
+    try {
+      const r = await fetch(`/api/tech/job-assignments/${a.assignmentId}/acknowledge`, {
+        method: 'POST',
+        headers: getTechAuthHeaders(),
+      });
+
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'Failed to acknowledge');
+
+      showToast('Breakdown acknowledged', 'success');
+      await refreshJobs();
+    } catch (e) {
+      alert(e.message || 'Failed to acknowledge');
+    }
+  };
+}
+
+list.appendChild(card);
     });
   }
 
-  async function updateJobStatus(id, status){
-    const token = getToken();
-    setBusy(true);
-    try {
-      await apiFetch(`/api/tech/assignments/${id}/status`, {
-        method:'PUT',
-        headers:{
-          'Content-Type':'application/json',
-          'Authorization':'Bearer ' + token
-        },
-        body: JSON.stringify({ status })
-      }, 'Failed to update status');
+  async function updateJobStatus(job, status) {
+  const token = getToken();
 
-      await refreshJobs();
-    } finally {
-      setBusy(false);
-    }
+  const id = Number(job?.id);
+  const path = job?.isBreakdown
+    ? `/api/tech/breakdown-jobs/${id}/status`
+    : `/api/tech/assignments/${id}/status`;
+
+  console.log('STATUS UPDATE DEBUG:', {
+    id,
+    isBreakdown: job?.isBreakdown,
+    status,
+    path,
+    tokenPresent: !!token,
+    tokenStart: token ? token.slice(0, 20) : ''
+  });
+
+  if (!token) {
+    throw new Error('Missing technician login token. Please logout and login again.');
   }
 
+  setBusy(true);
+
+  try {
+    const r = await fetch(path, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ status }),
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      throw new Error(data.error || 'Failed to update status');
+    }
+
+    await refreshJobs();
+    return data;
+  } finally {
+    setBusy(false);
+  }
+}
+
   function showJobDetails(jobId){
-    const a = jobsCache.find(j => Number(j.id) === Number(jobId));
-    if (!a) return;
+  const a = jobsCache.find(j => Number(j.id) === Number(jobId));
+  if (!a) return;
 
-    activeJobId = a.id;
+  activeJobId = a.id;
 
-    const supportNames = (a.supportTechnicians || []).map(t => t?.name).filter(Boolean);
-    const myRole = getMyRole(a) || '—';
-    const summary = a.checklistSummary || null;
+  const supportNames = (a.supportTechnicians || []).map(t => t?.name).filter(Boolean);
+  const myRole = getMyRole(a) || '—';
+  const summary = a.checklistSummary || null;
+  const isBreakdown = !!a.isBreakdown;
 
-    openModal(
-      `${a.lift?.liftCode || ''} — ${a.role || 'JOB'}`,
-      `
-        <div class="kv">
-          <div class="k">Project</div><div>${escapeHtml(a.project?.projectName || '—')}</div>
-          <div class="k">Project Code</div><div>${escapeHtml(a.project?.projectCode || '—')}</div>
-          <div class="k">Location</div><div>${escapeHtml(a.lift?.location || '—')}</div>
-          <div class="k">Status</div><div><span class="${badgeClass(a.status)}">${escapeHtml(statusLabel(a))}</span></div>
-          <div class="k">My Role</div><div>${escapeHtml(myRole)}</div>
-          <div class="k">Lead</div><div>${escapeHtml(a.leadTechnician?.name || a.technician?.name || '—')}</div>
-          <div class="k">Support</div><div>${escapeHtml(supportNames.join(', ') || '—')}</div>
-          <div class="k">Due</div><div>${escapeHtml(formatDate(a.dueDate))}</div>
-        </div>
+  openModal(
+    `${a.lift?.liftCode || ''} — ${a.role || 'JOB'}`,
+    `
+      <div class="kv">
+        <div class="k">Project</div><div>${escapeHtml(a.project?.projectName || '—')}</div>
+        <div class="k">Project Code</div><div>${escapeHtml(a.project?.projectCode || '—')}</div>
+        <div class="k">Location</div><div>${escapeHtml(a.lift?.location || '—')}</div>
+        <div class="k">Status</div><div><span class="${badgeClass(a.status)}">${escapeHtml(statusLabel(a))}</span></div>
+        <div class="k">My Role</div><div>${escapeHtml(myRole)}</div>
+        <div class="k">Lead</div><div>${escapeHtml(a.leadTechnician?.name || a.technician?.name || '—')}</div>
+        <div class="k">Support</div><div>${escapeHtml(supportNames.join(', ') || '—')}</div>
+        <div class="k">Due</div><div>${escapeHtml(formatDate(a.dueDate))}</div>
+      </div>
 
+      ${isBreakdown ? '' : `
         <div class="summaryBox">
           <div style="font-weight:800;margin-bottom:6px;">Checklist</div>
           <div class="muted">${escapeHtml(checklistSummaryText(summary))}</div>
           <div style="margin-top:8px;">${renderChecklistStatusBadge(summary)}</div>
         </div>
+      `}
 
-        ${
-          a.resubmissionRequired
-            ? `<div class="summaryBox" style="border-color:#fca5a5;background:#fef2f2;">
-                 <div style="font-weight:800;color:#991b1b;">Needs correction</div>
-                 <div class="muted" style="margin-top:4px;">Open Checklist to view supervisor remarks and update your submission.</div>
-               </div>`
-            : ''
-        }
+      <div class="field">
+        <label>Job Notes</label>
+        <div class="summaryBox">${escapeHtml(a.notes || '—')}</div>
+      </div>
 
-        <div class="field">
-          <label>Job Notes</label>
-          <div class="summaryBox">${escapeHtml(a.notes || '—')}</div>
+      ${isBreakdown ? `
+        <div class="hr"></div>
+
+        <div style="font-weight:800; margin-bottom:10px;">Parts / Materials Used</div>
+
+        <div id="breakdownPartsWrap"></div>
+
+        <div class="actions" style="margin-top:10px;">
+          <button class="btn" id="btnAddBreakdownPart">+ Add Part</button>
         </div>
-      `,
-      `
+      ` : ''}
+    `,
+    `
+      ${isBreakdown ? '' : `
         <button class="btn" type="button" onclick="showTechChecklistModal(${Number(a.id)}, '${String(a.role || 'JOB').replaceAll("'", "\\'")}')">Checklist</button>
-        <button class="btn" type="button" onclick="closeModal()">Close</button>
-      `
-    );
+      `}
+      <button class="btn" type="button" onclick="closeModal()">Close</button>
+    `
+  );
+
+  if (isBreakdown) {
+    (async () => {
+      try {
+        const data = await getBreakdownParts(a.id);
+        renderBreakdownParts(data.parts || []);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+
+    const addBtn = byId('btnAddBreakdownPart');
+    if (addBtn) {
+      addBtn.onclick = async () => {
+        try {
+          await addBreakdownPart(a.id, {
+            itemName: 'New Part',
+            qty: 1,
+            remarks: '',
+          });
+
+          const data = await getBreakdownParts(a.id);
+          renderBreakdownParts(data.parts || []);
+
+          showToast('Part added', 'success');
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      };
+    }
   }
+}
 
   async function getTechChecklist(jobId){
     return apiFetch(`/api/tech/assignments/${jobId}/checklist`, {
@@ -890,6 +1271,18 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
     }, 'Failed to add checklist note');
   }
 
+async function acknowledgeBreakdownJob(assignmentId) {
+  const r = await fetch(`/api/tech/job-assignments/${assignmentId}/acknowledge`, {
+    method: 'POST',
+    headers: getTechAuthHeaders(),
+  });
+
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || 'Failed to acknowledge breakdown');
+
+  return data;
+}
+
   async function getTechServiceReport(jobId){
     return apiFetch(`/api/tech/assignments/${jobId}/service-report`, {
       headers: { 'Authorization': 'Bearer ' + getToken() }
@@ -900,8 +1293,8 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
     return apiFetch(`/api/tech/assignments/${jobId}/service-report`, {
       method: 'PUT',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + getToken()
+        'Content-Type':'application/json',
+        'Authorization':'Bearer ' + getToken()
       },
       body: JSON.stringify(payload)
     }, 'Failed to save service report');
@@ -909,10 +1302,10 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
 
   async function addTechServicePart(jobId, payload){
     return apiFetch(`/api/tech/assignments/${jobId}/service-report/parts`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + getToken()
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer ' + getToken()
       },
       body: JSON.stringify(payload)
     }, 'Failed to add part');
@@ -920,10 +1313,10 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
 
   async function updateTechServicePart(partId, payload){
     return apiFetch(`/api/tech/service-parts/${partId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + getToken()
+      method:'PUT',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer ' + getToken()
       },
       body: JSON.stringify(payload)
     }, 'Failed to update part');
@@ -931,12 +1324,123 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
 
   async function deleteTechServicePart(partId){
     return apiFetch(`/api/tech/service-parts/${partId}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': 'Bearer ' + getToken()
-      }
+      method:'DELETE',
+      headers:{ 'Authorization':'Bearer ' + getToken() }
     }, 'Failed to delete part');
   }
+
+async function getBreakdownParts(jobId){
+  return apiFetch(`/api/tech/breakdown-jobs/${jobId}/parts`, {
+    headers: { 'Authorization': 'Bearer ' + getToken() }
+  }, 'Failed to load breakdown parts');
+}
+
+async function addBreakdownPart(jobId, payload){
+  return apiFetch(`/api/tech/breakdown-jobs/${jobId}/parts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':'application/json',
+      'Authorization':'Bearer ' + getToken()
+    },
+    body: JSON.stringify(payload)
+  }, 'Failed to add part');
+}
+
+async function updateBreakdownPart(partId, payload){
+  return apiFetch(`/api/tech/breakdown-parts/${partId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type':'application/json',
+      'Authorization':'Bearer ' + getToken()
+    },
+    body: JSON.stringify(payload)
+  }, 'Failed to update breakdown part');
+}
+
+async function deleteBreakdownPart(partId){
+  return apiFetch(`/api/tech/breakdown-parts/${partId}`, {
+    method: 'DELETE',
+    headers: { 'Authorization':'Bearer ' + getToken() }
+  }, 'Failed to delete breakdown part');
+}
+
+
+function renderBreakdownParts(parts){
+  const wrap = byId('breakdownPartsWrap');
+  if (!wrap) return;
+
+  wrap.innerHTML = '';
+
+  if (!parts.length) {
+    wrap.innerHTML = `<div class="muted">No parts added yet.</div>`;
+    return;
+  }
+
+  parts.forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'partItem';
+    div.innerHTML = `
+      <div class="field">
+        <label>Part / Material</label>
+        <input id="bdPartName_${p.id}" value="${escapeHtml(p.itemName || '')}" />
+      </div>
+
+      <div class="field">
+        <label>Qty</label>
+        <input id="bdPartQty_${p.id}" type="number" min="1" step="1" value="${escapeHtml(p.qty ?? 1)}" />
+      </div>
+
+      <div class="field">
+        <label>Remarks</label>
+        <textarea id="bdPartRemarks_${p.id}">${escapeHtml(p.remarks || '')}</textarea>
+      </div>
+
+      <div class="actions">
+        <button class="btn btnSmall" data-save-breakdown-part="${p.id}">Save Part</button>
+        <button class="btn btnSmall" data-delete-breakdown-part="${p.id}">Delete</button>
+      </div>
+    `;
+    wrap.appendChild(div);
+  });
+
+  wrap.querySelectorAll('[data-save-breakdown-part]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = Number(btn.getAttribute('data-save-breakdown-part'));
+      try {
+        await updateBreakdownPart(id, {
+          itemName: byId(`bdPartName_${id}`)?.value || '',
+          qty: Number(byId(`bdPartQty_${id}`)?.value || 1),
+          remarks: byId(`bdPartRemarks_${id}`)?.value || '',
+        });
+
+        showToast('Part updated', 'success');
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    };
+  });
+
+  wrap.querySelectorAll('[data-delete-breakdown-part]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = Number(btn.getAttribute('data-delete-breakdown-part'));
+      if (!confirm('Delete this part?')) return;
+
+      try {
+        await deleteBreakdownPart(id);
+
+        const active = jobsCache.find(j => Number(j.id) === Number(activeJobId));
+        if (active) {
+          const data = await getBreakdownParts(active.id);
+          renderBreakdownParts(data.parts || []);
+        }
+
+        showToast('Part deleted', 'success');
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    };
+  });
+}
 
   async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
     try {
@@ -950,6 +1454,10 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
       setBusy(false);
 
       const isLeadUser = String(data.teamRole || data.myTeamRole || '').toUpperCase() === 'LEAD';
+      const isLocked =
+        String(data.status || '').toUpperCase() === 'DONE' &&
+        String(data.supervisorStatus || '').toUpperCase() === 'APPROVED';
+
       const showSupervisorAlert =
         String(data.supervisorStatus || '').toUpperCase() === 'REJECTED' &&
         String(data.supervisorRemarks || '').trim();
@@ -959,6 +1467,15 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
 
       function checklistModalHtml() {
         return `
+          ${isLocked ? `
+            <div class="summaryBox" style="border-color:#bfdbfe;background:#eff6ff;">
+              <div style="font-weight:700; color:#1d4ed8; margin-bottom:6px;">Checklist Locked</div>
+              <div style="color:#1d4ed8; font-weight:600;">
+                Supervisor approved this job. Checklist, notes, service report, and parts are now read-only.
+              </div>
+            </div>
+          ` : ''}
+
           ${showSupervisorAlert ? `
             <div class="summaryBox" style="border-color:#fca5a5;background:#fff5f5;">
               <div style="font-weight:700; color:#b42318; margin-bottom:6px;">Supervisor Remarks</div>
@@ -970,16 +1487,11 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
           ` : ''}
 
           <div class="summaryBox">
-            <div class="muted" style="margin-bottom:6px;">
-              ${isLeadUser
-                ? '<b>You are LEAD</b> — you can complete checklist'
-                : '<b>You are SUPPORT</b> — view only (notes allowed)'}
-            </div>
-            <div style="font-weight:800;">${escapeHtml(roleLabel)} checklist</div>
-            <div id="checklistSummaryText" class="muted" style="margin-top:6px;">
-              ${escapeHtml(checklistSummaryText(currentChecklist.summary))}
-            </div>
-          </div>
+  <div style="font-weight:800;">${escapeHtml(roleLabel)} checklist</div>
+  <div id="checklistSummaryText" class="muted" style="margin-top:6px;">
+    ${escapeHtml(checklistSummaryText(currentChecklist.summary))}
+  </div>
+</div>
 
           <div id="checklistItemsWrap"></div>
 
@@ -987,7 +1499,7 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
 
           <div class="field">
             <label>Add Note</label>
-            <textarea id="checklistNoteText" placeholder="Add observation / issue / service note"></textarea>
+            <textarea id="checklistNoteText" placeholder="Add observation / issue / service note" ${isLocked ? 'disabled' : ''}></textarea>
           </div>
 
           <div class="field">
@@ -1004,37 +1516,45 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
 
                 <div class="field">
                   <label>Overall Condition</label>
-                  <textarea id="srOverallCondition" placeholder="Overall lift condition">${escapeHtml(currentReportData?.report?.overallCondition || '')}</textarea>
+                  <select id="srOverallCondition" ${isLocked ? 'disabled' : ''}>
+                    <option value="">Select condition</option>
+                    <option value="Good" ${currentReportData?.report?.overallCondition === 'Good' ? 'selected' : ''}>Good</option>
+                    <option value="Minor Issues" ${currentReportData?.report?.overallCondition === 'Minor Issues' ? 'selected' : ''}>Minor Issues</option>
+                    <option value="Needs Attention" ${currentReportData?.report?.overallCondition === 'Needs Attention' ? 'selected' : ''}>Needs Attention</option>
+                    <option value="Critical" ${currentReportData?.report?.overallCondition === 'Critical' ? 'selected' : ''}>Critical</option>
+                  </select>
                 </div>
 
                 <div class="field">
                   <label>Faults Observed</label>
-                  <textarea id="srFaultsObserved" placeholder="Faults observed">${escapeHtml(currentReportData?.report?.faultsObserved || '')}</textarea>
+                  <textarea id="srFaultsObserved" ${isLocked ? 'disabled' : ''} placeholder="Short fault description">${escapeHtml(currentReportData?.report?.faultsObserved || '')}</textarea>
                 </div>
 
                 <div class="field">
                   <label>Action Taken</label>
-                  <textarea id="srActionTaken" placeholder="Action taken">${escapeHtml(currentReportData?.report?.actionTaken || '')}</textarea>
+                  <textarea id="srActionTaken" ${isLocked ? 'disabled' : ''} placeholder="Work carried out">${escapeHtml(currentReportData?.report?.actionTaken || '')}</textarea>
                 </div>
 
                 <div class="field">
+                  <label><input type="checkbox" id="srFollowUpRequired" ${isLocked ? 'disabled' : ''} ${currentReportData?.report?.followUpRequired ? 'checked' : ''} /> Follow-up Required</label>
+                </div>
+
+                <div class="field" id="srRecommendationsWrap" style="${currentReportData?.report?.followUpRequired ? '' : 'display:none;'}">
                   <label>Recommendations</label>
-                  <textarea id="srRecommendations" placeholder="Recommendations">${escapeHtml(currentReportData?.report?.recommendations || '')}</textarea>
-                </div>
-
-                <div class="field">
-                  <label><input type="checkbox" id="srFollowUpRequired" ${currentReportData?.report?.followUpRequired ? 'checked' : ''} /> Follow-up Required</label>
+                  <textarea id="srRecommendations" ${isLocked ? 'disabled' : ''} placeholder="Required only if follow-up is needed">${escapeHtml(currentReportData?.report?.recommendations || '')}</textarea>
                 </div>
 
                 <div class="field">
                   <label>Technician Remarks</label>
-                  <textarea id="srTechnicianRemarks" placeholder="Technician remarks">${escapeHtml(currentReportData?.report?.technicianRemarks || '')}</textarea>
+                  <textarea id="srTechnicianRemarks" ${isLocked ? 'disabled' : ''} placeholder="Optional remarks">${escapeHtml(currentReportData?.report?.technicianRemarks || '')}</textarea>
                 </div>
 
-                <div class="actions">
-                  <button type="button" class="btn" id="btnSaveServiceReport">Save Report</button>
-                  <button type="button" class="btn" id="btnAddServicePart">+ Add Part</button>
-                </div>
+                ${isLocked ? '' : `
+                  <div class="actions">
+                    <button type="button" class="btn" id="btnSaveServiceReport">Save Report</button>
+                    <button type="button" class="btn" id="btnAddServicePart">+ Add Part</button>
+                  </div>
+                `}
 
                 <div class="field">
                   <div style="font-weight:800;">Parts Used</div>
@@ -1050,10 +1570,23 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
         `${roleLabel} Checklist`,
         checklistModalHtml(),
         `
-          <button class="btn" type="button" id="btnAddChecklistNote">Add Note</button>
+          ${isLocked ? '' : `<button class="btn" type="button" id="btnAddChecklistNote">Add Note</button>`}
           <button class="btn" type="button" onclick="closeModal()">Close</button>
         `
       );
+
+      function wireFollowUpToggle() {
+        const followUpEl = byId('srFollowUpRequired');
+        const recommendationsWrapEl = byId('srRecommendationsWrap');
+        if (!followUpEl || !recommendationsWrapEl) return;
+
+        const syncRecommendationsVisibility = () => {
+          recommendationsWrapEl.style.display = followUpEl.checked ? '' : 'none';
+        };
+
+        syncRecommendationsVisibility();
+        followUpEl.onchange = syncRecommendationsVisibility;
+      }
 
       async function refreshChecklistModal() {
         currentChecklist = await getTechChecklist(jobId);
@@ -1066,96 +1599,168 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
       }
 
       function renderItems(items) {
-        const itemsWrap = byId('checklistItemsWrap');
-        itemsWrap.innerHTML = '';
+  const itemsWrap = byId('checklistItemsWrap');
+  itemsWrap.innerHTML = '';
 
-        if (!items.length) {
-          itemsWrap.innerHTML = `<div class="muted">No checklist items found.</div>`;
-          return;
+  if (!items.length) {
+    itemsWrap.innerHTML = `<div class="muted">No checklist items found.</div>`;
+    return;
+  }
+
+  items.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'techChecklistCard';
+card.style.border = '3px solid red';
+card.style.padding = '12px';
+card.style.marginBottom = '10px';
+
+    const canEdit = isLeadUser && !isLocked;
+    const type = String(item.itemType || 'BOOLEAN').toUpperCase();
+    const isBoolean = type === 'BOOLEAN';
+    const isText = type === 'TEXT';
+    const isNumber = type === 'NUMBER';
+
+    const statusText = isBoolean
+      ? (item.isDone ? 'Done' : 'Pending')
+      : (item.isDone ? 'Filled' : 'Pending');
+
+    let controlHtml = '';
+
+    if (isBoolean) {
+      controlHtml = `
+        <label class="techChecklistBooleanRow">
+          <input type="checkbox" class="checkInputBool" ${item.isDone ? 'checked' : ''} ${canEdit ? '' : 'disabled'} />
+          <span class="techChecklistBooleanText">${item.isDone ? 'Marked done' : 'Tap to mark done'}</span>
+        </label>
+      `;
+    } else if (isText) {
+      controlHtml = `
+        <textarea
+          class="checkInputText techChecklistInput"
+          ${canEdit ? '' : 'disabled'}
+          placeholder="Optional note / observation"
+          rows="3"
+        >${escapeHtml(item.textValue || '')}</textarea>
+      `;
+    } else if (isNumber) {
+      controlHtml = `
+        <input
+          type="number"
+          class="checkInputNumber techChecklistInput"
+          ${canEdit ? '' : 'disabled'}
+          value="${item.numberValue ?? ''}"
+          placeholder="Enter value"
+        />
+      `;
+    } else {
+      controlHtml = `
+        <input
+          type="text"
+          class="checkInputText techChecklistInput"
+          ${canEdit ? '' : 'disabled'}
+          value="${escapeHtml(item.textValue || '')}"
+          placeholder="Enter value"
+        />
+      `;
+    }
+
+    card.innerHTML = `
+      <div class="techChecklistTitle">
+        <b>${item.sortOrder || (index + 1)}. ${escapeHtml(item.itemText)}</b>
+        ${item.isRequired ? '<span class="checkReq">*</span>' : ''}
+      </div>
+
+      <div class="techChecklistMeta muted">
+        ${item.isRequired ? 'Required' : 'Optional'} · ${statusText}
+      </div>
+
+      <div class="techChecklistControlWrap">
+        ${controlHtml}
+      </div>
+
+      <div class="techChecklistSave muted" data-role="saveState"></div>
+    `;
+
+    const saveStateEl = card.querySelector('[data-role="saveState"]');
+    const inputEl = card.querySelector('.checkInputBool, .checkInputText, .checkInputNumber');
+
+    let saveTimer = null;
+
+    async function saveItem() {
+      if (!canEdit || !inputEl) return;
+
+      try {
+        saveStateEl.textContent = 'Saving…';
+
+        const payload = {};
+
+        if (isBoolean) {
+          payload.isDone = !!inputEl.checked;
+        } else if (isText) {
+          const val = String(inputEl.value || '').trim();
+          payload.textValue = inputEl.value;
+          payload.isDone = !!val;
+        } else if (isNumber) {
+          const raw = String(inputEl.value || '').trim();
+          payload.numberValue = raw === '' ? null : Number(raw);
+          payload.isDone = raw !== '';
+        } else {
+          const val = String(inputEl.value || '').trim();
+          payload.textValue = inputEl.value;
+          payload.isDone = !!val;
         }
 
-        items.forEach((item) => {
-          const row = document.createElement('div');
-          row.className = 'checkRow';
+        await updateTechChecklistItem(jobId, item.id, payload);
 
-          const canEdit = isLeadUser;
-          const itemType = String(item.itemType || '').toUpperCase();
-          let editor = '';
+        saveStateEl.textContent = 'Saved';
 
-          if (itemType === 'BOOLEAN') {
-            editor = `
-              <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
-                <input type="checkbox" id="itemBool_${item.id}" ${item.isDone ? 'checked' : ''} ${canEdit ? '' : 'disabled'} />
-                Mark complete
-              </label>
-            `;
-          } else if (itemType === 'TEXT') {
-            editor = `
-              <div class="field">
-                <textarea id="itemText_${item.id}" ${canEdit ? '' : 'disabled'}>${escapeHtml(item.textValue || '')}</textarea>
-              </div>
-            `;
-          } else if (itemType === 'NUMBER') {
-            editor = `
-              <div class="field">
-                <input type="number" id="itemNumber_${item.id}" value="${escapeHtml(item.numberValue ?? '')}" ${canEdit ? '' : 'disabled'} />
-              </div>
-            `;
+        const metaEl = card.querySelector('.techChecklistMeta');
+        if (metaEl) {
+          const newStatus = payload.isDone ? (isBoolean ? 'Done' : 'Filled') : 'Pending';
+          metaEl.textContent = `${item.isRequired ? 'Required' : 'Optional'} · ${newStatus}`;
+        }
+
+        if (isBoolean) {
+          const boolText = card.querySelector('.techChecklistBooleanText');
+          if (boolText) {
+            boolText.textContent = payload.isDone ? 'Marked done' : 'Tap to mark done';
           }
-
-          row.innerHTML = `
-            <div class="checkTop">
-              <div>
-                <div style="font-weight:800;">${Number(item.sortOrder || 0)}. ${escapeHtml(item.itemText || '')}</div>
-                <div class="muted" style="margin-top:4px;">
-                  ${item.isRequired ? 'Required' : 'Optional'} · ${item.isDone ? 'Done' : 'Pending'}
-                </div>
-              </div>
-              <div>${item.isDone ? '<span class="badge bDone">Done</span>' : '<span class="badge">Pending</span>'}</div>
-            </div>
-
-            ${editor}
-
-            ${canEdit ? `<div class="actions"><button class="btn btnSmall" data-save-item="${item.id}">Save Item</button></div>` : ''}
-          `;
-
-          itemsWrap.appendChild(row);
-        });
-
-        if (isLeadUser) {
-          itemsWrap.querySelectorAll('[data-save-item]').forEach((btn) => {
-            btn.onclick = async () => {
-              const itemId = Number(btn.getAttribute('data-save-item'));
-              const item = items.find(x => Number(x.id) === itemId);
-              if (!item) return;
-
-              try {
-                const itemType = String(item.itemType || '').toUpperCase();
-                const payload = {};
-
-                if (itemType === 'BOOLEAN') {
-                  payload.isDone = !!byId(`itemBool_${itemId}`)?.checked;
-                } else if (itemType === 'TEXT') {
-                  const val = byId(`itemText_${itemId}`)?.value || '';
-                  payload.textValue = val;
-                  payload.isDone = String(val).trim().length > 0;
-                } else if (itemType === 'NUMBER') {
-                  const raw = byId(`itemNumber_${itemId}`)?.value;
-                  payload.numberValue = raw === '' ? null : Number(raw);
-                  payload.isDone = raw !== '';
-                }
-
-                await updateTechChecklistItem(jobId, itemId, payload);
-                await refreshChecklistModal();
-                await refreshJobs();
-                showToast('Checklist item saved', 'success');
-              } catch (e) {
-                alert(e.message || String(e));
-              }
-            };
-          });
         }
+
+        try {
+          const fresh = await getTechChecklist(jobId);
+          currentChecklist = fresh;
+          const summaryEl = byId('checklistSummaryText');
+          if (summaryEl) summaryEl.textContent = checklistSummaryText(fresh.summary);
+        } catch (_) {}
+
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+          if (saveStateEl.textContent === 'Saved') saveStateEl.textContent = '';
+        }, 1200);
+      } catch (e) {
+        saveStateEl.textContent = 'Not saved';
+        alert(e.message || String(e));
       }
+    }
+
+    function debounceSave() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveItem, 500);
+    }
+
+    if (canEdit && inputEl) {
+      if (isBoolean) {
+        inputEl.addEventListener('change', saveItem);
+      } else {
+        inputEl.addEventListener('input', debounceSave);
+        inputEl.addEventListener('blur', saveItem);
+      }
+    }
+
+    itemsWrap.appendChild(card);
+  });
+}
 
       function renderNotes(notes) {
         const notesWrap = byId('checklistNotesWrap');
@@ -1196,23 +1801,27 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
           div.innerHTML = `
             <div class="field">
               <label>Part / Material</label>
-              <input id="partName_${p.id}" value="${escapeHtml(p.itemName || '')}" />
+              <input id="partName_${p.id}" value="${escapeHtml(p.itemName || '')}" ${isLocked ? 'disabled' : ''} />
             </div>
             <div class="field">
               <label>Qty</label>
-              <input type="number" min="1" step="1" id="partQty_${p.id}" value="${escapeHtml(p.qty ?? 1)}" />
+              <input type="number" min="1" step="1" id="partQty_${p.id}" value="${escapeHtml(p.qty ?? 1)}" ${isLocked ? 'disabled' : ''} />
             </div>
             <div class="field">
               <label>Remarks</label>
-              <textarea id="partRemarks_${p.id}">${escapeHtml(p.remarks || '')}</textarea>
+              <textarea id="partRemarks_${p.id}" ${isLocked ? 'disabled' : ''}>${escapeHtml(p.remarks || '')}</textarea>
             </div>
-            <div class="actions">
-              <button class="btn btnSmall" data-save-part="${p.id}">Save Part</button>
-              <button class="btn btnSmall" data-delete-part="${p.id}">Delete</button>
-            </div>
+            ${isLocked ? '' : `
+              <div class="actions">
+                <button class="btn btnSmall" data-save-part="${p.id}">Save Part</button>
+                <button class="btn btnSmall" data-delete-part="${p.id}">Delete</button>
+              </div>
+            `}
           `;
           wrap.appendChild(div);
         });
+
+        if (isLocked) return;
 
         wrap.querySelectorAll('[data-save-part]').forEach((btn) => {
           btn.onclick = async () => {
@@ -1250,6 +1859,7 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
         renderItems(currentChecklist.items || []);
         renderNotes(currentChecklist.notes || []);
         renderServiceParts(currentReportData.parts || []);
+        wireFollowUpToggle();
 
         const addNoteBtn = byId('btnAddChecklistNote');
         if (addNoteBtn) {
@@ -1267,7 +1877,7 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
           };
         }
 
-        if (isServiceRole(roleLabel)) {
+        if (isServiceRole(roleLabel) && !isLocked) {
           const saveReportBtn = byId('btnSaveServiceReport');
           const addPartBtn = byId('btnAddServicePart');
 
@@ -1315,7 +1925,7 @@ if (filterStatus === 'NEEDS_FIX' && !jobsCache.some(j => j.resubmissionRequired)
     }
   }
 
-if ('serviceWorker' in navigator) {
+ if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
       await navigator.serviceWorker.register('/sw.js');
@@ -1326,7 +1936,11 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-  boot();
+setInterval(() => {
+  if (getToken()) refreshJobs();
+}, 15000);
+
+boot();
 </script>
 </body>
 </html>

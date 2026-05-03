@@ -38,6 +38,16 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
 
+checklist_status: {
+  type: DataTypes.TEXT,
+  allowNull: true,
+},
+
+checklist_completion_percent: {
+  type: DataTypes.INTEGER,
+  allowNull: true,
+},
+
       // ✅ ADD THESE TWO
       supervisor_rejected_at: {
         type: DataTypes.DATE,
@@ -54,6 +64,7 @@ module.exports = (sequelize, DataTypes) => {
       timestamps: false,
     }
   );
+
 
   ProjectLiftAssignment.associate = (models) => {
     ProjectLiftAssignment.belongsTo(models.ProjectLift, {

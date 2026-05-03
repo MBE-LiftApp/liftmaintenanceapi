@@ -4,13 +4,326 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require("bcryptjs");
-const { Op } = require('sequelize');
+const jwt = require('jsonwebtoken');
+const { Op, DataTypes } = require('sequelize');
+
 const {
   sequelize,
-  Customer, Site, Lift, Contract, ServiceLog,
-  Technician, TechnicianSession,
-  Project, ProjectLift, ProjectLiftAssignment
+  User,
+  Customer,
+  Site,
+  Lift,
+  Contract,
+  ServiceLog,
+  Technician,
+  TechnicianSession,
+  TechnicianLeave,
+  Project,
+  ProjectLift,
+  ProjectLiftAssignment,
+  Job,
+  JobAssignment,
+  BreakdownJobPart,
+  Role,
+  Permission,
+  RolePermission,
 } = require('./models');
+
+const ESCALATION_MINUTES = 1;
+
+function startBreakdownEscalationChecker() {
+  setInterval(async () => {
+    try {
+      const threshold = new Date(Date.now() - ESCALATION_MINUTES * 60 * 1000);
+
+      const pendingAssignments = await JobAssignment.findAll({
+        where: {
+          technician_response_status: 'PENDING',
+          escalation_status: 'NONE',
+          assigned_at: {
+            [Op.lte]: threshold,
+          },
+        },
+        include: [
+          {
+            model: Job,
+            where: {
+              job_type: 'BREAKDOWN',
+              status: 'ASSIGNED',
+            },
+          },
+        ],
+      });
+
+      console.log('ESCALATION CHECK:', {
+        threshold,
+        found: pendingAssignments.length,
+      });
+
+      for (const assignment of pendingAssignments) {
+        await assignment.update({
+          escalation_status: 'ESCALATED',
+          escalated_at: new Date(),
+        });
+
+        console.log(
+          `🚨 Escalated breakdown job ${assignment.job_id} (tech ${assignment.technician_id})`
+        );
+      }
+    } catch (err) {
+      console.error('Escalation checker failed:', err);
+    }
+  }, 60 * 1000);
+
+  console.log('✅ Breakdown escalation checker started');
+}
+
+const ROLE_DEFAULT_PERMISSIONS = {
+  ADMIN: {
+    "dashboard.view": true,
+    "projects.view": true,
+    "projects.create": true,
+    "projects.edit": true,
+    "projects.delete": true,
+    "lifts.view": true,
+    "lifts.create": true,
+    "lifts.edit": true,
+    "lifts.delete": true,
+    "jobs.view": true,
+    "jobs.create": true,
+    "jobs.edit": true,
+    "jobs.assign": true,
+    "jobs.close": true,
+    "jobs.delete": true,
+
+    "breakdowns.view": true,
+    "breakdowns.create": true,
+    "breakdowns.assign": true,
+    "breakdowns.edit": true,
+    "breakdowns.close": true,
+    "breakdowns.escalate": true,
+    "breakdowns.delete": true,
+
+    "technicians.view": true,
+    "technicians.create": true,
+    "technicians.edit": true,
+    "technicians.deactivate": true,
+    "service.view": true,
+    "service.update": true,
+    "service.approve": true,
+    "amc.view": true,
+    "amc.create": true,
+    "amc.edit": true,
+    "amc.close": true,
+    "reports.view": true,
+    "reports.export": true,
+    "users.view": true,
+    "users.create": true,
+    "users.edit": true,
+    "users.deactivate": true,
+    "users.permissions": true,
+  },
+
+  MANAGER: {
+    "dashboard.view": true,
+    "projects.view": true,
+    "projects.create": true,
+    "projects.edit": true,
+    "projects.delete": false,
+    "lifts.view": true,
+    "lifts.create": true,
+    "lifts.edit": true,
+    "lifts.delete": false,
+    "jobs.view": true,
+    "jobs.create": true,
+    "jobs.edit": true,
+    "jobs.assign": true,
+    "jobs.close": true,
+    "jobs.delete": false,
+
+    "breakdowns.view": true,
+    "breakdowns.create": true,
+    "breakdowns.assign": true,
+    "breakdowns.edit": true,
+    "breakdowns.close": true,
+    "breakdowns.escalate": true,
+    "breakdowns.delete": false,
+
+    "technicians.view": true,
+    "technicians.create": true,
+    "technicians.edit": true,
+    "technicians.deactivate": false,
+    "service.view": true,
+    "service.update": true,
+    "service.approve": true,
+    "amc.view": true,
+    "amc.create": true,
+    "amc.edit": true,
+    "amc.close": false,
+    "reports.view": true,
+    "reports.export": true,
+    "users.view": false,
+    "users.create": false,
+    "users.edit": false,
+    "users.deactivate": false,
+    "users.permissions": false,
+  },
+
+  SUPERVISOR: {
+    "dashboard.view": true,
+    "projects.view": true,
+    "projects.create": false,
+    "projects.edit": true,
+    "projects.delete": false,
+    "lifts.view": true,
+    "lifts.create": false,
+    "lifts.edit": true,
+    "lifts.delete": false,
+    "jobs.view": true,
+    "jobs.create": false,
+    "jobs.edit": true,
+    "jobs.assign": false,
+    "jobs.close": true,
+    "jobs.delete": false,
+
+    "breakdowns.view": true,
+    "breakdowns.create": false,
+    "breakdowns.assign": true,
+    "breakdowns.edit": true,
+    "breakdowns.close": true,
+    "breakdowns.escalate": true,
+    "breakdowns.delete": false,
+
+    "technicians.view": true,
+    "technicians.create": false,
+    "technicians.edit": false,
+    "technicians.deactivate": false,
+    "service.view": true,
+    "service.update": true,
+    "service.approve": false,
+    "amc.view": false,
+    "amc.create": false,
+    "amc.edit": false,
+    "amc.close": false,
+    "reports.view": false,
+    "reports.export": false,
+    "users.view": false,
+    "users.create": false,
+    "users.edit": false,
+    "users.deactivate": false,
+    "users.permissions": false,
+  },
+};
+
+function getRoleBasePermissions(role) {
+  return ROLE_DEFAULT_PERMISSIONS[normalizeRole(role)] || {};
+}
+
+async function ensureUserTable() {
+  try {
+    await User.sync(); // creates users table if not exists
+    console.log('✅ Users table checked/created');
+  } catch (e) {
+    console.error('❌ User table sync failed', e);
+    throw e;
+  }
+}
+
+async function ensureDefaultAdmin() {
+  const adminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@liftapp.com';
+  const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
+
+  const existing = await User.findOne({
+    where: { email: adminEmail.toLowerCase() },
+  });
+
+  if (existing) {
+    console.log('✅ Admin already exists — skipped creation');
+    return existing;
+  }
+
+  const passwordHash = await bcrypt.hash(adminPassword, 10);
+
+  const user = await User.create({
+    name: 'Admin User',
+    email: adminEmail.toLowerCase(),
+    passwordHash,
+    role: 'ADMIN',
+    isActive: true,
+  });
+
+  console.log('✅ Default admin created');
+  return user;
+}
+
+async function ensureDefaultRoles() {
+  const roles = [
+    { name: 'ADMIN', description: 'System administrator', isSystemRole: true },
+    { name: 'MANAGER', description: 'Manager', isSystemRole: true },
+    { name: 'SUPERVISOR', description: 'Supervisor', isSystemRole: true },
+    { name: 'TECHNICIAN', description: 'Technician', isSystemRole: true },
+  ];
+
+  for (const r of roles) {
+    await Role.findOrCreate({
+      where: { name: r.name },
+      defaults: r,
+    });
+  }
+
+  console.log('✅ Default roles checked/created');
+}
+
+async function ensureDefaultPermissions() {
+  const permissions = [
+    { code: 'jobs.view', label: 'View Jobs', module: 'Jobs' },
+    { code: 'jobs.update_own', label: 'Update Own Jobs', module: 'Technician Mobile' },
+
+    { code: 'breakdowns.view', label: 'View Breakdown Calls', module: 'Breakdown Calls' },
+    { code: 'breakdowns.create', label: 'Create Breakdown Calls', module: 'Breakdown Calls' },
+    { code: 'breakdowns.assign', label: 'Assign Breakdown Calls', module: 'Breakdown Calls' },
+    { code: 'breakdowns.edit', label: 'Edit Breakdown Calls', module: 'Breakdown Calls' },
+    { code: 'breakdowns.close', label: 'Close Breakdown Calls', module: 'Breakdown Calls' },
+    { code: 'breakdowns.escalate', label: 'Escalate Breakdown Calls', module: 'Breakdown Calls' },
+    { code: 'breakdowns.delete', label: 'Delete Breakdown Calls', module: 'Breakdown Calls' },
+  ];
+
+  for (const p of permissions) {
+    await Permission.findOrCreate({
+      where: { code: p.code },
+      defaults: p,
+    });
+  }
+
+  console.log('✅ Default permissions checked/created');
+}
+
+async function ensureRolePermissions() {
+  const technicianRole = await Role.findOne({ where: { name: 'TECHNICIAN' } });
+  const testRole = await Role.findOne({ where: { name: 'TEST' } }); // optional
+
+  const perm = await Permission.findOne({ where: { code: 'jobs.update_own' } });
+
+  if (technicianRole && perm) {
+    await RolePermission.findOrCreate({
+      where: {
+        roleId: technicianRole.id,
+        permissionId: perm.id,
+      },
+    });
+  }
+
+  if (testRole && perm) {
+    await RolePermission.findOrCreate({
+      where: {
+        roleId: testRole.id,
+        permissionId: perm.id,
+      },
+    });
+  }
+
+  console.log('✅ Role permissions assigned');
+}
 
 const JobTechnician = sequelize.define('ProjectLiftJobTechnician', {
   id: { type: require('sequelize').DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
@@ -27,8 +340,6 @@ ProjectLiftAssignment.hasMany(JobTechnician, { foreignKey: 'assignmentId' });
 JobTechnician.belongsTo(ProjectLiftAssignment, { foreignKey: 'assignmentId' });
 JobTechnician.belongsTo(Technician, { foreignKey: 'technicianId' });
 Technician.hasMany(JobTechnician, { foreignKey: 'technicianId' });
-
-const { DataTypes } = require('sequelize');
 
 const AssignmentChecklistItem = sequelize.define('AssignmentChecklistItem', {
   id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
@@ -157,7 +468,7 @@ function addMonthsSafe(dateValue, months) {
 }
 
 async function buildServiceHistoryForLift(pl, rawAssignments, { today, warrantyInfo, amcInfo }) {
-  const history = [];
+  const allHistory = [];
 
   for (const a of rawAssignments || []) {
     const role = String(a.assignment_role || '').toUpperCase();
@@ -169,8 +480,9 @@ async function buildServiceHistoryForLift(pl, rawAssignments, { today, warrantyI
     const serviceDate = a.completed_at || a.started_at || a.assigned_at || a.due_date || null;
     if (!serviceDate) continue;
 
-    history.push({
+    allHistory.push({
       date: serviceDate,
+      displayDate: formatBhutanDate(serviceDate),
       role,
       status,
       remarks: a.notes || '',
@@ -178,66 +490,54 @@ async function buildServiceHistoryForLift(pl, rawAssignments, { today, warrantyI
     });
   }
 
-  history.sort((a, b) => {
+  // Sort all history (latest first)
+  allHistory.sort((a, b) => {
     const ta = a.date ? new Date(a.date).getTime() : 0;
     const tb = b.date ? new Date(b.date).getTime() : 0;
     return tb - ta;
   });
 
-  const latest = history.length ? history[0] : null;
+  // 🔥 Split histories
+  const warrantyHistory = allHistory.filter(h => h.role === 'WARRANTY SERVICE');
+  const amcHistory = allHistory.filter(h => h.role === 'AMC SERVICE');
 
-  let lastServiceDate = latest ? latest.date : null;
-  let nextDue = null;
-  let dueStatus = 'NO HISTORY';
+  // 🔥 Decide active regime
+  const amcStatus = String(amcInfo?.status || '').toUpperCase();
+  const hasActiveAmc = ['AMC ACTIVE', 'AMC EXPIRING SOON', 'AMC EXPIRED'].includes(amcStatus);
 
-  if (latest && latest.date) {
-    const baseDate = new Date(latest.date);
+  const activeHistory = hasActiveAmc ? amcHistory : warrantyHistory;
 
-    if (!Number.isNaN(baseDate.getTime())) {
-      let intervalMonths = 3;
-
-      if (latest.role === 'AMC SERVICE') {
-        const amcInterval =
-          Number(amcInfo?.serviceIntervalMonths) ||
-          Number(amcInfo?.intervalMonths) ||
-          Number(pl?.service_interval_months) ||
-          3;
-
-        intervalMonths = amcInterval;
-      } else if (latest.role === 'WARRANTY SERVICE') {
-        const warrantyInterval =
-          Number(warrantyInfo?.serviceIntervalMonths) ||
-          Number(pl?.warranty_service_interval_months) ||
-          3;
-
-        intervalMonths = warrantyInterval;
-      }
-
-      nextDue = addMonthsSafe(baseDate, intervalMonths);
-
-      if (nextDue) {
-        const todayDate = new Date(today);
-        todayDate.setHours(0, 0, 0, 0);
-
-        const dueDate = new Date(nextDue);
-        dueDate.setHours(0, 0, 0, 0);
-
-        if (dueDate.getTime() < todayDate.getTime()) {
-          dueStatus = 'OVERDUE';
-        } else {
-          dueStatus = 'OK';
-        }
-      } else {
-        dueStatus = 'OK';
-      }
-    }
-  }
+  const latest = activeHistory.length ? activeHistory[0] : null;
 
   return {
-    history,
-    lastServiceDate,
-    nextDue,
-    dueStatus,
+    // 👇 MAIN HISTORY (NO MIXING)
+    history: activeHistory,
+
+    // 👇 Optional (if needed later)
+    allHistory,
+    warrantyHistory,
+    amcHistory,
+
+    // 👇 Use dashboard logic (NOT local calculation)
+    lastServiceDate: latest ? latest.displayDate : null,
+
+    nextDue: hasActiveAmc
+      ? (amcInfo?.nextServiceDue || null)
+      : (warrantyInfo?.nextServiceDue || null),
+
+    dueStatus: hasActiveAmc
+      ? (
+          amcInfo?.isOverdue ? 'OVERDUE'
+          : amcInfo?.nextServiceDue ? 'OK'
+          : 'NO HISTORY'
+        )
+      : (
+          warrantyInfo?.isOverdue ? 'OVERDUE'
+          : warrantyInfo?.nextServiceDue ? 'OK'
+          : 'NO HISTORY'
+        ),
+
+    activeRegime: hasActiveAmc ? 'AMC' : 'WARRANTY',
   };
 }
 
@@ -253,7 +553,10 @@ async function ensureChecklistForAssignment(assignment) {
     return existing;
   }
 
-  const role = isAmcServiceAssignment(assignment) ? 'AMC SERVICE' : String(assignment.assignment_role || '').toUpperCase();
+  const role = isAmcServiceAssignment(assignment)
+    ? 'AMC SERVICE'
+    : String(assignment.assignment_role || '').toUpperCase().trim();
+
   const template = getChecklistTemplateByAssignmentRole(role);
 
   if (!template.length) return [];
@@ -323,19 +626,34 @@ async function getChecklistSummary(assignmentId) {
     isLocked,
   };
 }
+
+function assertChecklistAccessibleForTechnician(assignment) {
+  if (!assignment) {
+    const err = new Error('Assignment not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const statusUpper = String(assignment.status || '').toUpperCase().trim();
+  const hasStarted = !!assignment.started_at;
+
+  if (!hasStarted && !['IN_PROGRESS', 'DONE'].includes(statusUpper)) {
+    const err = new Error('Please start the job before accessing the checklist.');
+    err.statusCode = 400;
+    err.payload = { requiresStart: true };
+    throw err;
+  }
+}
+
 async function getDueAmcProjectLifts() {
   const data = await buildServiceDashboardData();
   const rows = data.rows || [];
 
   const result = rows.filter((l) =>
-    ['AMC ACTIVE', 'AMC EXPIRING SOON', 'AMC EXPIRED'].includes(l.amcStatus) &&
-    l.amcIsDueNow &&
-    (
-      !l.amcActiveServiceAssignment ||
-      ['ASSIGNED'].includes(
-        String(l.amcActiveServiceAssignment.status || '').toUpperCase()
-      )
-    )
+    !!l.hasAmcContract &&
+    ['AMC ACTIVE', 'AMC EXPIRING SOON', 'AMC EXPIRED'].includes(String(l.amcStatus || '').toUpperCase()) &&
+    !!l.amcIsDueNow &&
+    !l.amcActiveServiceAssignment
   );
 
   console.log(
@@ -385,9 +703,12 @@ async function handleServiceCompletion(assignment) {
   const pl = await ProjectLift.findByPk(assignment.project_lift_id);
   if (!pl || !pl.lift_id) return;
 
-  const completedDate = formatDateOnly(assignment.completed_at || new Date());
+  const completedDate = formatBhutanDate(
+    assignment.completed_at || assignment.completedAt || new Date()
+  );
 
-  // Prevent duplicate log
+  if (!completedDate) return;
+
   const existing = await ServiceLog.findOne({
     where: {
       liftId: pl.lift_id,
@@ -431,37 +752,85 @@ app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
 // --------------------
 
 function startOfDay(d) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (!d) return null;
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return null;
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
 }
 
 function parseDateOnly(s) {
   if (!s) return null;
-  const d = new Date(s);
+
+  const str = String(s).trim();
+  const match = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+
+  return new Date(year, month, day);
+}
+
+function formatLocalDate(value) {
+  if (!value) return null;
+
+  const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  return startOfDay(d);
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatBhutanDate(value) {
+  if (!value) return '';
+
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Thimphu',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
+
+  if (!year || !month || !day) return '';
+  return `${year}-${month}-${day}`;
 }
 
 function toDateOnlyString(d) {
-  if (!d) return null;
-  const dt = new Date(d);
-  return dt.toISOString().slice(0, 10);
+  return formatLocalDate(d);
 }
 
 function daysBetween(a, b) {
   const MS = 1000 * 60 * 60 * 24;
-  const da = startOfDay(a);
-  const db = startOfDay(b);
+  const da = typeof a === 'string' ? parseDateOnly(a) : startOfDay(a);
+  const db = typeof b === 'string' ? parseDateOnly(b) : startOfDay(b);
+
+  if (!da || !db) return null;
+
   return Math.floor((db - da) / MS);
 }
 
 function addMonths(dateOnlyStrOrDate, months) {
   const d = typeof dateOnlyStrOrDate === 'string'
-    ? new Date(dateOnlyStrOrDate)
+    ? parseDateOnly(dateOnlyStrOrDate)
     : new Date(dateOnlyStrOrDate);
-  if (Number.isNaN(d.getTime())) return null;
+
+  if (!d || Number.isNaN(d.getTime())) return null;
+
   const year = d.getFullYear();
   const month = d.getMonth();
   const day = d.getDate();
+
   return new Date(year, month + Number(months || 0), day);
 }
 
@@ -479,6 +848,21 @@ function dateDiffDays(a, b) {
   const db = parseDateOnly(b);
   if (!da || !db) return null;
   return Math.round((db - da) / (1000 * 60 * 60 * 24));
+}
+
+function isServiceJobBlockingNewCreation(a) {
+  if (!a) return false;
+
+  const status = String(a.status || '').toUpperCase().trim();
+  const supervisorStatus = String(a.supervisor_status || '').toUpperCase().trim();
+
+  // Active work
+  if (['ASSIGNED', 'IN_PROGRESS'].includes(status)) return true;
+
+  // Completed by technician but not approved yet
+  if (status === 'DONE' && supervisorStatus === 'PENDING') return true;
+
+  return false;
 }
 
 function computeAmcStatus(amcStartDate, amcEndDate, today) {
@@ -532,7 +916,12 @@ function makePairKey(a, b) {
 }
 
 function technicianCanDoService(tech) {
-  return technicianHasRequiredSkill(tech, 'AMC SERVICE') || technicianHasRequiredSkill(tech, 'WARRANTY SERVICE');
+  return (
+    technicianHasRequiredSkill(tech, 'AMC SERVICE') ||
+    technicianHasRequiredSkill(tech, 'WARRANTY SERVICE') ||
+    technicianHasRequiredSkill(tech, 'BREAKDOWN') ||   // ✅ ADD
+    technicianHasRequiredSkill(tech, 'SERVICE')        // ✅ ADD (optional but recommended)
+  );
 }
 
 function isAssignmentActive(a) {
@@ -990,10 +1379,27 @@ function computeProjectLiftWorkflow(projectLift, assignmentsInput = []) {
 }
 
 async function buildTeamLoadRows() {
+  const today = formatLocalDate(new Date());
+
   const techs = await Technician.findAll({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      availability_status: 'AVAILABLE',
+    },
     order: [['name', 'ASC']],
   });
+
+  const leaves = await TechnicianLeave.findAll({
+    where: {
+      status: 'APPROVED',
+      from_date: { [Op.lte]: today },
+      to_date: { [Op.gte]: today },
+    },
+    attributes: ['technician_id'],
+  });
+
+  const leaveSet = new Set(leaves.map((l) => Number(l.technician_id)));
+  const availableTechs = techs.filter((t) => !leaveSet.has(Number(t.id)));
 
   const assignments = await ProjectLiftAssignment.findAll({
     where: {
@@ -1013,10 +1419,9 @@ async function buildTeamLoadRows() {
     order: [['id', 'DESC']],
   });
 
-  const today = new Date().toISOString().slice(0, 10);
   const map = new Map();
 
-  for (const t of techs) {
+  for (const t of availableTechs) {
     map.set(Number(t.id), {
       technicianId: Number(t.id),
       name: t.name || '',
@@ -1188,13 +1593,13 @@ async function buildSameDayAssignmentCountByTechnician(dueDate) {
   });
 
   const map = new Map();
-  const target = new Date(dueDate).toISOString().slice(0, 10);
+  const target = formatDateOnly(dueDate);
 
   for (const row of rows) {
     const a = row.ProjectLiftAssignment;
     if (!a) continue;
 
-    const d = a.due_date ? new Date(a.due_date).toISOString().slice(0, 10) : null;
+    const d = a.due_date ? formatDateOnly(a.due_date) : null;
     if (d !== target) continue;
 
     const techId = Number(row.technicianId || 0);
@@ -1234,7 +1639,15 @@ async function getExistingTechnicianPairs() {
         include: [
           {
             model: Technician,
-            attributes: ['id', 'name', 'phone', 'role', 'skills', 'isActive'],
+            attributes: [
+              'id',
+              'name',
+              'phone',
+              'role',
+              'skills',
+              'isActive',
+              'availability_status',
+            ],
           },
         ],
       },
@@ -1247,7 +1660,15 @@ async function getExistingTechnicianPairs() {
   for (const a of assignments) {
     const members = Array.isArray(a.ProjectLiftJobTechnicians)
       ? a.ProjectLiftJobTechnicians
-          .filter((m) => m.Technician && m.Technician.isActive !== false)
+          .filter((m) => {
+            if (!m.Technician) return false;
+
+            const status = String(
+              m.Technician.availability_status || 'AVAILABLE'
+            ).toUpperCase();
+
+            return m.Technician.isActive !== false && status === 'AVAILABLE';
+          })
           .map((m) => ({
             technicianId: Number(m.technicianId),
             teamRole: normUpper(m.teamRole),
@@ -1259,6 +1680,7 @@ async function getExistingTechnicianPairs() {
 
     const lead = members.find((m) => m.teamRole === 'LEAD') || members[0];
     const support = members.find((m) => m.teamRole === 'SUPPORT') || members[1];
+
     if (!lead || !support) continue;
 
     const pairKey = makePairKey(lead.technicianId, support.technicianId);
@@ -1314,12 +1736,32 @@ function collapseBestPairs(rows = []) {
 }
 
 async function getActiveServiceTechnicians() {
+  const today = new Date().toISOString().slice(0, 10);
+
   const rows = await Technician.findAll({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      availability_status: 'AVAILABLE',
+    },
     order: [['name', 'ASC']],
   });
 
-  return rows.filter((t) => technicianCanDoService(t));
+  const leaves = await TechnicianLeave.findAll({
+    where: {
+      status: 'APPROVED',
+      from_date: { [Op.lte]: today },
+      to_date: { [Op.gte]: today },
+    },
+    attributes: ['technician_id'],
+  });
+
+  const leaveSet = new Set(leaves.map((l) => Number(l.technician_id)));
+
+  return rows.filter(
+    (t) =>
+      !leaveSet.has(Number(t.id)) &&
+      technicianCanDoService(t)
+  );
 }
 
 function buildFallbackPairs(techs = []) {
@@ -1385,21 +1827,49 @@ function scorePair(pair, openCountMap, lastAssignedMap, sameDayMap, inProgressMa
 }
 
 async function pickBestServicePair(targetDueDate = null) {
+  const checkDate = targetDueDate
+    ? String(targetDueDate).slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
   const existingPairsRaw = await getExistingTechnicianPairs();
   const existingPairs = collapseBestPairs(existingPairsRaw);
 
   const serviceTechs = await getActiveServiceTechnicians();
   const fallbackPairs = buildFallbackPairs(serviceTechs);
 
+  const leaveRows = await TechnicianLeave.findAll({
+    where: {
+      status: 'APPROVED',
+      from_date: { [Op.lte]: checkDate },
+      to_date: { [Op.gte]: checkDate },
+    },
+    attributes: ['technician_id'],
+  });
+
+  const leaveSet = new Set(leaveRows.map((l) => Number(l.technician_id)));
+
   const allByKey = new Map();
 
   for (const p of existingPairs) {
-    if (technicianCanDoService(p.leadTechnician) && technicianCanDoService(p.supportTechnician)) {
+    const leadId = Number(p.leadTechnicianId || 0);
+    const supportId = Number(p.supportTechnicianId || 0);
+
+    if (leaveSet.has(leadId) || leaveSet.has(supportId)) continue;
+
+    if (
+      technicianCanDoService(p.leadTechnician) &&
+      technicianCanDoService(p.supportTechnician)
+    ) {
       allByKey.set(p.pairKey, p);
     }
   }
 
   for (const p of fallbackPairs) {
+    const leadId = Number(p.leadTechnicianId || 0);
+    const supportId = Number(p.supportTechnicianId || 0);
+
+    if (leaveSet.has(leadId) || leaveSet.has(supportId)) continue;
+
     if (!allByKey.has(p.pairKey)) {
       allByKey.set(p.pairKey, p);
     }
@@ -1410,19 +1880,17 @@ async function pickBestServicePair(targetDueDate = null) {
 
   const openCountMap = await buildOpenAssignmentCountByTechnician();
   const lastAssignedMap = await buildLastAssignmentDateByTechnician();
-  const sameDayMap = await buildSameDayAssignmentCountByTechnician(targetDueDate || new Date());
+  const sameDayMap = await buildSameDayAssignmentCountByTechnician(checkDate);
   const inProgressMap = await buildInProgressCountByTechnician();
 
   pairs.sort((x, y) => {
     const sx = scorePair(x, openCountMap, lastAssignedMap, sameDayMap, inProgressMap);
     const sy = scorePair(y, openCountMap, lastAssignedMap, sameDayMap, inProgressMap);
 
-    // 1. weighted dynamic workload
     if (sx.score !== sy.score) {
       return sx.score - sy.score;
     }
 
-    // 2. least recently assigned
     if (sx.lastRecent !== sy.lastRecent) {
       return sx.lastRecent - sy.lastRecent;
     }
@@ -1449,6 +1917,23 @@ async function createServiceAssignmentWithPair({
 
   if (leadId === supportId) {
     throw new Error('Lead and support technician cannot be the same person');
+  }
+
+  const checkDate = dueDate
+    ? String(dueDate).slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
+  const leaveCheck = await TechnicianLeave.findAll({
+    where: {
+      technician_id: { [Op.in]: [leadId, supportId] },
+      status: 'APPROVED',
+      from_date: { [Op.lte]: checkDate },
+      to_date: { [Op.gte]: checkDate },
+    },
+  });
+
+  if (leaveCheck.length) {
+    throw new Error('One or more selected technicians are on leave');
   }
 
   console.log('PAIR DEBUG', {
@@ -1551,6 +2036,69 @@ async function createServiceAssignmentWithPair({
   }
 }
 
+async function createBreakdownJobWithPair({
+  projectLiftId,
+  liftId,
+  priority,
+  notes,
+  pair,
+}) {
+  const leadId = Number(pair?.leadTechnicianId || 0);
+  const supportId = Number(pair?.supportTechnicianId || 0);
+
+  if (!leadId || !supportId) {
+    throw new Error('Valid technician pair required');
+  }
+
+  const job = await Job.create({
+    job_type: 'BREAKDOWN',
+    source_type: 'BREAKDOWN_CALL',
+    project_lift_id: projectLiftId || null,
+    lift_id: liftId || null,
+    title: 'Breakdown Service Call',
+    notes: notes || '',
+    priority: priority || 'NORMAL',
+    status: 'ASSIGNED',
+    created_at: new Date(),
+  });
+
+  const assignedAt = new Date();
+
+  await JobAssignment.create({
+    job_id: job.id,
+    technician_id: leadId,
+    assignment_role: 'LEAD',
+    assigned_at: assignedAt,
+    technician_response_status: 'PENDING',
+    escalation_status: 'NONE',
+  });
+
+  await JobAssignment.create({
+    job_id: job.id,
+    technician_id: supportId,
+    assignment_role: 'SUPPORT',
+    assigned_at: assignedAt,
+    technician_response_status: 'PENDING',
+    escalation_status: 'NONE',
+  });
+
+  return job;
+}
+
+async function ensureBreakdownJobPartsTable() {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS breakdown_job_parts (
+      id BIGSERIAL PRIMARY KEY,
+      job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      item_name VARCHAR(255) NOT NULL,
+      qty NUMERIC(10,2) NOT NULL DEFAULT 1,
+      remarks TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+}
+
 async function resolveLiftId(rawIdOrCode) {
   const raw = String(rawIdOrCode || '').trim();
   if (!raw) return null;
@@ -1593,17 +2141,4868 @@ async function nextProjectCode() {
 }
 
 // --------------------
+// REPORT: SERVICE DUE
+// --------------------
+app.get('/api/reports/service-due', async (req, res) => {
+  try {
+    const today = startOfDay(new Date());
+
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Lift,
+              attributes: ['id', 'liftCode', 'location'],
+            },
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: Technician,
+                  attributes: ['id', 'name'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+
+    const rows = [];
+
+    for (const p of projects) {
+      const lifts = p.ProjectLifts || [];
+
+      for (const pl of lifts) {
+        const assignments = pl.assignments || [];
+
+        for (const a of assignments) {
+  const role = String(a.assignment_role || '').toUpperCase();
+  if (!['AMC SERVICE', 'WARRANTY SERVICE'].includes(role)) continue;
+
+  const statusUpper = String(a.status || '').toUpperCase();
+  if (!['ASSIGNED', 'IN_PROGRESS'].includes(statusUpper)) continue;
+
+  if (!a.due_date) continue;
+
+  const dueDate = parseDateOnly(a.due_date);
+  if (!dueDate) continue;
+
+          const diff = dateDiffDays(dueDate, today);
+
+let dueAgeText = '';
+if (today > dueDate) {
+  dueAgeText = `${diff} days overdue`;
+} else if (diff === 0) {
+  dueAgeText = 'Due today';
+} else {
+  dueAgeText = `${diff} days remaining`;
+}
+
+          let status = 'UPCOMING';
+          if (today > dueDate) status = 'OVERDUE';
+else if (diff === 0) status = 'DUE TODAY';
+
+          rows.push({
+  customerName: p.Customer?.name || '',
+  projectName: p.project_name || '',
+  siteName: p.Site?.name || '',
+
+  liftCode: pl.lift_code || pl.Lift?.liftCode || '',
+  location: pl.location_label || pl.Lift?.location || '',
+
+  serviceType: role,
+  dueDate: a.due_date,
+  daysFromToday: diff,
+  dueAgeText,
+
+  status,
+
+  technician: a.Technician?.name || '',
+  assignmentStatus: a.status || '',
+});
+        }
+      }
+    }
+
+    const result = {
+      summary: {
+        overdue: rows.filter(r => r.status === 'OVERDUE').length,
+        dueToday: rows.filter(r => r.status === 'DUE TODAY').length,
+        upcoming: rows.filter(r => r.status === 'UPCOMING').length,
+      },
+      rows,
+    };
+
+    res.json(result);
+
+  } catch (err) {
+    console.error('SERVICE DUE REPORT ERROR', err);
+    res.status(500).json({ error: 'Failed to generate report' });
+  }
+});
+
+app.get('/api/reports/service-due/csv', async (req, res) => {
+  try {
+    const data = await (async () => {
+      const result = await fetch('http://localhost:5000/api/reports/service-due');
+      return result.json();
+    })();
+
+    const rows = data.rows || [];
+
+    const header = [
+      'Customer',
+      'Project',
+      'Site',
+      'Lift Code',
+      'Location',
+      'Service Type',
+      'Due Date',
+      'Days',
+      'Status',
+      'Technician'
+    ];
+
+    const lines = [header.join(',')];
+
+    for (const r of rows) {
+      lines.push([
+        r.customerName,
+        r.projectName,
+        r.siteName,
+        r.liftCode,
+        r.location,
+        r.serviceType,
+        r.dueDate,
+        r.daysFromToday,
+        r.status,
+        r.technician
+      ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','));
+    }
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=service_due_report.csv');
+    res.send(lines.join('\n'));
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'CSV export failed' });
+  }
+});
+
+app.get('/api/reports/service-due/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const response = await fetch(`${baseUrl}/api/reports/service-due`);
+    const data = await response.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const now = new Date();
+
+    const generatedOn = now.toLocaleString();
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Service Due Report</title>
+  <style>
+    :root {
+      --border: #222;
+      --soft-border: #cfcfcf;
+      --header-bg: #f3f4f6;
+      --summary-bg: #f8fafc;
+      --overdue-bg: #fdecec;
+      --today-bg: #fff7db;
+      --upcoming-bg: #eef6ff;
+      --text: #111827;
+      --muted: #4b5563;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      margin: 0;
+      background: #fff;
+    }
+
+    .page {
+      padding: 18px 22px;
+    }
+
+    .report-shell {
+      width: 100%;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .company-block {
+      flex: 1;
+    }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .company-meta {
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .report-meta {
+      text-align: right;
+      min-width: 240px;
+    }
+
+    .report-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .report-sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin: 14px 0 16px;
+    }
+
+    .summary-card {
+      border: 1px solid var(--soft-border);
+      background: var(--summary-bg);
+      padding: 10px 12px;
+      border-radius: 6px;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      border: 1px solid var(--border);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: middle;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 7px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    tbody tr.overdue-row { background: var(--overdue-bg); }
+    tbody tr.today-row { background: var(--today-bg); }
+    tbody tr.upcoming-row { background: var(--upcoming-bg); }
+
+    .center { text-align: center; }
+    .right { text-align: right; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 2px 6px;
+      border: 1px solid #999;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .footer-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .print-bar {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .print-btn {
+      border: 1px solid #222;
+      background: #fff;
+      padding: 7px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .page {
+        padding: 0;
+      }
+
+      .print-bar {
+        display: none !important;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      tfoot {
+        display: table-footer-group;
+      }
+
+      tr, td, th {
+        page-break-inside: avoid;
+      }
+
+      .footer-note {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding-top: 6px;
+        border-top: 1px solid #888;
+        background: #fff;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="report-shell">
+
+      <div class="print-bar">
+        <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+      </div>
+
+      <div class="topbar">
+        <div class="company-block">
+          <div class="company-name">Modern Building Services</div>
+          <div class="company-meta">
+            Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+            Phone: 02340345 | Email: info@smartbuilding4u.com
+          </div>
+        </div>
+
+        <div class="report-meta">
+          <div class="report-title">Service Due Report</div>
+          <div class="report-sub">
+            Generated on: ${esc(generatedOn)}<br/>
+            Total records: ${rows.length}
+          </div>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-card">
+          <div class="summary-label">Overdue</div>
+          <div class="summary-value">${Number(summary.overdue || 0)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">Due Today</div>
+          <div class="summary-value">${Number(summary.dueToday || 0)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">Upcoming</div>
+          <div class="summary-value">${Number(summary.upcoming || 0)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">Total Records</div>
+          <div class="summary-value">${rows.length}</div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 42px;">Sl.</th>
+              <th style="width: 120px;">Customer</th>
+              <th style="width: 120px;">Project</th>
+              <th style="width: 105px;">Site</th>
+              <th style="width: 82px;">Lift Code</th>
+              <th style="width: 110px;">Location</th>
+              <th style="width: 98px;">Service Type</th>
+              <th style="width: 82px;">Due Date</th>
+              <th style="width: 110px;">Due Age</th>
+              <th style="width: 90px;">Technician</th>
+              <th style="width: 90px;">Assignment Status</th>
+              <th style="width: 82px;">Report Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows.map((r, i) => {
+                    const rowClass =
+                      r.status === 'OVERDUE'
+                        ? 'overdue-row'
+                        : r.status === 'DUE TODAY'
+                        ? 'today-row'
+                        : 'upcoming-row';
+
+                    return `
+                      <tr class="${rowClass}">
+                        <td class="center">${i + 1}</td>
+                        <td>${esc(r.customerName)}</td>
+                        <td>${esc(r.projectName)}</td>
+                        <td>${esc(r.siteName)}</td>
+                        <td>${esc(r.liftCode)}</td>
+                        <td>${esc(r.location)}</td>
+                        <td>${esc(r.serviceType)}</td>
+                        <td>${esc(r.dueDate)}</td>
+                        <td>${esc(r.dueAgeText)}</td>
+                        <td>${esc(r.technician)}</td>
+                        <td>${esc(r.assignmentStatus)}</td>
+                        <td><span class="status-pill">${esc(r.status)}</span></td>
+                      </tr>
+                    `;
+                  }).join('')
+                : `
+                  <tr>
+                    <td colspan="12" class="center" style="padding: 18px;">No service due records found.</td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="footer-note">
+        <div>Generated from Lift Management System</div>
+        <div>Modern Building Enterprise</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('SERVICE DUE VIEW ERROR', err);
+    res.status(500).send('Failed to render Service Due Report');
+  }
+});
+
+app.get('/api/reports/amc-active', async (req, res) => {
+  try {
+    const today = startOfDay(new Date());
+
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Lift,
+              attributes: ['id', 'liftCode', 'location'],
+            },
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+            },
+            {
+              model: Contract,
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+
+    const rows = [];
+
+    for (const p of projects) {
+      for (const pl of (p.ProjectLifts || [])) {
+        const contract = (pl.Contracts || [])[0];
+        if (!contract) continue;
+
+        const amc = buildAmcInfo(contract, today, {
+          assignments: pl.assignments || [],
+        });
+
+        // ✅ ONLY ACTIVE AMC
+        if (amc.status !== 'AMC ACTIVE') continue;
+
+        const nextDue = parseDateOnly(amc.nextServiceDue);
+        const diff = nextDue ? dateDiffDays(nextDue, today) : null;
+
+        let dueStatus = 'NOT DUE';
+        if (amc.isOverdue) dueStatus = 'OVERDUE';
+        else if (amc.isDueNow) dueStatus = 'DUE SOON';
+
+        rows.push({
+          customerName: p.Customer?.name || '',
+          projectName: p.project_name || '',
+          siteName: p.Site?.name || '',
+
+          liftCode: pl.lift_code || pl.Lift?.liftCode || '',
+          location: pl.location_label || pl.Lift?.location || '',
+
+          amcStart: amc.startDate,
+          amcEnd: amc.endDate,
+
+          lastService: amc.lastServiceDate,
+          nextService: amc.nextServiceDue,
+
+          dueStatus,
+
+          completedVisits: amc.completedVisits,
+          pendingVisits: (amc.serviceVisitCount || 0) - (amc.completedVisits || 0),
+
+          daysFromToday: diff,
+        });
+      }
+    }
+
+    // 🔥 SORT: OVERDUE → DUE SOON → NOT DUE
+    rows.sort((a, b) => {
+      const rank = (x) => {
+        if (x.dueStatus === 'OVERDUE') return 1;
+        if (x.dueStatus === 'DUE SOON') return 2;
+        return 3;
+      };
+
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+
+      const da = a.nextService ? new Date(a.nextService).getTime() : 0;
+      const db = b.nextService ? new Date(b.nextService).getTime() : 0;
+      return da - db;
+    });
+
+    const result = {
+      summary: {
+        active: rows.length,
+        overdue: rows.filter(r => r.dueStatus === 'OVERDUE').length,
+        dueSoon: rows.filter(r => r.dueStatus === 'DUE SOON').length,
+      },
+      rows,
+    };
+
+    res.json(result);
+
+  } catch (err) {
+    console.error('AMC ACTIVE REPORT ERROR', err);
+    res.status(500).json({ error: 'Failed to generate AMC report' });
+  }
+});
+
+app.get('/api/reports/amc-active/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const response = await fetch(`${baseUrl}/api/reports/amc-active`);
+    const data = await response.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const now = new Date();
+    const generatedOn = now.toLocaleString();
+
+    const totalPendingVisits = rows.reduce(
+      (sum, r) => sum + Number(r.pendingVisits || 0),
+      0
+    );
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMC Active Report</title>
+  <style>
+    :root {
+      --brand: #0b3a75;
+      --brand-soft: #dbeafe;
+      --border: #1f2937;
+      --soft-border: #cbd5e1;
+      --text: #111827;
+      --muted: #4b5563;
+      --bg: #ffffff;
+      --header-bg: #0b3a75;
+      --header-text: #ffffff;
+      --card-bg: #f8fafc;
+      --overdue-bg: #fdecec;
+      --overdue-border: #f5b5b5;
+      --due-bg: #fff7db;
+      --due-border: #f3d27a;
+      --ok-bg: #eef6ff;
+      --ok-border: #bfd8f6;
+      --pending-bg: #edf9f0;
+      --pending-border: #b8e0c2;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    .page {
+      padding: 18px 22px 28px;
+    }
+
+    .print-bar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .print-btn {
+      border: 1px solid var(--brand);
+      background: var(--brand);
+      color: #fff;
+      padding: 9px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+   .topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 2px solid #222;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+}
+
+.company-block {
+  flex: 1;
+  text-align: left;
+}
+
+.company-name {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  line-height: 1.15;
+  color: #111827;
+}
+
+.company-meta {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #4b5563;
+  text-align: left;
+}
+
+.report-meta {
+  text-align: right;
+  min-width: 240px;
+}
+
+.report-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  line-height: 1.15;
+  color: #111827;
+}
+
+.report-sub {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin: 18px 0 18px;
+    }
+
+    .summary-card {
+      border: 1px solid var(--soft-border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      background: var(--card-bg);
+      min-height: 90px;
+    }
+
+    .summary-card.active {
+      background: #f4f8ff;
+      border-color: #bfd8f6;
+    }
+
+    .summary-card.overdue {
+      background: #fff4f4;
+      border-color: var(--overdue-border);
+    }
+
+    .summary-card.due {
+      background: #fffaf0;
+      border-color: var(--due-border);
+    }
+
+    .summary-card.pending {
+      background: #f3fbf5;
+      border-color: var(--pending-border);
+    }
+
+    .summary-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--brand);
+    }
+
+    .table-wrap {
+      border: 1px solid var(--soft-border);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      color: var(--header-text);
+      border: 1px solid var(--soft-border);
+      padding: 10px 6px;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 9px 6px;
+      vertical-align: middle;
+      word-wrap: break-word;
+    }
+
+    tbody tr.overdue-row { background: var(--overdue-bg); }
+    tbody tr.due-row { background: var(--due-bg); }
+    tbody tr.ok-row { background: #fff; }
+
+    .center { text-align: center; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-overdue {
+      background: #f7d7d7;
+      color: #b91c1c;
+    }
+
+    .status-due {
+      background: #fde7b0;
+      color: #b45309;
+    }
+
+    .status-ok {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .legend {
+      margin-top: 16px;
+      border: 1px solid #bfd8f6;
+      background: #f8fbff;
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 12px;
+    }
+
+    .legend-title {
+      font-weight: 700;
+      color: var(--brand);
+      margin-bottom: 10px;
+    }
+
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .footer-note {
+      margin-top: 22px;
+      padding-top: 10px;
+      border-top: 2px solid var(--brand);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      .page {
+        padding: 0;
+      }
+
+      .print-bar {
+        display: none !important;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      tr, td, th {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="print-bar">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <div class="topbar" style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; border-bottom:2px solid #222; padding-bottom:10px; margin-bottom:14px;">
+
+  <!-- LEFT: COMPANY -->
+  <div>
+    <div class="topbar">
+  <div class="company-block">
+    <div class="company-name">Modern Building Services</div>
+    <div class="company-meta">
+      Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+      Phone: 02340345 | Email: info@smartbuilding4u.com
+    </div>
+  </div>
+
+  <div class="report-meta">
+    <div class="report-title">AMC Active Report</div>
+    <div class="report-sub">
+      Generated on: ${esc(generatedOn)}<br/>
+      Total records: ${rows.length}
+    </div>
+  </div>
+</div>
+
+    <div class="summary-grid">
+      <div class="summary-card active">
+        <div class="summary-label">Active AMC</div>
+        <div class="summary-value">${Number(summary.active || 0)}</div>
+      </div>
+      <div class="summary-card overdue">
+        <div class="summary-label">Overdue</div>
+        <div class="summary-value">${Number(summary.overdue || 0)}</div>
+      </div>
+      <div class="summary-card due">
+        <div class="summary-label">Due Soon</div>
+        <div class="summary-value">${Number(summary.dueSoon || 0)}</div>
+      </div>
+      <div class="summary-card pending">
+        <div class="summary-label">Total Pending Visits</div>
+        <div class="summary-value">${totalPendingVisits}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 42px;">Sl.</th>
+            <th style="width: 120px;">Customer</th>
+            <th style="width: 120px;">Project</th>
+            <th style="width: 95px;">Site</th>
+            <th style="width: 80px;">Lift Code</th>
+            <th style="width: 100px;">Location</th>
+            <th style="width: 85px;">AMC Start</th>
+            <th style="width: 85px;">AMC End</th>
+            <th style="width: 90px;">Last Service</th>
+            <th style="width: 90px;">Next Service</th>
+            <th style="width: 90px;">Due Status</th>
+            <th style="width: 78px;">Completed Visits</th>
+            <th style="width: 78px;">Pending Visits</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows.map((r, i) => {
+                  const rowClass =
+                    r.dueStatus === 'OVERDUE'
+                      ? 'overdue-row'
+                      : r.dueStatus === 'DUE SOON'
+                      ? 'due-row'
+                      : 'ok-row';
+
+                  const pillClass =
+                    r.dueStatus === 'OVERDUE'
+                      ? 'status-overdue'
+                      : r.dueStatus === 'DUE SOON'
+                      ? 'status-due'
+                      : 'status-ok';
+
+                  return `
+                    <tr class="${rowClass}">
+                      <td class="center">${i + 1}</td>
+                      <td>${esc(r.customerName)}</td>
+                      <td>${esc(r.projectName)}</td>
+                      <td>${esc(r.siteName || '')}</td>
+                      <td>${esc(r.liftCode)}</td>
+                      <td>${esc(r.location || '')}</td>
+                      <td class="center">${esc(r.amcStart || '')}</td>
+                      <td class="center">${esc(r.amcEnd || '')}</td>
+                      <td class="center">${esc(r.lastService || '—')}</td>
+                      <td class="center">${esc(r.nextService || '')}</td>
+                      <td class="center"><span class="status-pill ${pillClass}">${esc(r.dueStatus)}</span></td>
+                      <td class="center">${Number(r.completedVisits || 0)}</td>
+                      <td class="center">${Number(r.pendingVisits || 0)}</td>
+                    </tr>
+                  `;
+                }).join('')
+              : `
+                <tr>
+                  <td colspan="13" class="center" style="padding: 18px;">No active AMC records found.</td>
+                </tr>
+              `
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <div class="legend-title">Due Status Legend</div>
+      <div class="legend-row">
+        <div class="legend-item">
+          <span class="status-pill status-overdue">OVERDUE</span>
+          <span>Next service date is past due</span>
+        </div>
+        <div class="legend-item">
+          <span class="status-pill status-due">DUE SOON</span>
+          <span>Next service is due within the follow-up window</span>
+        </div>
+        <div class="legend-item">
+          <span class="status-pill status-ok">NOT DUE</span>
+          <span>Next service is not yet due</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      <div>Generated from Lift Management System</div>
+      <div>Modern Building Enterprise</div>
+      <div>AMC Active Report</div>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('AMC ACTIVE VIEW ERROR', err);
+    res.status(500).send('Failed to render AMC Active Report');
+  }
+});
+
+app.get('/api/reports/amc-expiring', async (req, res) => {
+  try {
+    const today = startOfDay(new Date());
+    const thresholdDays = 30;
+
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            { model: Lift },
+            { model: Contract },
+          ],
+        },
+      ],
+    });
+
+    const rows = [];
+
+    for (const p of projects) {
+      for (const pl of (p.ProjectLifts || [])) {
+        const contract = (pl.Contracts || [])[0];
+        if (!contract) continue;
+
+        const amc = buildAmcInfo(contract, today, {});
+
+        if (amc.status !== 'AMC ACTIVE') continue;
+
+        const endDate = parseDateOnly(amc.endDate);
+        if (!endDate) continue;
+
+        const days = dateDiffDays(endDate, today);
+
+        if (days < 0 || days > thresholdDays) continue;
+
+        rows.push({
+          customerName: p.Customer?.name || '',
+          projectName: p.project_name || '',
+          siteName: p.Site?.name || '',
+          liftCode: pl.lift_code || pl.Lift?.liftCode || '',
+          location: pl.location_label || pl.Lift?.location || '',
+          amcEnd: amc.endDate,
+          daysToExpiry: days,
+        });
+      }
+    }
+
+    rows.sort((a, b) => a.daysToExpiry - b.daysToExpiry);
+
+    res.json({
+      summary: {
+        expiringSoon: rows.length,
+        within7Days: rows.filter(r => r.daysToExpiry <= 7).length,
+      },
+      rows,
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed AMC expiring report' });
+  }
+});
+
+app.get('/api/reports/amc-expiring/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const response = await fetch(`${baseUrl}/api/reports/amc-expiring`);
+    const data = await response.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const now = new Date();
+    const generatedOn = now.toLocaleString();
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMC Expiring Soon Report</title>
+  <style>
+    :root {
+      --border: #222;
+      --soft-border: #cfcfcf;
+      --header-bg: #0b3a75;
+      --header-text: #ffffff;
+      --summary-bg: #f8fafc;
+      --urgent-bg: #fdecec;
+      --urgent-border: #f5b5b5;
+      --soon-bg: #fff7db;
+      --soon-border: #f3d27a;
+      --text: #111827;
+      --muted: #4b5563;
+      --brand: #0b3a75;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      margin: 0;
+      background: #fff;
+    }
+
+    .page {
+      padding: 18px 22px;
+    }
+
+    .print-bar {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .print-btn {
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid #222;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .company-block {
+      flex: 1;
+      text-align: left;
+    }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .company-meta {
+      font-size: 12px;
+      line-height: 1.45;
+      color: #4b5563;
+      text-align: left;
+    }
+
+    .report-meta {
+      text-align: right;
+      min-width: 240px;
+    }
+
+    .report-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .report-sub {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 14px 0 16px;
+    }
+
+    .summary-card {
+      border: 1px solid var(--soft-border);
+      background: var(--summary-bg);
+      padding: 12px 14px;
+      border-radius: 8px;
+    }
+
+    .summary-card.urgent {
+      background: #fff4f4;
+      border-color: var(--urgent-border);
+    }
+
+    .summary-card.soon {
+      background: #fffaf0;
+      border-color: var(--soon-border);
+    }
+
+    .summary-card.total {
+      background: #f4f8ff;
+      border-color: #bfd8f6;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0b3a75;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      color: var(--header-text);
+      border: 1px solid var(--soft-border);
+      padding: 9px 6px;
+      text-align: left;
+      vertical-align: middle;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 8px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    tbody tr.urgent-row { background: var(--urgent-bg); }
+    tbody tr.soon-row { background: var(--soon-bg); }
+
+    .center { text-align: center; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-urgent {
+      background: #f7d7d7;
+      color: #b91c1c;
+    }
+
+    .status-soon {
+      background: #fde7b0;
+      color: #b45309;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 2px solid #0b3a75;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .page {
+        padding: 0;
+      }
+
+      .print-bar {
+        display: none !important;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      tr, td, th {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="print-bar">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <div class="topbar">
+      <div class="company-block">
+        <div class="company-name">Modern Building Services</div>
+        <div class="company-meta">
+          Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+          Phone: 02340345 | Email: info@smartbuilding4u.com
+        </div>
+      </div>
+
+      <div class="report-meta">
+        <div class="report-title">AMC Expiring Soon Report</div>
+        <div class="report-sub">
+          Generated on: ${esc(generatedOn)}<br/>
+          Total records: ${rows.length}
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card urgent">
+        <div class="summary-label">Urgent (≤ 7 Days)</div>
+        <div class="summary-value">${Number(summary.within7Days || 0)}</div>
+      </div>
+      <div class="summary-card soon">
+        <div class="summary-label">Upcoming (≤ 30 Days)</div>
+        <div class="summary-value">${Number(summary.within30Days || 0)}</div>
+      </div>
+      <div class="summary-card total">
+        <div class="summary-label">Total Expiring Soon</div>
+        <div class="summary-value">${Number(summary.expiringSoon || 0)}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 42px;">Sl.</th>
+            <th style="width: 130px;">Customer</th>
+            <th style="width: 130px;">Project</th>
+            <th style="width: 110px;">Site</th>
+            <th style="width: 85px;">Lift Code</th>
+            <th style="width: 110px;">Location</th>
+            <th style="width: 90px;">AMC Start</th>
+            <th style="width: 90px;">AMC End</th>
+            <th style="width: 95px; text-align:center;">Days to Expiry</th>
+<th style="width: 100px; text-align:center;">Expiry Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows.map((r, i) => {
+                  const rowClass = r.expiryStatus === 'URGENT' ? 'urgent-row' : 'soon-row';
+                  const pillClass = r.expiryStatus === 'URGENT' ? 'status-urgent' : 'status-soon';
+
+                  return `
+                    <tr class="${rowClass}">
+                      <td class="center">${i + 1}</td>
+                      <td>${esc(r.customerName)}</td>
+                      <td>${esc(r.projectName)}</td>
+                      <td>${esc(r.siteName)}</td>
+                      <td>${esc(r.liftCode)}</td>
+                      <td>${esc(r.location)}</td>
+                      <td class="center">${esc(r.amcStart)}</td>
+                      <td class="center">${esc(r.amcEnd)}</td>
+                      <td class="center">${Number(r.daysToExpiry || 0)}</td>
+                      <td class="center"><span class="status-pill ${pillClass}">${esc(r.expiryStatus)}</span></td>
+                    </tr>
+                  `;
+                }).join('')
+              : `
+                <tr>
+                  <td colspan="10" class="center" style="padding: 22px; font-weight:600; color:#4b5563;">
+  ✅ No AMC contracts require renewal follow-up within the next 30 days.
+</td>
+                </tr>
+              `
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer-note">
+      <div>Generated from Lift Management System</div>
+      <div>Modern Building Services</div>
+      <div>AMC Expiring Soon Report</div>
+    </div>
+
+  </div>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('AMC EXPIRING VIEW ERROR', err);
+    res.status(500).send('Failed to render AMC Expiring Soon Report');
+  }
+});
+
+app.get('/api/reports/service-timeliness', async (req, res) => {
+  try {
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Lift,
+              attributes: ['id', 'liftCode', 'location'],
+            },
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: Technician,
+                  attributes: ['id', 'name'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+
+    const rows = [];
+
+    for (const p of projects) {
+      const lifts = p.ProjectLifts || [];
+
+      for (const pl of lifts) {
+        const assignments = pl.assignments || [];
+
+        for (const a of assignments) {
+          const role = String(a.assignment_role || '').toUpperCase();
+          if (!['AMC SERVICE', 'WARRANTY SERVICE'].includes(role)) continue;
+
+          const statusUpper = String(a.status || '').toUpperCase();
+          if (statusUpper !== 'DONE') continue;
+
+          const supervisorUpper = String(a.supervisor_status || '').toUpperCase();
+          if (supervisorUpper !== 'APPROVED') continue;
+
+          const dueDateText = a.due_date || '';
+const completedDateText = formatBhutanDate(
+  a.completed_at || a.completedAt || a.started_at || a.assigned_at
+);
+
+if (!dueDateText || !completedDateText) continue;
+
+const delayDaysRaw = dateDiffDays(dueDateText, completedDateText);
+const delayDays = Math.max(0, Number(delayDaysRaw || 0));
+const slaStatus = delayDays <= 0 ? 'ON TIME' : 'DELAYED';
+
+rows.push({
+  customerName: p.Customer?.name || '',
+  projectName: p.project_name || '',
+  siteName: p.Site?.name || '',
+  liftCode: pl.lift_code || pl.Lift?.liftCode || '',
+  location: pl.location_label || pl.Lift?.location || '',
+  serviceType: role,
+  dueDate: dueDateText,
+  completedDate: completedDateText,
+  delayDays,
+  slaStatus,
+  technician: a.Technician?.name || '',
+  supervisorStatus: a.supervisor_status || '',
+});
+        }
+      }
+    }
+
+    rows.sort((a, b) => {
+      const rank = (x) => {
+        if (x.slaStatus === 'DELAYED') return 1;
+        return 2;
+      };
+
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+
+      if (a.delayDays !== b.delayDays) return b.delayDays - a.delayDays;
+
+      const da = parseDateOnly(a.completedDate)?.getTime() || 0;
+const db = parseDateOnly(b.completedDate)?.getTime() || 0;
+      return db - da;
+    });
+
+    const totalCompleted = rows.length;
+    const onTime = rows.filter((r) => r.slaStatus === 'ON TIME').length;
+    const delayed = rows.filter((r) => r.slaStatus === 'DELAYED').length;
+    const avgDelayDays =
+      delayed > 0
+        ? (
+            rows
+              .filter((r) => r.slaStatus === 'DELAYED')
+              .reduce((sum, r) => sum + Number(r.delayDays || 0), 0) / delayed
+          ).toFixed(1)
+        : '0.0';
+
+    res.json({
+      summary: {
+        totalCompleted,
+        onTime,
+        delayed,
+        avgDelayDays,
+      },
+      rows,
+    });
+  } catch (err) {
+    console.error('SLA COMPLIANCE REPORT ERROR', err);
+    res.status(500).json({ error: 'Failed to generate SLA Compliance report' });
+  }
+});
+
+app.get('/api/reports/service-timeliness/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const response = await fetch(`${baseUrl}/api/reports/service-timeliness`);
+    const data = await response.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const generatedOn = new Date().toLocaleString();
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Service Timeliness Report</title>
+  <style>
+    :root {
+      --border: #222;
+      --soft-border: #cfcfcf;
+      --header-bg: #0b3a75;
+      --header-text: #ffffff;
+      --summary-bg: #f8fafc;
+      --delayed-bg: #fdecec;
+      --delayed-border: #f5b5b5;
+      --ontime-bg: #edf9f0;
+      --ontime-border: #b8e0c2;
+      --avg-bg: #f4f8ff;
+      --avg-border: #bfd8f6;
+      --text: #111827;
+      --muted: #4b5563;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      margin: 0;
+      background: #fff;
+    }
+
+    .page {
+      padding: 18px 22px;
+    }
+
+    .print-bar {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .print-btn {
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid #222;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .company-block {
+      flex: 1;
+      text-align: left;
+    }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .company-meta {
+      font-size: 12px;
+      line-height: 1.45;
+      color: #4b5563;
+      text-align: left;
+    }
+
+    .report-meta {
+      text-align: right;
+      min-width: 240px;
+    }
+
+    .report-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .report-sub {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin: 14px 0 16px;
+    }
+
+    .summary-card {
+      border: 1px solid var(--soft-border);
+      background: var(--summary-bg);
+      padding: 12px 14px;
+      border-radius: 8px;
+    }
+
+    .summary-card.total {
+      background: #f4f8ff;
+      border-color: var(--avg-border);
+    }
+
+    .summary-card.ontime {
+      background: #f3fbf5;
+      border-color: var(--ontime-border);
+    }
+
+    .summary-card.delayed {
+      background: #fff4f4;
+      border-color: var(--delayed-border);
+    }
+
+    .summary-card.avg {
+      background: #f4f8ff;
+      border-color: var(--avg-border);
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0b3a75;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      color: var(--header-text);
+      border: 1px solid var(--soft-border);
+      padding: 9px 6px;
+      text-align: left;
+      vertical-align: middle;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 8px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    tbody tr.delayed-row { background: var(--delayed-bg); }
+    tbody tr.ontime-row { background: #fff; }
+
+    .center { text-align: center; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-delayed {
+      background: #f7d7d7;
+      color: #b91c1c;
+    }
+
+    .status-ontime {
+      background: #d9f2df;
+      color: #15803d;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 2px solid #0b3a75;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .page {
+        padding: 0;
+      }
+
+      .print-bar {
+        display: none !important;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      tr, td, th {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="print-bar">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <div class="topbar">
+      <div class="company-block">
+        <div class="company-name">Modern Building Services</div>
+        <div class="company-meta">
+          Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+          Phone: 02340345 | Email: info@smartbuilding4u.com
+        </div>
+      </div>
+
+      <div class="report-meta">
+        <div class="report-title">Service Timeliness Report</div>
+        <div class="report-sub">
+          Generated on: ${esc(generatedOn)}<br/>
+          Total records: ${rows.length}
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card total">
+        <div class="summary-label">Total Completed</div>
+        <div class="summary-value">${Number(summary.totalCompleted || 0)}</div>
+      </div>
+      <div class="summary-card ontime">
+        <div class="summary-label">On Time</div>
+        <div class="summary-value">${Number(summary.onTime || 0)}</div>
+      </div>
+      <div class="summary-card delayed">
+        <div class="summary-label">Delayed</div>
+        <div class="summary-value">${Number(summary.delayed || 0)}</div>
+      </div>
+      <div class="summary-card avg">
+        <div class="summary-label">Average Delay Days</div>
+        <div class="summary-value">${esc(summary.avgDelayDays || '0.0')}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 42px;">Sl.</th>
+            <th style="width: 120px;">Customer</th>
+            <th style="width: 120px;">Project</th>
+            <th style="width: 100px;">Site</th>
+            <th style="width: 80px;">Lift Code</th>
+            <th style="width: 100px;">Location</th>
+            <th style="width: 95px;">Service Type</th>
+            <th style="width: 85px;">Due Date</th>
+            <th style="width: 95px;">Completed Date</th>
+            <th style="width: 85px; text-align:center;">Delay Days</th>
+            <th style="width: 95px; text-align:center;">SLA Status</th>
+            <th style="width: 90px;">Technician</th>
+            <th style="width: 95px; text-align:center;">Supervisor</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows.map((r, i) => {
+                  const rowClass = r.slaStatus === 'DELAYED' ? 'delayed-row' : 'ontime-row';
+                  const pillClass = r.slaStatus === 'DELAYED' ? 'status-delayed' : 'status-ontime';
+
+                  return `
+                    <tr class="${rowClass}">
+                      <td class="center">${i + 1}</td>
+                      <td>${esc(r.customerName)}</td>
+                      <td>${esc(r.projectName)}</td>
+                      <td>${esc(r.siteName)}</td>
+                      <td>${esc(r.liftCode)}</td>
+                      <td>${esc(r.location)}</td>
+                      <td>${esc(r.serviceType)}</td>
+                      <td class="center">${esc(r.dueDate)}</td>
+                      <td class="center">${esc(r.completedDate)}</td>
+                      <td class="center">${Number(r.delayDays || 0)}</td>
+                      <td class="center"><span class="status-pill ${pillClass}">${esc(r.slaStatus)}</span></td>
+                      <td>${esc(r.technician)}</td>
+                      <td class="center">${esc(r.supervisorStatus)}</td>
+                    </tr>
+                  `;
+                }).join('')
+              : `
+                <tr>
+                  <td colspan="13" class="center" style="padding: 22px; font-weight:600; color:#4b5563;">
+                    No approved completed AMC or Warranty service records found for SLA measurement.
+                  </td>
+                </tr>
+              `
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer-note">
+      <div>Generated from Lift Management System</div>
+      <div>Modern Building Services</div>
+      <div>Service Timeliness Report</div>
+    </div>
+
+  </div>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('SLA COMPLIANCE VIEW ERROR', err);
+    res.status(500).send('Failed to render SLA Compliance Report');
+  }
+});
+
+app.get('/api/reports/technician-performance', async (req, res) => {
+  try {
+    const allowedRoles = ['INSTALL', 'TEST', 'AMC SERVICE', 'WARRANTY SERVICE', 'SUPPORT'];
+
+    const requestedView = String(req.query.view || 'summary').toLowerCase();
+    const view = requestedView === 'detailed' ? 'detailed' : 'summary';
+
+    const rawTechnicianId = String(req.query.technicianId || 'all').trim();
+    const technicianId =
+      rawTechnicianId.toLowerCase() === 'all' ? null : Number(rawTechnicianId);
+
+    const technicians = await Technician.findAll({
+      where: { isActive: true },
+      order: [['name', 'ASC']],
+    });
+
+    const techMap = new Map();
+    technicians.forEach((t) => {
+      techMap.set(Number(t.id), t);
+    });
+
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Lift,
+              attributes: ['id', 'liftCode', 'location'],
+            },
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: Technician,
+                  attributes: ['id', 'name'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+
+    const detailedRows = [];
+
+    for (const p of projects) {
+      const lifts = p.ProjectLifts || [];
+
+      for (const pl of lifts) {
+        const assignments = pl.assignments || [];
+
+        for (const a of assignments) {
+          const role = String(a.assignment_role || '').toUpperCase().trim();
+          if (!allowedRoles.includes(role)) continue;
+
+          const techId = Number(a.technician_id || a.technicianId || 0);
+          if (!techId) continue;
+          if (technicianId && techId !== technicianId) continue;
+
+          const tech =
+            a.Technician ||
+            techMap.get(techId) ||
+            null;
+
+          const statusUpper = String(a.status || '').toUpperCase().trim();
+          const supervisorUpper = String(a.supervisor_status || '').toUpperCase().trim();
+
+          const dueDateText = a.due_date || '';
+const completedDateText = formatBhutanDate(a.completed_at || a.completedAt || null);
+
+let delayDays = null;
+let timelinessStatus = 'N/A';
+
+if (statusUpper === 'DONE' && dueDateText && completedDateText) {
+  const diff = dateDiffDays(dueDateText, completedDateText);
+  delayDays = Math.max(0, Number(diff || 0));
+  timelinessStatus = delayDays > 0 ? 'DELAYED' : 'ON TIME';
+}
+
+          detailedRows.push({
+            technicianId: techId,
+            technicianName: tech?.name || '',
+            technicianRole: tech?.role || '',
+            technicianSkills: tech?.skills || '',
+
+            customerName: p.Customer?.name || '',
+            projectName: p.project_name || '',
+            siteName: p.Site?.name || '',
+            liftCode: pl.lift_code || pl.Lift?.liftCode || '',
+            location: pl.location_label || pl.Lift?.location || '',
+
+            assignmentId: a.id,
+            assignmentRole: role,
+            assignmentStatus: statusUpper,
+            supervisorStatus: supervisorUpper || '',
+            dueDate: dueDateText,
+completedDate: completedDateText,
+            delayDays,
+            timelinessStatus,
+          });
+        }
+      }
+    }
+
+    if (view === 'detailed') {
+      detailedRows.sort((a, b) => {
+        const rank = (x) => {
+          if (x.assignmentStatus === 'IN_PROGRESS') return 1;
+          if (x.assignmentStatus === 'ASSIGNED') return 2;
+          if (x.assignmentStatus === 'DONE' && x.timelinessStatus === 'DELAYED') return 3;
+          if (x.assignmentStatus === 'DONE' && x.timelinessStatus === 'ON TIME') return 4;
+          return 9;
+        };
+
+        const ra = rank(a);
+        const rb = rank(b);
+        if (ra !== rb) return ra - rb;
+
+        const da = parseDateOnly(a.dueDate)?.getTime() || 0;
+const db = parseDateOnly(b.dueDate)?.getTime() || 0;
+        return db - da;
+      });
+
+      return res.json({
+        filters: {
+          view,
+          technicianId: technicianId || 'all',
+        },
+        summary: {
+          totalRows: detailedRows.length,
+        },
+        rows: detailedRows,
+      });
+    }
+
+    const summaryMap = new Map();
+
+    for (const t of technicians) {
+      if (technicianId && Number(t.id) !== technicianId) continue;
+
+      summaryMap.set(Number(t.id), {
+        technicianId: Number(t.id),
+        technicianName: t.name || '',
+        technicianRole: t.role || '',
+        technicianSkills: t.skills || '',
+        totalAssigned: 0,
+        totalCompleted: 0,
+        activeJobs: 0,
+        onTimeJobs: 0,
+        delayedJobs: 0,
+        totalDelayDays: 0,
+      });
+    }
+
+    for (const r of detailedRows) {
+      const row = summaryMap.get(Number(r.technicianId));
+      if (!row) continue;
+
+      row.totalAssigned += 1;
+
+      if (['ASSIGNED', 'IN_PROGRESS'].includes(r.assignmentStatus)) {
+        row.activeJobs += 1;
+      }
+
+      if (r.assignmentStatus === 'DONE') {
+        row.totalCompleted += 1;
+
+        if (r.timelinessStatus === 'ON TIME') {
+          row.onTimeJobs += 1;
+        } else if (r.timelinessStatus === 'DELAYED') {
+          row.delayedJobs += 1;
+          row.totalDelayDays += Number(r.delayDays || 0);
+        }
+      }
+    }
+
+    const summaryRows = Array.from(summaryMap.values()).map((r) => {
+      const onTimePercent =
+        r.totalCompleted > 0
+          ? ((r.onTimeJobs / r.totalCompleted) * 100).toFixed(1)
+          : '0.0';
+
+      const avgDelayDays =
+        r.delayedJobs > 0
+          ? (r.totalDelayDays / r.delayedJobs).toFixed(1)
+          : '0.0';
+
+      return {
+        ...r,
+        onTimePercent,
+        avgDelayDays,
+      };
+    });
+
+    summaryRows.sort((a, b) => {
+      if (b.activeJobs !== a.activeJobs) return b.activeJobs - a.activeJobs;
+      if (Number(a.onTimePercent) !== Number(b.onTimePercent)) {
+        return Number(a.onTimePercent) - Number(b.onTimePercent);
+      }
+      return a.technicianName.localeCompare(b.technicianName);
+    });
+
+    const totalTechnicians = summaryRows.length;
+    const totalActiveJobs = summaryRows.reduce((sum, r) => sum + Number(r.activeJobs || 0), 0);
+    const totalDelayedJobs = summaryRows.reduce((sum, r) => sum + Number(r.delayedJobs || 0), 0);
+
+    const avgOnTimePercent =
+      totalTechnicians > 0
+        ? (
+            summaryRows.reduce((sum, r) => sum + Number(r.onTimePercent || 0), 0) / totalTechnicians
+          ).toFixed(1)
+        : '0.0';
+
+    res.json({
+      filters: {
+        view,
+        technicianId: technicianId || 'all',
+      },
+      summary: {
+        totalTechnicians,
+        avgOnTimePercent,
+        totalActiveJobs,
+        totalDelayedJobs,
+      },
+      rows: summaryRows,
+    });
+  } catch (err) {
+    console.error('TECHNICIAN PERFORMANCE REPORT ERROR', err);
+    res.status(500).json({ error: 'Failed to generate Technician Performance report' });
+  }
+});
+
+app.get('/api/reports/technician-performance/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const selectedView = String(req.query.view || 'summary').toLowerCase() === 'detailed' ? 'detailed' : 'summary';
+    const technicianIdRaw = String(req.query.technicianId || '').trim();
+const selectedTechnicianId = technicianIdRaw || 'all';
+
+    const technicians = await Technician.findAll({
+  where: { isActive: true },
+  attributes: ['id', 'name'],
+  order: [['name', 'ASC']],
+});
+
+    const params = new URLSearchParams();
+
+params.set('view', selectedView);
+
+if (technicianIdRaw && technicianIdRaw !== 'all') {
+  params.set('technicianId', technicianIdRaw);
+}
+
+const reportResponse = await fetch(
+  `${baseUrl}/api/reports/technician-performance?${params.toString()}`
+);
+    const data = await reportResponse.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const generatedOn = new Date().toLocaleString();
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const technicianOptions = [
+      `<option value="all"${selectedTechnicianId === 'all' ? ' selected' : ''}>All Technicians</option>`,
+      ...(Array.isArray(technicians)
+        ? technicians.map((t) => {
+            const id = String(t.id);
+            return `<option value="${esc(id)}"${selectedTechnicianId === id ? ' selected' : ''}>${esc(t.name)}</option>`;
+          })
+        : []),
+    ].join('');
+
+    const summaryTable = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 42px;">Sl.</th>
+              <th style="width: 140px;">Technician</th>
+              <th style="width: 100px;">Role</th>
+              <th style="width: 120px;">Skills</th>
+              <th style="width: 85px; text-align:center;">Assigned</th>
+              <th style="width: 85px; text-align:center;">Completed</th>
+              <th style="width: 85px; text-align:center;">Active Jobs</th>
+              <th style="width: 85px; text-align:center;">On Time</th>
+              <th style="width: 85px; text-align:center;">Delayed</th>
+              <th style="width: 95px; text-align:center;">On-Time %</th>
+              <th style="width: 95px; text-align:center;">Avg Delay</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows.map((r, i) => `
+                  <tr>
+                    <td class="center">${i + 1}</td>
+                    <td>${esc(r.technicianName)}</td>
+                    <td>${esc(r.technicianRole)}</td>
+                    <td>${esc(r.technicianSkills)}</td>
+                    <td class="center">${Number(r.totalAssigned || 0)}</td>
+                    <td class="center">${Number(r.totalCompleted || 0)}</td>
+                    <td class="center">${Number(r.activeJobs || 0)}</td>
+                    <td class="center">${Number(r.onTimeJobs || 0)}</td>
+                    <td class="center">${Number(r.delayedJobs || 0)}</td>
+                    <td class="center">${esc(r.onTimePercent)}%</td>
+                    <td class="center">${esc(r.avgDelayDays)}</td>
+                  </tr>
+                `).join('')
+                : `
+                  <tr>
+                    <td colspan="11" class="center empty-row">
+                      No technician summary records found.
+                    </td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    const detailedTable = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 42px;">Sl.</th>
+              <th style="width: 120px;">Technician</th>
+              <th style="width: 120px;">Customer</th>
+              <th style="width: 120px;">Project</th>
+              <th style="width: 100px;">Site</th>
+              <th style="width: 80px;">Lift Code</th>
+              <th style="width: 90px;">Location</th>
+              <th style="width: 95px;">Assignment Role</th>
+              <th style="width: 85px;">Due Date</th>
+              <th style="width: 95px;">Completed Date</th>
+              <th style="width: 85px; text-align:center;">Delay Days</th>
+              <th style="width: 90px; text-align:center;">Status</th>
+              <th style="width: 95px; text-align:center;">Supervisor</th>
+              <th style="width: 95px; text-align:center;">Timeliness</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows.map((r, i) => {
+                    const rowClass =
+                      r.assignmentStatus === 'IN_PROGRESS'
+                        ? 'inprogress-row'
+                        : r.assignmentStatus === 'ASSIGNED'
+                        ? 'assigned-row'
+                        : r.timelinessStatus === 'DELAYED'
+                        ? 'delayed-row'
+                        : 'done-row';
+
+                    const pillClass =
+                      r.timelinessStatus === 'DELAYED'
+                        ? 'pill-delayed'
+                        : r.timelinessStatus === 'ON TIME'
+                        ? 'pill-ontime'
+                        : 'pill-na';
+
+                    return `
+                      <tr class="${rowClass}">
+                        <td class="center">${i + 1}</td>
+                        <td>${esc(r.technicianName)}</td>
+                        <td>${esc(r.customerName)}</td>
+                        <td>${esc(r.projectName)}</td>
+                        <td>${esc(r.siteName)}</td>
+                        <td>${esc(r.liftCode)}</td>
+                        <td>${esc(r.location)}</td>
+                        <td>${esc(r.assignmentRole)}</td>
+                        <td class="center">${esc(r.dueDate)}</td>
+                        <td class="center">${esc(r.completedDate || '')}</td>
+                        <td class="center">${r.delayDays == null ? '—' : Number(r.delayDays)}</td>
+                        <td class="center">${esc(r.assignmentStatus)}</td>
+                        <td class="center">${esc(r.supervisorStatus)}</td>
+                        <td class="center"><span class="status-pill ${pillClass}">${esc(r.timelinessStatus)}</span></td>
+                      </tr>
+                    `;
+                  }).join('')
+                : `
+                  <tr>
+                    <td colspan="14" class="center empty-row">
+                      No technician detailed records found.
+                    </td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Technician Performance Report</title>
+  <style>
+    :root {
+      --border: #222;
+      --soft-border: #cfcfcf;
+      --header-bg: #0b3a75;
+      --header-text: #ffffff;
+      --summary-bg: #f8fafc;
+      --text: #111827;
+      --muted: #4b5563;
+      --brand: #0b3a75;
+      --delayed-bg: #fdecec;
+      --assigned-bg: #fff7db;
+      --inprogress-bg: #eef6ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      margin: 0;
+      background: #fff;
+    }
+
+    .page {
+      padding: 18px 22px;
+    }
+
+    .print-bar {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .print-btn {
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid #222;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .company-block {
+      flex: 1;
+      text-align: left;
+    }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .company-meta {
+      font-size: 12px;
+      line-height: 1.45;
+      color: #4b5563;
+      text-align: left;
+    }
+
+    .report-meta {
+      text-align: right;
+      min-width: 240px;
+    }
+
+    .report-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .report-sub {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .filters {
+      display: flex;
+      gap: 14px;
+      align-items: end;
+      margin: 14px 0 16px;
+      flex-wrap: wrap;
+      padding: 12px 14px;
+      border: 1px solid #d9e2f0;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 220px;
+    }
+
+    .filter-group label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #4b5563;
+    }
+
+    .filter-group select {
+      height: 36px;
+      border: 1px solid #b9c6db;
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 13px;
+      background: #fff;
+    }
+
+    .apply-btn {
+      height: 36px;
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      border-radius: 6px;
+      padding: 0 16px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin: 14px 0 16px;
+    }
+
+    .summary-card {
+      border: 1px solid #cfcfcf;
+      background: #f8fafc;
+      padding: 12px 14px;
+      border-radius: 8px;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #4b5563;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0b3a75;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      color: var(--header-text);
+      border: 1px solid var(--soft-border);
+      padding: 9px 6px;
+      text-align: left;
+      vertical-align: middle;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 8px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    tbody tr.delayed-row { background: var(--delayed-bg); }
+    tbody tr.assigned-row { background: var(--assigned-bg); }
+    tbody tr.inprogress-row { background: var(--inprogress-bg); }
+
+    .center { text-align: center; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill-delayed {
+      background: #f7d7d7;
+      color: #b91c1c;
+    }
+
+    .pill-ontime {
+      background: #d9f2df;
+      color: #15803d;
+    }
+
+    .pill-na {
+      background: #e5e7eb;
+      color: #4b5563;
+    }
+
+    .empty-row {
+      padding: 22px;
+      font-weight: 600;
+      color: #4b5563;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      font-size: 11px;
+      color: #4b5563;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 2px solid #0b3a75;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .page {
+        padding: 0;
+      }
+
+      .print-bar,
+      .filters {
+        display: none !important;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      tr, td, th {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="print-bar">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <div class="topbar">
+      <div class="company-block">
+        <div class="company-name">Modern Building Services</div>
+        <div class="company-meta">
+          Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+          Phone: 02340345 | Email: info@smartbuilding4u.com
+        </div>
+      </div>
+
+      <div class="report-meta">
+        <div class="report-title">Technician Performance Report</div>
+        <div class="report-sub">
+          Generated on: ${esc(generatedOn)}<br/>
+          Total records: ${rows.length}
+        </div>
+      </div>
+    </div>
+
+    <form class="filters" method="GET" action="/api/reports/technician-performance/view">
+      <div class="filter-group">
+        <label for="view">View Type</label>
+        <select name="view" id="view">
+          <option value="summary"${selectedView === 'summary' ? ' selected' : ''}>Summary</option>
+          <option value="detailed"${selectedView === 'detailed' ? ' selected' : ''}>Detailed</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="technicianId">Technician</label>
+        <select name="technicianId" id="technicianId">
+          ${technicianOptions}
+        </select>
+      </div>
+
+      <div>
+        <button type="submit" class="apply-btn">Apply Filter</button>
+      </div>
+    </form>
+
+    ${
+      selectedView === 'summary'
+        ? `
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="summary-label">Total Technicians</div>
+              <div class="summary-value">${Number(summary.totalTechnicians || 0)}</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-label">Avg On-Time %</div>
+              <div class="summary-value">${esc(summary.avgOnTimePercent || '0.0')}%</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-label">Total Active Jobs</div>
+              <div class="summary-value">${Number(summary.totalActiveJobs || 0)}</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-label">Total Delayed Jobs</div>
+              <div class="summary-value">${Number(summary.totalDelayedJobs || 0)}</div>
+            </div>
+          </div>
+          ${summaryTable}
+        `
+        : `
+          <div class="summary-grid">
+            <div class="summary-card">
+              <div class="summary-label">Detailed Rows</div>
+              <div class="summary-value">${Number(summary.totalRows || 0)}</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-label">Selected View</div>
+              <div class="summary-value" style="font-size:18px;">Detailed</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-label">Technician Filter</div>
+              <div class="summary-value" style="font-size:18px;">${esc(selectedTechnicianId === 'all' ? 'All' : selectedTechnicianId)}</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-label">Job Scope</div>
+              <div class="summary-value" style="font-size:18px;">All Roles</div>
+            </div>
+          </div>
+          ${detailedTable}
+        `
+    }
+
+    <div class="footer-note">
+      <div>Generated from Lift Management System</div>
+      <div>Modern Building Services</div>
+      <div>Technician Performance Report</div>
+    </div>
+
+  </div>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('TECHNICIAN PERFORMANCE VIEW ERROR', err);
+    res.status(500).send('Failed to render Technician Performance Report');
+  }
+});
+
+app.get('/api/reports/summary', async (req, res) => {
+  try {
+    const today = startOfDay(new Date());
+
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Lift,
+              attributes: ['id', 'liftCode', 'location'],
+            },
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: Technician,
+                  attributes: ['id', 'name'],
+                },
+              ],
+            },
+            {
+              model: Contract,
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+
+    let serviceDueOverdue = 0;
+    let serviceDueToday = 0;
+    let serviceDueUpcoming = 0;
+
+    let amcActiveCount = 0;
+    let amcPendingVisits = 0;
+    let amcOverdue = 0;
+    let amcDueSoon = 0;
+
+    let amcExpiring7 = 0;
+    let amcExpiring30 = 0;
+
+
+    let timelinessTotalCompleted = 0;
+    let timelinessOnTime = 0;
+    let timelinessDelayed = 0;
+
+    const technicianSummaryMap = new Map();
+
+    const allowedTechRoles = ['INSTALL', 'TEST', 'AMC SERVICE', 'WARRANTY SERVICE', 'SUPPORT'];
+
+    const technicians = await Technician.findAll({
+      where: { isActive: true },
+      order: [['name', 'ASC']],
+    });
+
+    technicians.forEach((t) => {
+      technicianSummaryMap.set(Number(t.id), {
+        technicianId: Number(t.id),
+        totalCompleted: 0,
+        onTimeJobs: 0,
+        delayedJobs: 0,
+      });
+    });
+
+    for (const p of projects) {
+      for (const pl of (p.ProjectLifts || [])) {
+        const assignments = pl.assignments || [];
+        const contract = (pl.Contracts || [])[0] || null;
+
+        // Service Due summary
+        for (const a of assignments) {
+          const role = String(a.assignment_role || '').toUpperCase().trim();
+          if (!['AMC SERVICE', 'WARRANTY SERVICE'].includes(role)) continue;
+
+          const statusUpper = String(a.status || '').toUpperCase().trim();
+          if (!['ASSIGNED', 'IN_PROGRESS'].includes(statusUpper)) continue;
+
+          const dueDate = parseDateOnly(a.due_date);
+          if (!dueDate) continue;
+
+          if (today > dueDate) serviceDueOverdue += 1;
+          else {
+            const diff = dateDiffDays(today, dueDate);
+            if (diff === 0) serviceDueToday += 1;
+            else serviceDueUpcoming += 1;
+          }
+        }
+
+        // AMC Active + Expiring summary
+        if (contract) {
+          const amc = buildAmcInfo(contract, today, {
+            assignments,
+          });
+
+          if (amc.status === 'AMC ACTIVE') {
+            amcActiveCount += 1;
+            amcPendingVisits += Math.max(
+              0,
+              Number(amc.serviceVisitCount || 0) - Number(amc.completedVisits || 0)
+            );
+
+            if (amc.isOverdue) amcOverdue += 1;
+            else if (amc.isDueNow) amcDueSoon += 1;
+
+            const amcEndDate = parseDateOnly(amc.endDate);
+            if (amcEndDate) {
+              const daysToExpiry = dateDiffDays(today, amcEndDate);
+              if (daysToExpiry >= 0 && daysToExpiry <= 30) {
+                amcExpiring30 += 1;
+                if (daysToExpiry <= 7) amcExpiring7 += 1;
+              }
+            }
+          }
+        }
+
+        // Timeliness + Technician summary
+        for (const a of assignments) {
+          const role = String(a.assignment_role || '').toUpperCase().trim();
+          if (!allowedTechRoles.includes(role)) continue;
+
+          const techId = Number(a.technician_id || a.technicianId || 0);
+          const techRow = technicianSummaryMap.get(techId) || null;
+
+          const statusUpper = String(a.status || '').toUpperCase().trim();
+          const supervisorUpper = String(a.supervisor_status || '').toUpperCase().trim();
+
+          if (statusUpper === 'DONE' && supervisorUpper === 'APPROVED') {
+            const dueDate = parseDateOnly(a.due_date);
+            const completedDate = parseDateOnly(a.completed_at || a.completedAt || null);
+
+            if (dueDate && completedDate) {
+              const delayDays = Math.max(0, Number(dateDiffDays(dueDate, completedDate) || 0));
+
+              timelinessTotalCompleted += 1;
+              if (delayDays > 0) timelinessDelayed += 1;
+              else timelinessOnTime += 1;
+
+              if (techRow) {
+                techRow.totalCompleted += 1;
+                if (delayDays > 0) techRow.delayedJobs += 1;
+                else techRow.onTimeJobs += 1;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const techRows = Array.from(technicianSummaryMap.values());
+
+    const avgOnTimePercent =
+      techRows.length > 0
+        ? (
+            techRows.reduce((sum, r) => {
+              const pct =
+                r.totalCompleted > 0
+                  ? (r.onTimeJobs / r.totalCompleted) * 100
+                  : 0;
+              return sum + pct;
+            }, 0) / techRows.length
+          ).toFixed(1)
+        : '0.0';
+
+    const overallOnTimePercent =
+      timelinessTotalCompleted > 0
+        ? ((timelinessOnTime / timelinessTotalCompleted) * 100).toFixed(1)
+        : '0.0';
+
+projectTotal = projects.length;
+projectOpen = projects.filter(
+  (p) => String(p.status || '').toUpperCase() === 'OPEN'
+).length;
+
+    res.json({
+      serviceDue: {
+        overdue: serviceDueOverdue,
+        dueToday: serviceDueToday,
+        upcoming: serviceDueUpcoming,
+      },
+      amcActive: {
+        active: amcActiveCount,
+        pendingVisits: amcPendingVisits,
+        overdue: amcOverdue,
+        dueSoon: amcDueSoon,
+      },
+      amcExpiring: {
+        within7Days: amcExpiring7,
+        within30Days: amcExpiring30,
+      },
+      serviceTimeliness: {
+        totalCompleted: timelinessTotalCompleted,
+        onTime: timelinessOnTime,
+        delayed: timelinessDelayed,
+        onTimePercent: overallOnTimePercent,
+      },
+      technicianPerformance: {
+        totalTechnicians: techRows.length,
+        avgOnTimePercent,
+      },
+projectStatus: {
+            totalProjects: projectTotal,
+  openProjects: projectOpen,
+},
+    });
+  } catch (err) {
+    console.error('REPORT SUMMARY ERROR', err);
+    res.status(500).json({ error: 'Failed to generate report summary' });
+  }
+});
+
+app.get('/api/reports/project-status', async (req, res) => {
+  try {
+    const today = startOfDay(new Date());
+    const filter = String(req.query.filter || 'all').toLowerCase();
+
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Lift,
+              attributes: ['id', 'liftCode', 'location', 'status'],
+            },
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: Technician,
+                  attributes: ['id', 'name'],
+                },
+              ],
+            },
+            {
+              model: Contract,
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+
+    const rows = [];
+
+    for (const p of projects) {
+      const projectLifts = p.ProjectLifts || [];
+
+      let totalLifts = 0;
+      let notStarted = 0;
+      let installing = 0;
+      let testing = 0;
+      let handedOver = 0;
+      let warrantyActive = 0;
+      let amcActive = 0;
+
+      for (const pl of projectLifts) {
+        totalLifts += 1;
+
+        const assignments = pl.assignments || [];
+        const workflow = computeProjectLiftWorkflow(pl, assignments);
+
+        if (workflow.workflowStatus === 'NOT STARTED') {
+          notStarted += 1;
+        } else if (workflow.workflowStatus === 'INSTALLING') {
+          installing += 1;
+        } else if (
+          ['TESTING', 'TEST AWAITING APPROVAL', 'READY FOR TEST ASSIGNMENT'].includes(
+            workflow.workflowStatus
+          )
+        ) {
+          testing += 1;
+        } else if (workflow.workflowStatus === 'HANDED OVER') {
+          handedOver += 1;
+        }
+
+        const warranty = buildWarrantyInfo(pl, assignments, today);
+        if (warranty.status === 'WARRANTY ACTIVE') {
+          warrantyActive += 1;
+        }
+
+        const contract = (pl.Contracts || [])[0] || null;
+        if (contract) {
+          const amc = buildAmcInfo(contract, today, { assignments });
+          if (amc.status === 'AMC ACTIVE') {
+            amcActive += 1;
+          }
+        }
+      }
+
+      rows.push({
+        projectId: p.id,
+        projectCode: p.project_code || '',
+        projectName: p.project_name || '',
+        customerName: p.Customer?.name || '',
+        siteName: p.Site?.name || '',
+        projectStatus: p.status || '',
+        totalLifts,
+        notStarted,
+        installing,
+        testing,
+        handedOver,
+        warrantyActive,
+        amcActive,
+      });
+    }
+
+    rows.sort((a, b) => {
+      const rank = (x) => {
+        const s = String(x.projectStatus || '').toUpperCase();
+        if (s === 'OPEN') return 1;
+        if (s === 'IN PROGRESS') return 2;
+        if (s === 'CLOSED') return 3;
+        return 9;
+      };
+
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+
+      return String(a.projectName || '').localeCompare(String(b.projectName || ''));
+    });
+
+    let filteredRows = rows;
+
+    if (filter !== 'all') {
+      filteredRows = rows.filter((r) => {
+        const total = Number(r.totalLifts || 0);
+
+        switch (filter) {
+          case 'handed-over':
+            return total > 0 && r.handedOver === total;
+
+          case 'ready-handover':
+            return (
+              total > 0 &&
+              r.handedOver < total &&
+              r.notStarted === 0 &&
+              r.installing === 0 &&
+              r.testing === 0
+            );
+
+          case 'installation':
+            return r.installing > 0;
+
+          case 'testing':
+            return r.testing > 0;
+
+          case 'not-started':
+            return total > 0 && r.notStarted === total;
+
+          case 'amc-active':
+            return r.amcActive > 0;
+
+          case 'warranty-active':
+            return r.warrantyActive > 0;
+
+          default:
+            return true;
+        }
+      });
+    }
+
+    const totalProjects = rows.length;
+    const openProjects = rows.filter(
+      (r) => String(r.projectStatus || '').toUpperCase() === 'OPEN'
+    ).length;
+    const handedOverLifts = rows.reduce((sum, r) => sum + Number(r.handedOver || 0), 0);
+    const activeAmcLifts = rows.reduce((sum, r) => sum + Number(r.amcActive || 0), 0);
+
+    res.json({
+      summary: {
+        totalProjects,
+        openProjects,
+        handedOverLifts,
+        activeAmcLifts,
+        filteredCount: filteredRows.length,
+      },
+      rows: filteredRows,
+    });
+  } catch (err) {
+    console.error('PROJECT STATUS REPORT ERROR', err);
+    res.status(500).json({ error: 'Failed to generate Project Status report' });
+  }
+});
+
+app.get('/api/reports/project-status/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const filter = String(req.query.filter || 'all').toLowerCase();
+
+    const response = await fetch(
+      `${baseUrl}/api/reports/project-status?filter=${encodeURIComponent(filter)}`
+    );
+    const data = await response.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const generatedOn = new Date().toLocaleString();
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Status Report</title>
+  <style>
+    :root {
+      --border: #222;
+      --soft-border: #cfcfcf;
+      --header-bg: #0b3a75;
+      --header-text: #ffffff;
+      --summary-bg: #f8fafc;
+      --text: #111827;
+      --muted: #4b5563;
+      --brand: #0b3a75;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      margin: 0;
+      background: #fff;
+    }
+
+    .page {
+      padding: 18px 22px;
+    }
+
+    .print-bar {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .print-btn {
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid #222;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .company-block {
+      flex: 1;
+      text-align: left;
+    }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .company-meta {
+      font-size: 12px;
+      line-height: 1.45;
+      color: #4b5563;
+      text-align: left;
+    }
+
+    .report-meta {
+      text-align: right;
+      min-width: 240px;
+    }
+
+    .report-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .report-sub {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 12px 0 16px;
+    }
+
+    .filter-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .filter-select {
+      padding: 7px 10px;
+      border: 1px solid #cfcfcf;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #fff;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin: 14px 0 16px;
+    }
+
+    .summary-card {
+      border: 1px solid #cfcfcf;
+      background: #f8fafc;
+      padding: 12px 14px;
+      border-radius: 8px;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #4b5563;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0b3a75;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      color: var(--header-text);
+      border: 1px solid var(--soft-border);
+      padding: 9px 6px;
+      text-align: left;
+      vertical-align: middle;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 8px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    .center { text-align: center; }
+
+    .footer-note {
+      margin-top: 18px;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 2px solid #0b3a75;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .page {
+        padding: 0;
+      }
+
+      .print-bar,
+      .filter-bar {
+        display: none !important;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      tr, td, th {
+        page-break-inside: avoid;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(5, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="print-bar">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <div class="topbar">
+      <div class="company-block">
+        <div class="company-name">Modern Building Services</div>
+        <div class="company-meta">
+          Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+          Phone: 02340345 | Email: info@smartbuilding4u.com
+        </div>
+      </div>
+
+      <div class="report-meta">
+        <div class="report-title">Project Status Report</div>
+        <div class="report-sub">
+          Generated on: ${esc(generatedOn)}<br/>
+          Total records: ${rows.length}
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-label">Filter:</div>
+      <select class="filter-select" onchange="applyFilter(this.value)">
+        <option value="all" ${filter === 'all' ? 'selected' : ''}>All</option>
+        <option value="handed-over" ${filter === 'handed-over' ? 'selected' : ''}>Fully Handed Over</option>
+        <option value="ready-handover" ${filter === 'ready-handover' ? 'selected' : ''}>Ready for Handover</option>
+        <option value="installation" ${filter === 'installation' ? 'selected' : ''}>Installation Ongoing</option>
+        <option value="testing" ${filter === 'testing' ? 'selected' : ''}>Testing Ongoing</option>
+        <option value="not-started" ${filter === 'not-started' ? 'selected' : ''}>Not Started</option>
+        <option value="amc-active" ${filter === 'amc-active' ? 'selected' : ''}>AMC Active</option>
+        <option value="warranty-active" ${filter === 'warranty-active' ? 'selected' : ''}>Warranty Active</option>
+      </select>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-label">Total Projects</div>
+        <div class="summary-value">${Number(summary.totalProjects || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Open Projects</div>
+        <div class="summary-value">${Number(summary.openProjects || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Handed Over Lifts</div>
+        <div class="summary-value">${Number(summary.handedOverLifts || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Active AMC Lifts</div>
+        <div class="summary-value">${Number(summary.activeAmcLifts || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Filtered Results</div>
+        <div class="summary-value">${Number(summary.filteredCount || 0)}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 42px;">Sl.</th>
+            <th style="width: 90px;">Project Code</th>
+            <th style="width: 140px;">Project Name</th>
+            <th style="width: 130px;">Customer</th>
+            <th style="width: 110px;">Site</th>
+            <th style="width: 85px;">Status</th>
+            <th style="width: 75px; text-align:center;">Total Lifts</th>
+            <th style="width: 75px; text-align:center;">Not Started</th>
+            <th style="width: 75px; text-align:center;">Installing</th>
+            <th style="width: 75px; text-align:center;">Testing</th>
+            <th style="width: 75px; text-align:center;">Handed Over</th>
+            <th style="width: 75px; text-align:center;">Warranty Active</th>
+            <th style="width: 75px; text-align:center;">AMC Active</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows.map((r, i) => `
+                <tr>
+                  <td class="center">${i + 1}</td>
+                  <td>${esc(r.projectCode)}</td>
+                  <td>${esc(r.projectName)}</td>
+                  <td>${esc(r.customerName)}</td>
+                  <td>${esc(r.siteName)}</td>
+                  <td>${esc(r.projectStatus)}</td>
+                  <td class="center">${Number(r.totalLifts || 0)}</td>
+                  <td class="center">${Number(r.notStarted || 0)}</td>
+                  <td class="center">${Number(r.installing || 0)}</td>
+                  <td class="center">${Number(r.testing || 0)}</td>
+                  <td class="center">${Number(r.handedOver || 0)}</td>
+                  <td class="center">${Number(r.warrantyActive || 0)}</td>
+                  <td class="center">${Number(r.amcActive || 0)}</td>
+                </tr>
+              `).join('')
+              : `
+                <tr>
+                  <td colspan="13" class="center" style="padding: 22px; font-weight:600; color:#4b5563;">
+                    No project status records found for the selected filter.
+                  </td>
+                </tr>
+              `
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer-note">
+      <div>Generated from Lift Management System</div>
+      <div>Modern Building Services</div>
+      <div>Project Status Report</div>
+    </div>
+
+  </div>
+
+  <script>
+    function applyFilter(value) {
+      const base = window.location.pathname;
+      window.location.href = base + '?filter=' + encodeURIComponent(value);
+    }
+  </script>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('PROJECT STATUS VIEW ERROR', err);
+    res.status(500).send('Failed to render Project Status Report');
+  }
+});
+
+app.get('/api/reports/job-status', async (req, res) => {
+  try {
+    const today = startOfDay(new Date());
+    const filter = String(req.query.filter || 'all').toLowerCase();
+
+    const projects = await Project.findAll({
+      include: [
+        { model: Customer, attributes: ['id', 'name'] },
+        { model: Site, attributes: ['id', 'name'] },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Lift,
+              attributes: ['id', 'liftCode', 'location'],
+            },
+            {
+              model: ProjectLiftAssignment,
+              as: 'assignments',
+              include: [
+                {
+                  model: Technician,
+                  attributes: ['id', 'name'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+
+    const rows = [];
+
+    for (const p of projects) {
+      for (const pl of (p.ProjectLifts || [])) {
+        for (const a of (pl.assignments || [])) {
+          const role = String(a.assignment_role || '').toUpperCase().trim();
+          const status = String(a.status || '').toUpperCase().trim();
+          const supervisorStatus = String(a.supervisor_status || '').toUpperCase().trim();
+
+          const dueDateObj = parseDateOnly(a.due_date);
+          const completedDateObj = parseDateOnly(a.completed_at || a.completedAt || null);
+
+          const isOpen = ['ASSIGNED', 'IN_PROGRESS'].includes(status);
+          const isOverdue = !!(isOpen && dueDateObj && today > dueDateObj);
+
+          let agingDays = null;
+          if (isOpen && dueDateObj) {
+            agingDays = Math.max(0, Number(dateDiffDays(dueDateObj, today) || 0));
+          }
+
+          rows.push({
+            assignmentId: a.id,
+            customerName: p.Customer?.name || '',
+            projectName: p.project_name || '',
+            siteName: p.Site?.name || '',
+            liftCode: pl.lift_code || pl.Lift?.liftCode || '',
+            location: pl.location_label || pl.Lift?.location || '',
+            jobRole: role,
+            technician: a.Technician?.name || '',
+            dueDate: a.due_date || '',
+            status,
+            supervisorStatus,
+            isOverdue,
+            agingDays,
+            completedDate: completedDateObj ? formatDateOnly(completedDateObj) : '',
+          });
+        }
+      }
+    }
+
+    let filteredRows = rows;
+
+    if (filter !== 'all') {
+      filteredRows = rows.filter((r) => {
+        switch (filter) {
+          case 'assigned':
+            return r.status === 'ASSIGNED';
+          case 'in-progress':
+            return r.status === 'IN_PROGRESS';
+          case 'done':
+            return r.status === 'DONE';
+          case 'overdue':
+            return r.isOverdue === true;
+          case 'install':
+            return r.jobRole === 'INSTALL';
+          case 'test':
+            return r.jobRole === 'TEST';
+          case 'amc-service':
+            return r.jobRole === 'AMC SERVICE';
+          case 'warranty-service':
+            return r.jobRole === 'WARRANTY SERVICE';
+          case 'support':
+            return r.jobRole === 'SUPPORT';
+          default:
+            return true;
+        }
+      });
+    }
+
+    filteredRows.sort((a, b) => {
+      const rank = (x) => {
+        if (x.isOverdue) return 1;
+        if (x.status === 'IN_PROGRESS') return 2;
+        if (x.status === 'ASSIGNED') return 3;
+        if (x.status === 'DONE') return 4;
+        return 9;
+      };
+
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+
+      const da = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+      const db = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+      return da - db;
+    });
+
+    const totalJobs = rows.length;
+    const assigned = rows.filter((r) => r.status === 'ASSIGNED').length;
+    const inProgress = rows.filter((r) => r.status === 'IN_PROGRESS').length;
+    const done = rows.filter((r) => r.status === 'DONE').length;
+    const overdueOpenJobs = rows.filter((r) => r.isOverdue).length;
+
+    res.json({
+      summary: {
+        totalJobs,
+        assigned,
+        inProgress,
+        done,
+        overdueOpenJobs,
+        filteredCount: filteredRows.length,
+      },
+      rows: filteredRows,
+    });
+  } catch (err) {
+    console.error('JOB STATUS REPORT ERROR', err);
+    res.status(500).json({ error: 'Failed to generate Job Status report' });
+  }
+});
+
+app.get('/api/reports/job-status/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const filter = String(req.query.filter || 'all').toLowerCase();
+
+    const response = await fetch(
+      `${baseUrl}/api/reports/job-status?filter=${encodeURIComponent(filter)}`
+    );
+    const data = await response.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const generatedOn = new Date().toLocaleString();
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Status Report</title>
+  <style>
+    :root {
+      --border: #222;
+      --soft-border: #cfcfcf;
+      --header-bg: #0b3a75;
+      --header-text: #ffffff;
+      --text: #111827;
+      --muted: #4b5563;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      margin: 0;
+      background: #fff;
+    }
+
+    .page { padding: 18px 22px; }
+
+    .print-bar {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .print-btn {
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid #222;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .company-block { flex: 1; text-align: left; }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .company-meta {
+      font-size: 12px;
+      line-height: 1.45;
+      color: #4b5563;
+      text-align: left;
+    }
+
+    .report-meta {
+      text-align: right;
+      min-width: 240px;
+    }
+
+    .report-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .report-sub {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 12px 0 16px;
+    }
+
+    .filter-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .filter-select {
+      padding: 7px 10px;
+      border: 1px solid #cfcfcf;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #fff;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin: 14px 0 16px;
+    }
+
+    .summary-card {
+      border: 1px solid #cfcfcf;
+      background: #f8fafc;
+      padding: 12px 14px;
+      border-radius: 8px;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #4b5563;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0b3a75;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      color: var(--header-text);
+      border: 1px solid var(--soft-border);
+      padding: 9px 6px;
+      text-align: left;
+      vertical-align: middle;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 8px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    tr.overdue-row { background: #fff1f2; }
+    tr.progress-row { background: #eff6ff; }
+
+    .center { text-align: center; }
+
+    .footer-note {
+      margin-top: 18px;
+      font-size: 11px;
+      color: #4b5563;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 2px solid #0b3a75;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      body { margin: 0; }
+      .page { padding: 0; }
+      .print-bar, .filter-bar { display: none !important; }
+      thead { display: table-header-group; }
+      tr, td, th { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="print-bar">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <div class="topbar">
+      <div class="company-block">
+        <div class="company-name">Modern Building Services</div>
+        <div class="company-meta">
+          Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+          Phone: 02340345 | Email: info@smartbuilding4u.com
+        </div>
+      </div>
+
+      <div class="report-meta">
+        <div class="report-title">Job Status Report</div>
+        <div class="report-sub">
+          Generated on: ${esc(generatedOn)}<br/>
+          Total records: ${rows.length}
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-label">Filter:</div>
+      <select class="filter-select" onchange="applyFilter(this.value)">
+        <option value="all" ${filter === 'all' ? 'selected' : ''}>All</option>
+        <option value="assigned" ${filter === 'assigned' ? 'selected' : ''}>Assigned</option>
+        <option value="in-progress" ${filter === 'in-progress' ? 'selected' : ''}>In Progress</option>
+        <option value="done" ${filter === 'done' ? 'selected' : ''}>Done</option>
+        <option value="overdue" ${filter === 'overdue' ? 'selected' : ''}>Overdue</option>
+        <option value="install" ${filter === 'install' ? 'selected' : ''}>Install</option>
+        <option value="test" ${filter === 'test' ? 'selected' : ''}>Test</option>
+        <option value="amc-service" ${filter === 'amc-service' ? 'selected' : ''}>AMC Service</option>
+        <option value="warranty-service" ${filter === 'warranty-service' ? 'selected' : ''}>Warranty Service</option>
+        <option value="support" ${filter === 'support' ? 'selected' : ''}>Support</option>
+      </select>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-label">Total Jobs</div>
+        <div class="summary-value">${Number(summary.totalJobs || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Assigned</div>
+        <div class="summary-value">${Number(summary.assigned || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">In Progress</div>
+        <div class="summary-value">${Number(summary.inProgress || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Done</div>
+        <div class="summary-value">${Number(summary.done || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Overdue Open Jobs</div>
+        <div class="summary-value">${Number(summary.overdueOpenJobs || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Filtered Results</div>
+        <div class="summary-value">${Number(summary.filteredCount || 0)}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:42px;">Sl.</th>
+            <th style="width:120px;">Customer</th>
+            <th style="width:120px;">Project</th>
+            <th style="width:100px;">Site</th>
+            <th style="width:80px;">Lift Code</th>
+            <th style="width:100px;">Location</th>
+            <th style="width:100px;">Job Role</th>
+            <th style="width:90px;">Technician</th>
+            <th style="width:85px;">Due Date</th>
+            <th style="width:85px; text-align:center;">Status</th>
+            <th style="width:95px; text-align:center;">Supervisor</th>
+            <th style="width:85px; text-align:center;">Aging</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows.map((r, i) => {
+                  const rowClass = r.isOverdue ? 'overdue-row' : (r.status === 'IN_PROGRESS' ? 'progress-row' : '');
+                  const agingText = r.isOverdue
+                    ? `${Number(r.agingDays || 0)} days overdue`
+                    : (r.status === 'IN_PROGRESS' || r.status === 'ASSIGNED')
+                    ? (r.agingDays == null ? '—' : `${Number(r.agingDays || 0)} days`)
+                    : '—';
+
+                  return `
+                    <tr class="${rowClass}">
+                      <td class="center">${i + 1}</td>
+                      <td>${esc(r.customerName)}</td>
+                      <td>${esc(r.projectName)}</td>
+                      <td>${esc(r.siteName)}</td>
+                      <td>${esc(r.liftCode)}</td>
+                      <td>${esc(r.location)}</td>
+                      <td>${esc(r.jobRole)}</td>
+                      <td>${esc(r.technician)}</td>
+                      <td class="center">${esc(r.dueDate)}</td>
+                      <td class="center">${esc(r.status)}</td>
+                      <td class="center">${esc(r.supervisorStatus)}</td>
+                      <td class="center">${esc(agingText)}</td>
+                    </tr>
+                  `;
+                }).join('')
+              : `
+                <tr>
+                  <td colspan="12" class="center" style="padding: 22px; font-weight:600; color:#4b5563;">
+                    No job status records found for the selected filter.
+                  </td>
+                </tr>
+              `
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer-note">
+      <div>Generated from Lift Management System</div>
+      <div>Modern Building Services</div>
+      <div>Job Status Report</div>
+    </div>
+
+  </div>
+
+  <script>
+    function applyFilter(value) {
+      const base = window.location.pathname;
+      window.location.href = base + '?filter=' + encodeURIComponent(value);
+    }
+  </script>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('JOB STATUS VIEW ERROR', err);
+    res.status(500).send('Failed to render Job Status Report');
+  }
+});
+
+app.get('/api/reports/install-test-incentive', async (req, res) => {
+  try {
+    const from = parseDateOnly(req.query.from);
+    const to = parseDateOnly(req.query.to);
+    const technicianIdRaw = String(req.query.technicianId || 'all').trim().toLowerCase();
+    const technicianId = technicianIdRaw === 'all' ? null : Number(technicianIdRaw);
+
+    const assignments = await ProjectLiftAssignment.findAll({
+      where: {
+        assignment_role: ['INSTALL', 'TEST'],
+      },
+      include: [
+        {
+          model: Technician,
+          attributes: ['id', 'name', 'phone', 'role', 'skills'],
+        },
+        {
+          model: ProjectLift,
+          include: [
+            {
+              model: Project,
+              attributes: ['id', 'project_name', 'project_code', 'status', 'customer_id', 'site_id'],
+              include: [
+                { model: Customer, attributes: ['id', 'name'] },
+                { model: Site, attributes: ['id', 'name'] },
+              ],
+            },
+            { model: Lift, attributes: ['id', 'liftCode', 'location'] },
+          ],
+        },
+      ],
+      order: [['id', 'DESC']],
+    });
+
+    const teamMap = await buildJobTeamMap(assignments.map((a) => a.id));
+
+    const rows = [];
+
+    for (const a of assignments) {
+      const role = String(a.assignment_role || '').toUpperCase().trim();
+      if (!['INSTALL', 'TEST'].includes(role)) continue;
+
+      const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
+      const teamMembers = Array.isArray(summary.team) ? summary.team : [];
+
+      const project = a.ProjectLift?.Project || null;
+      const customer = project?.Customer || null;
+      const site = project?.Site || null;
+      const lift = a.ProjectLift?.Lift || null;
+
+      // Keep raw timestamp dates for duration math
+      const startDateObj = a.started_at ? new Date(a.started_at) : null;
+      const completedDateObj = (a.completed_at || a.completedAt) ? new Date(a.completed_at || a.completedAt) : null;
+
+      const validStartDateObj = startDateObj && !Number.isNaN(startDateObj.getTime()) ? startDateObj : null;
+      const validCompletedDateObj = completedDateObj && !Number.isNaN(completedDateObj.getTime()) ? completedDateObj : null;
+
+      // Bhutan-local display dates
+      const startDateText = formatBhutanDate(validStartDateObj);
+      const completedDateText = formatBhutanDate(validCompletedDateObj);
+
+      // Strict mode: only actual started_at and completed_at qualify for duration
+      const hasActualStart = !!validStartDateObj;
+      const hasActualCompletion = !!validCompletedDateObj;
+      const isDurationEligible = hasActualStart && hasActualCompletion;
+
+      // Date filter uses completed date first, then actual start date, then due date for visibility
+      const effectiveDateText =
+        completedDateText ||
+        startDateText ||
+        (a.due_date || '');
+
+      const effectiveDateObj = effectiveDateText ? parseDateOnly(effectiveDateText) : null;
+
+      if (from && effectiveDateObj && effectiveDateObj < from) continue;
+      if (to && effectiveDateObj && effectiveDateObj > to) continue;
+      if ((from || to) && !effectiveDateObj) continue;
+
+      let durationDays = null;
+      if (isDurationEligible && startDateText && completedDateText) {
+        const rawDays = Number(dateDiffDays(startDateText, completedDateText) || 0);
+        durationDays = Math.max(1, rawDays + 1);
+      }
+
+      for (const member of teamMembers) {
+        const memberTechId = Number(member.technicianId || 0);
+        if (!memberTechId) continue;
+        if (technicianId && memberTechId !== technicianId) continue;
+
+        const teamRole = String(member.teamRole || '').toUpperCase().trim();
+        const memberTech = member.technician || null;
+
+        rows.push({
+          assignmentId: a.id,
+          technicianId: memberTechId,
+          technicianName: memberTech?.name || '',
+          technicianRole: memberTech?.role || '',
+          technicianSkills: memberTech?.skills || '',
+
+          incentiveRole: role,
+          teamRole,
+
+          projectCode: project?.project_code || '',
+          projectName: project?.project_name || '',
+          customerName: customer?.name || '',
+          siteName: site?.name || '',
+
+          liftCode: a.ProjectLift?.lift_code || lift?.liftCode || '',
+          location: a.ProjectLift?.location_label || lift?.location || '',
+
+          dueDate: a.due_date || '',
+          startDate: startDateText,
+          completedDate: completedDateText,
+          durationDays,
+          isDurationEligible,
+
+          status: String(a.status || '').toUpperCase(),
+          supervisorStatus: String(a.supervisor_status || '').toUpperCase(),
+          supervisorApprovedAt: a.supervisor_approved_at
+            ? formatBhutanDate(a.supervisor_approved_at)
+            : '',
+          notes: a.notes || '',
+        });
+      }
+    }
+
+    rows.sort((a, b) => {
+      const ta = parseDateOnly(a.completedDate)?.getTime() || 0;
+      const tb = parseDateOnly(b.completedDate)?.getTime() || 0;
+      if (tb !== ta) return tb - ta;
+
+      const ra = a.incentiveRole.localeCompare(b.incentiveRole);
+      if (ra !== 0) return ra;
+
+      return a.technicianName.localeCompare(b.technicianName);
+    });
+
+    const totalRows = rows.length;
+    const installRows = rows.filter((r) => r.incentiveRole === 'INSTALL').length;
+    const testRows = rows.filter((r) => r.incentiveRole === 'TEST').length;
+    const leadRows = rows.filter((r) => r.teamRole === 'LEAD').length;
+    const supportRows = rows.filter((r) => r.teamRole === 'SUPPORT').length;
+    const durationEligibleRows = rows.filter((r) => r.isDurationEligible).length;
+    const durationMissingRows = rows.filter((r) => !r.isDurationEligible).length;
+
+    res.json({
+      filters: {
+        from: from ? formatDateOnly(from) : '',
+        to: to ? formatDateOnly(to) : '',
+        technicianId: technicianId || 'all',
+      },
+      summary: {
+        totalRows,
+        installRows,
+        testRows,
+        leadRows,
+        supportRows,
+        durationEligibleRows,
+        durationMissingRows,
+      },
+      rows,
+    });
+  } catch (err) {
+    console.error('INSTALL TEST INCENTIVE REPORT ERROR', err);
+    res.status(500).json({ error: 'Failed to generate Install/Test Incentive report' });
+  }
+});
+
+app.get('/api/reports/install-test-incentive/view', async (req, res) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
+    const technicianIdRaw = String(req.query.technicianId || '').trim();
+const technicianId = technicianIdRaw && technicianIdRaw !== 'all'
+  ? technicianIdRaw
+  : '';
+
+    const technicians = await Technician.findAll({
+  where: { isActive: true },
+  attributes: ['id', 'name'],
+  order: [['name', 'ASC']],
+});
+
+const params = new URLSearchParams();
+
+if (from) params.set('from', from);
+if (to) params.set('to', to);
+if (technicianId && technicianId !== 'all') {
+  params.set('technicianId', technicianId);
+}
+
+const reportResponse = await fetch(
+  `${baseUrl}/api/reports/install-test-incentive${params.toString() ? `?${params.toString()}` : ''}`
+);
+
+const data = await reportResponse.json();
+
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const summary = data.summary || {};
+    const generatedOn = new Date().toLocaleString();
+
+    const esc = (v) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const technicianOptions = [
+      `<option value="all"${technicianId === 'all' ? ' selected' : ''}>All Technicians</option>`,
+      ...(Array.isArray(technicians)
+        ? technicians.map((t) => {
+            const id = String(t.id);
+            return `<option value="${esc(id)}"${technicianId === id ? ' selected' : ''}>${esc(t.name)}</option>`;
+          })
+        : []),
+    ].join('');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Install/Test Incentive Report</title>
+  <style>
+    :root {
+      --border: #222;
+      --soft-border: #cfcfcf;
+      --header-bg: #0b3a75;
+      --header-text: #ffffff;
+      --text: #111827;
+      --muted: #4b5563;
+      --brand: #0b3a75;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      margin: 0;
+      background: #fff;
+    }
+
+    .page { padding: 18px 22px; }
+
+    .print-bar {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .print-btn {
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid #222;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .company-block { flex: 1; text-align: left; }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .company-meta {
+      font-size: 12px;
+      line-height: 1.45;
+      color: #4b5563;
+      text-align: left;
+    }
+
+    .report-meta {
+      text-align: right;
+      min-width: 240px;
+    }
+
+    .report-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.15;
+      color: #111827;
+    }
+
+    .report-sub {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .filter-bar {
+      display: flex;
+      align-items: end;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 12px 0 16px;
+      padding: 12px 14px;
+      border: 1px solid #d9e2f0;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 180px;
+    }
+
+    .filter-group label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #4b5563;
+    }
+
+    .filter-group input,
+    .filter-group select {
+      height: 36px;
+      border: 1px solid #b9c6db;
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 13px;
+      background: #fff;
+    }
+
+    .apply-btn {
+      height: 36px;
+      border: 1px solid #0b3a75;
+      background: #0b3a75;
+      color: #fff;
+      border-radius: 6px;
+      padding: 0 16px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 12px;
+      margin: 14px 0 16px;
+    }
+
+    .summary-card {
+      border: 1px solid #cfcfcf;
+      background: #f8fafc;
+      padding: 12px 14px;
+      border-radius: 8px;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #4b5563;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0b3a75;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: var(--header-bg);
+      color: var(--header-text);
+      border: 1px solid var(--soft-border);
+      padding: 9px 6px;
+      text-align: left;
+      vertical-align: middle;
+      font-weight: 700;
+    }
+
+    tbody td {
+      border: 1px solid var(--soft-border);
+      padding: 8px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    .center { text-align: center; }
+
+    .note-block {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #4b5563;
+    }
+
+    .signatures {
+      margin-top: 28px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: end;
+    }
+
+    .sig-block {
+      min-height: 90px;
+    }
+
+    .sig-line {
+      border-bottom: 1px solid #111827;
+      height: 42px;
+      margin-bottom: 6px;
+    }
+
+    .sig-label {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .sig-sub {
+      font-size: 12px;
+      color: #4b5563;
+      margin-top: 4px;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      font-size: 11px;
+      color: #4b5563;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 2px solid #0b3a75;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      body { margin: 0; }
+      .page { padding: 0; }
+      .print-bar, .filter-bar { display: none !important; }
+      thead { display: table-header-group; }
+      tr, td, th { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="print-bar">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <div class="topbar">
+      <div class="company-block">
+        <div class="company-name">Modern Building Services</div>
+        <div class="company-meta">
+          Flat No. 4, Paljore Lhundrubling Building, Opp. MoIT, Thimphu<br/>
+          Phone: 02340345 | Email: info@smartbuilding4u.com
+        </div>
+      </div>
+
+      <div class="report-meta">
+        <div class="report-title">Install/Test Incentive Report</div>
+        <div class="report-sub">
+          Generated on: ${esc(generatedOn)}<br/>
+          Total records: ${rows.length}
+        </div>
+      </div>
+    </div>
+
+    <form class="filter-bar" method="GET" action="/api/reports/install-test-incentive/view">
+      <div class="filter-group">
+        <label for="from">From Date</label>
+        <input type="date" id="from" name="from" value="${esc(from)}" />
+      </div>
+
+      <div class="filter-group">
+        <label for="to">To Date</label>
+        <input type="date" id="to" name="to" value="${esc(to)}" />
+      </div>
+
+      <div class="filter-group">
+        <label for="technicianId">Technician</label>
+        <select id="technicianId" name="technicianId">
+          ${technicianOptions}
+        </select>
+      </div>
+
+      <div>
+        <button type="submit" class="apply-btn">Apply Filter</button>
+      </div>
+    </form>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-label">Total Rows</div>
+        <div class="summary-value">${Number(summary.totalRows || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Install</div>
+        <div class="summary-value">${Number(summary.installRows || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Test</div>
+        <div class="summary-value">${Number(summary.testRows || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Lead</div>
+        <div class="summary-value">${Number(summary.leadRows || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Support</div>
+        <div class="summary-value">${Number(summary.supportRows || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Duration Eligible</div>
+        <div class="summary-value">${Number(summary.durationEligibleRows || 0)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Missing Start/End</div>
+        <div class="summary-value">${Number(summary.durationMissingRows || 0)}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:42px;">Sl.</th>
+            <th style="width:110px;">Technician</th>
+            <th style="width:80px;">Incentive Role</th>
+            <th style="width:80px;">Team Role</th>
+            <th style="width:90px;">Project Code</th>
+            <th style="width:130px;">Project Name</th>
+            <th style="width:120px;">Customer</th>
+            <th style="width:100px;">Site</th>
+            <th style="width:80px;">Lift Code</th>
+            <th style="width:95px;">Location</th>
+            <th style="width:85px;">Due Date</th>
+            <th style="width:90px;">Start Date</th>
+            <th style="width:95px;">Completed Date</th>
+            <th style="width:85px; text-align:center;">Duration</th>
+            <th style="width:85px; text-align:center;">Status</th>
+            <th style="width:95px; text-align:center;">Supervisor</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows.map((r, i) => `
+                <tr>
+                  <td class="center">${i + 1}</td>
+                  <td>${esc(r.technicianName)}</td>
+                  <td>${esc(r.incentiveRole)}</td>
+                  <td>${esc(r.teamRole)}</td>
+                  <td>${esc(r.projectCode)}</td>
+                  <td>${esc(r.projectName)}</td>
+                  <td>${esc(r.customerName)}</td>
+                  <td>${esc(r.siteName)}</td>
+                  <td>${esc(r.liftCode)}</td>
+                  <td>${esc(r.location)}</td>
+                  <td class="center">${esc(r.dueDate)}</td>
+                  <td class="center">${esc(r.startDate)}</td>
+                  <td class="center">${esc(r.completedDate)}</td>
+                  <td class="center">${
+                    r.isDurationEligible
+                      ? `${Number(r.durationDays || 0)} day${Number(r.durationDays) === 1 ? '' : 's'}`
+                      : '—'
+                  }</td>
+                  <td class="center">${esc(r.status)}</td>
+                  <td class="center">${esc(r.supervisorStatus)}</td>
+                </tr>
+              `).join('')
+              : `
+                <tr>
+                  <td colspan="16" class="center" style="padding: 22px; font-weight:600; color:#4b5563;">
+                    No install/test incentive records found for the selected period.
+                  </td>
+                </tr>
+              `
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note-block">
+      <b>Note:</b> Duration is shown only where both actual job start and job completion were recorded through technician login activity.
+    </div>
+
+    <div class="signatures">
+      <div class="sig-block">
+        <div class="sig-line"></div>
+        <div class="sig-label">Signature of Supervisor</div>
+        <div class="sig-sub">Name of Supervisor: __________________________</div>
+      </div>
+
+      <div class="sig-block">
+        <div class="sig-line"></div>
+        <div class="sig-label">Approval by Head, Operations</div>
+        <div class="sig-sub">Signature: __________________________</div>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      <div>Generated from Lift Management System</div>
+      <div>Modern Building Services</div>
+      <div>Install/Test Incentive Report</div>
+    </div>
+
+  </div>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    console.error('INSTALL TEST INCENTIVE VIEW ERROR', err);
+    res.status(500).send('Failed to render Install/Test Incentive Report');
+  }
+});
+
+// --------------------
 // Health
 // --------------------
 app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/api/hello', (req, res) => res.json({ message: 'Hello from LiftMaintenanceAPI' }));
 
 // --------------------
-// TECHNICIANS + Mobile login + Assignments
+// USERS / TECHNICIANS / MOBILE LOGIN / ASSIGNMENTS
 // --------------------
 
+app.post('/api/users', authUser, requireRoles('ADMIN'), async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body || {};
+
+    const cleanName = String(name || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPassword = String(password || '');
+    const cleanRole = String(role || '').trim().toUpperCase();
+
+    if (!cleanName) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    if (!cleanEmail) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    if (!cleanPassword || cleanPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    if (!['ADMIN', 'MANAGER', 'SUPERVISOR'].includes(cleanRole)) {
+      return res.status(400).json({ error: 'Valid role is required' });
+    }
+
+    const existing = await User.findOne({ where: { email: cleanEmail } });
+    if (existing) {
+      return res.status(409).json({ error: 'User already exists with this email' });
+    }
+
+    const passwordHash = await bcrypt.hash(cleanPassword, 10);
+
+    const user = await User.create({
+      name: cleanName,
+      email: cleanEmail,
+      passwordHash,
+      role: cleanRole,
+      isActive: true,
+    });
+
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+    });
+  } catch (err) {
+    console.error('POST /api/users failed', err);
+    res.status(500).json({ error: err.message || 'Failed to create user' });
+  }
+});
+
+app.get('/api/users', authUser, requireRoles('ADMIN'), async (req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: ['id', 'name', 'email', 'role', 'isActive', 'permissions', 'createdAt'],
+      order: [['id', 'DESC']],
+    });
+
+    res.json(users.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      isActive: u.isActive,
+      permissions: u.permissions || {},
+      createdAt: u.createdAt,
+    })));
+  } catch (err) {
+    console.error('GET /api/users failed', err);
+    res.status(500).json({ error: err.message || 'Failed to load users' });
+  }
+});
+
+app.put('/api/users/:id/permissions', authUser, requireRoles('ADMIN'), async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const permissions = req.body?.permissions || {};
+
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (typeof permissions !== 'object' || Array.isArray(permissions)) {
+      return res.status(400).json({ error: 'Invalid permissions payload' });
+    }
+
+    user.permissions = permissions;
+    await user.save();
+
+    res.json({
+      ok: true,
+      user: {
+        id: user.id,
+        permissions: user.permissions || {},
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Failed to update permissions' });
+  }
+});
+
 // List technicians
-app.get('/api/technicians', async (req, res) => {
+app.get('/api/technicians', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
     const rows = await Technician.findAll({
       where: { isActive: true },
@@ -1611,22 +7010,33 @@ app.get('/api/technicians', async (req, res) => {
     });
 
     res.json(
-      rows.map((t) => ({
-        id: t.id,
-        name: t.name,
-        phone: t.phone,
-        email: t.email,
-        skills: t.skills || '',
-      }))
+      rows.map((t) => {
+        const plain = t.toJSON();
+
+        return {
+          id: plain.id,
+          name: plain.name,
+          phone: plain.phone,
+          email: plain.email,
+          role: plain.role || '',
+          skills: plain.skills || '',
+          isActive: plain.isActive !== false,
+          availability_status:
+            plain.availability_status ||
+            plain.availabilityStatus ||
+            'AVAILABLE',
+        };
+      })
     );
   } catch (err) {
-    console.error(err);
+    console.error('GET /api/technicians error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // Create technician
-app.post('/api/technicians', async (req, res) => {
+// CREATE TECHNICIAN
+app.post('/api/technicians', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
     const { name, phone, email, skills, pin } = req.body || {};
 
@@ -1634,14 +7044,23 @@ app.post('/api/technicians', async (req, res) => {
       return res.status(400).json({ error: 'Technician name is required' });
     }
 
+    // 🔥 USE EXISTING ROLE TABLE
+    const role = await Role.findOne({
+      where: { name: 'TECHNICIAN' },
+    });
+
+    if (!role) {
+      return res.status(500).json({ error: 'Technician role not configured in roles table' });
+    }
+
     const cleanPin = pin != null && String(pin).trim() !== '' ? String(pin).trim() : null;
+
     const cleanSkills = String(skills || '')
       .split(',')
       .map((x) => x.trim().toUpperCase())
       .filter(Boolean)
       .join(',');
 
-    let pinSalt = null;
     let pinHash = null;
     let mustChangePin = true;
 
@@ -1650,7 +7069,6 @@ app.post('/api/technicians', async (req, res) => {
         return res.status(400).json({ error: 'PIN must be 4 to 8 digits' });
       }
       pinHash = await bcrypt.hash(cleanPin, 10);
-      pinSalt = null;
       mustChangePin = false;
     }
 
@@ -1659,8 +7077,11 @@ app.post('/api/technicians', async (req, res) => {
       phone: phone ? String(phone).trim() : null,
       email: email ? String(email).trim() : null,
       skills: cleanSkills || null,
+
+      // 🔥 CRITICAL FIX
+      role_id: role.id,
+
       isActive: true,
-      pinSalt,
       pinHash,
       mustChangePin,
     });
@@ -1673,13 +7094,16 @@ app.post('/api/technicians', async (req, res) => {
       skills: tech.skills || '',
       mustChangePin: tech.mustChangePin,
     });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('CREATE TECHNICIAN FAILED', err);
+    res.status(500).json({ error: err.message || 'Failed to create technician' });
   }
 });
 
-app.put('/api/technicians/:id', async (req, res) => {
+
+// UPDATE TECHNICIAN (🔐 PROTECTED)
+app.put('/api/technicians/:id', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { name, phone, email, skills } = req.body || {};
@@ -1707,8 +7131,9 @@ app.put('/api/technicians/:id', async (req, res) => {
       email: tech.email,
       skills: tech.skills || '',
     });
+
   } catch (err) {
-    console.error(err);
+    console.error('UPDATE TECHNICIAN FAILED', err);
     res.status(500).json({ error: err.message || 'Failed to update technician' });
   }
 });
@@ -1746,6 +7171,7 @@ app.put('/api/technicians/:id/set-pin', handleSetTechnicianPin);
 app.put('/api/technicians/:id/pin', handleSetTechnicianPin);
 
 // Technician login
+
 app.post('/api/tech/login', async (req, res) => {
   try {
     const { phone, pin } = req.body || {};
@@ -1755,20 +7181,36 @@ app.post('/api/tech/login', async (req, res) => {
     if (!p) return res.status(400).json({ error: 'phone is required' });
     if (!isValidPin(rawPin)) return res.status(400).json({ error: 'PIN must be 4 to 8 digits' });
 
-    const tech = await Technician.findOne({ where: { phone: p, isActive: true } });
+    const tech = await Technician.findOne({
+      where: { phone: p, isActive: true },
+      include: [
+        {
+          model: Role,
+          as: 'roleRef',
+          include: [
+            {
+              model: Permission,
+              as: 'permissions',
+              through: { attributes: [] },
+            },
+          ],
+        },
+      ],
+    });
+
     if (!tech) return res.status(401).json({ error: 'Invalid phone or PIN' });
 
     if (!tech.pinHash) {
-  return res.status(401).json({ error: 'PIN not set. Ask management to set your PIN.' });
-}
+      return res.status(401).json({ error: 'PIN not set. Ask management to set your PIN.' });
+    }
 
-let ok = false;
-if (tech.pinSalt) {
-  const h = hashPinPBKDF2(rawPin, tech.pinSalt);
-  ok = (h === tech.pinHash);
-} else {
-  ok = await bcrypt.compare(rawPin, tech.pinHash);
-}
+    let ok = false;
+    if (tech.pinSalt) {
+      const h = hashPinPBKDF2(rawPin, tech.pinSalt);
+      ok = (h === tech.pinHash);
+    } else {
+      ok = await bcrypt.compare(rawPin, tech.pinHash);
+    }
 
     if (!ok) return res.status(401).json({ error: 'Invalid phone or PIN' });
 
@@ -1784,14 +7226,21 @@ if (tech.pinSalt) {
       last_seen_at: now,
     });
 
+    const permissions = (tech.roleRef?.permissions || []).map((p) => p.code);
+
     res.json({
       token,
       technician: {
-  id: tech.id,
-  name: tech.name,
-  phone: tech.phone,
-  skills: tech.skills || '',
-},
+        id: tech.id,
+        name: tech.name,
+        phone: tech.phone,
+        skills: tech.skills || '',
+        role: tech.role, // keep old field for compatibility for now
+        roleId: tech.roleId || null,
+        roleName: tech.roleRef?.name || null,
+        permissions,
+        mustChangePin: !!tech.mustChangePin,
+      },
       expiresAt: expires,
     });
   } catch (err) {
@@ -1811,15 +7260,47 @@ async function authTech(req, res, next) {
     if (!session) return res.status(401).json({ error: 'Invalid session' });
 
     const now = new Date();
-    if (session.expires_at && now > session.expires_at) return res.status(401).json({ error: 'Session expired' });
+    if (session.expires_at && now > session.expires_at) {
+      return res.status(401).json({ error: 'Session expired' });
+    }
 
     session.last_seen_at = now;
     await session.save();
 
-    const tech = await Technician.findByPk(session.technician_id);
-    if (!tech || !tech.isActive) return res.status(401).json({ error: 'Technician inactive' });
+    const tech = await Technician.findByPk(session.technician_id, {
+      include: [
+        {
+          model: Role,
+          as: 'roleRef',
+          include: [
+            {
+              model: Permission,
+              as: 'permissions',
+              through: { attributes: [] },
+            },
+          ],
+        },
+      ],
+    });
 
-    req.tech = { id: tech.id, name: tech.name, phone: tech.phone, role: tech.role };
+    if (!tech || !tech.isActive) {
+      return res.status(401).json({ error: 'Technician inactive' });
+    }
+
+    const permissions = (tech.roleRef?.permissions || []).map((p) => p.code);
+
+    req.tech = {
+      id: tech.id,
+      name: tech.name,
+      phone: tech.phone,
+      skills: tech.skills || '',
+      role: tech.role || null, // old field kept temporarily
+      roleId: tech.roleId || null,
+      roleName: tech.roleRef?.name || null,
+      permissions,
+      mustChangePin: !!tech.mustChangePin,
+    };
+
     next();
   } catch (err) {
     console.error(err);
@@ -1827,9 +7308,246 @@ async function authTech(req, res, next) {
   }
 }
 
+function requirePermission(permissionCode) {
+  return (req, res, next) => {
+    const role = normalizeRole(req.user?.role || req.tech?.role || '');
+
+    if (role === 'ADMIN') return next();
+
+    const raw = req.user?.permissions || req.tech?.permissions || {};
+
+    if (Array.isArray(raw) && raw.includes(permissionCode)) {
+      return next();
+    }
+
+    if (raw && typeof raw === 'object' && raw[permissionCode] === true) {
+      return next();
+    }
+
+    return res.status(403).json({ error: 'Forbidden' });
+  };
+}
+
+function normalizeRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function readBearerToken(req) {
+  const auth = String(req.headers.authorization || '');
+  if (!auth.startsWith('Bearer ')) return null;
+  return auth.slice(7).trim();
+}
+
+function signAuthToken(payload) {
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: '7d',
+  });
+}
+
+async function authUser(req, res, next) {
+  try {
+    const token = readBearerToken(req);
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (decoded.type !== 'user') {
+      return res.status(403).json({ error: 'Office user access required' });
+    }
+
+    const user = await User.findByPk(decoded.id);
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: 'User not found or inactive' });
+    }
+
+    const basePermissions = getRoleBasePermissions(user.role);
+    const overrides =
+      user.permissions && typeof user.permissions === 'object'
+        ? user.permissions
+        : {};
+
+    req.user = {
+      ...user.toJSON(),
+      permissions: {
+        ...basePermissions,
+        ...overrides,
+      },
+    };
+
+    req.auth = decoded;
+    next();
+  } catch (e) {
+    console.error('authUser failed:', e);
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+function requireRoles(...allowedRoles) {
+  return (req, res, next) => {
+    const role = String(req.user?.role || "").trim().toUpperCase();
+
+    if (!role) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const allowed = allowedRoles.map(r =>
+      String(r || "").trim().toUpperCase()
+    );
+
+    if (!allowed.includes(role)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    next();
+  };
+}
+
 app.get('/api/tech/me', authTech, async (req, res) => {
   res.json({ technician: req.tech });
 });
+
+app.get(
+  '/api/admin/roles',
+  authUser,
+  requireRoles('ADMIN'),
+  async (req, res) => {
+    const roles = await Role.findAll({ order: [['id', 'ASC']] });
+    res.json(roles);
+  }
+);
+
+app.get(
+  '/api/admin/permissions',
+  authUser,
+  requireRoles('ADMIN'),
+  async (req, res) => {
+    const permissions = await Permission.findAll({
+      order: [['module', 'ASC'], ['label', 'ASC']],
+    });
+    res.json(permissions);
+  }
+);
+
+app.get(
+  '/api/admin/roles/:id/permissions',
+  authUser,
+  requireRoles('ADMIN'),
+  async (req, res) => {
+    const role = await Role.findByPk(Number(req.params.id), {
+      include: [
+        {
+          model: Permission,
+          as: 'permissions',
+          through: { attributes: [] },
+        },
+      ],
+    });
+
+    if (!role) return res.status(404).json({ error: 'Role not found' });
+
+    res.json({
+      id: role.id,
+      name: role.name,
+      description: role.description,
+      isSystemRole: role.isSystemRole,
+      permissions: (role.permissions || []).map((p) => ({
+        id: p.id,
+        code: p.code,
+        label: p.label,
+        module: p.module,
+      })),
+    });
+  }
+);
+
+app.put(
+  '/api/admin/roles/:id/permissions',
+  authUser,
+  requireRoles('ADMIN'),
+  async (req, res) => {
+    const tx = await sequelize.transaction();
+
+    try {
+      const roleId = Number(req.params.id);
+      const { permissionIds } = req.body || {};
+
+      if (!Array.isArray(permissionIds)) {
+        await tx.rollback();
+        return res.status(400).json({ error: 'permissionIds must be an array' });
+      }
+
+      const role = await Role.findByPk(roleId, { transaction: tx });
+      if (!role) {
+        await tx.rollback();
+        return res.status(404).json({ error: 'Role not found' });
+      }
+
+      if (role.name === 'ADMIN') {
+        await tx.rollback();
+        return res.status(400).json({ error: 'ADMIN permissions cannot be edited' });
+      }
+
+      const validPermissions = await Permission.findAll({
+        where: { id: permissionIds.map(Number) },
+        transaction: tx,
+      });
+
+      if (validPermissions.length !== permissionIds.length) {
+        await tx.rollback();
+        return res.status(400).json({ error: 'One or more permissions are invalid' });
+      }
+
+      await RolePermission.destroy({
+        where: { roleId },
+        transaction: tx,
+      });
+
+      if (permissionIds.length) {
+        await RolePermission.bulkCreate(
+          permissionIds.map((permissionId) => ({
+            roleId,
+            permissionId: Number(permissionId),
+          })),
+          { transaction: tx }
+        );
+      }
+
+      await tx.commit();
+      res.json({ ok: true });
+    } catch (err) {
+      await tx.rollback();
+      console.error(err);
+      res.status(500).json({ error: 'Failed to update permissions' });
+    }
+  }
+);
+
+app.put(
+  '/api/admin/technicians/:id/role',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER'),
+  async (req, res) => {
+    try {
+      const technicianId = Number(req.params.id);
+      const { roleId } = req.body || {};
+
+      const tech = await Technician.findByPk(technicianId);
+      if (!tech) return res.status(404).json({ error: 'Technician not found' });
+
+      const role = await Role.findByPk(Number(roleId));
+      if (!role) return res.status(400).json({ error: 'Invalid role' });
+
+      await tech.update({ roleId: role.id });
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to update technician role' });
+    }
+  }
+);
 
 // Tech assignments
 app.get('/api/tech/assignments', authTech, async (req, res) => {
@@ -1866,14 +7584,47 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
     const out = [];
 
     for (const row of teamRows) {
-      const a = row.ProjectLiftAssignment;
-      if (!a) continue;
-      if (status && String(a.status || '').toUpperCase() !== status) continue;
+  const a = row.ProjectLiftAssignment;
+  if (!a) continue;
 
-      const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
+  const statusUpper = String(a.status || '').toUpperCase().trim();
 
-      await ensureChecklistForAssignment(a);
-      const checklistSummary = await getChecklistSummary(a.id);
+// 🔍 ADD THIS DEBUG BLOCK HERE
+  console.log('TECH ASSIGNMENT DEBUG:', {
+    id: a.id,
+    role: a.assignment_role,
+    rawStatus: a.status,
+    statusUpper,
+    requestedStatus: status,
+  });
+
+  const normalizedStatus =
+    statusUpper === 'DONE' ? 'COMPLETED' : statusUpper;
+
+  const requestedStatus =
+    status === 'DONE' ? 'COMPLETED' : status;
+
+  if (requestedStatus && normalizedStatus !== requestedStatus) continue;
+
+  const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
+
+  const hasStarted = !!a.started_at;
+  const requiresStart = !hasStarted && !['IN_PROGRESS', 'DONE', 'COMPLETED'].includes(statusUpper);
+
+      let checklistSummary = {
+        totalItems: 0,
+        totalRequired: 0,
+        doneRequired: 0,
+        percent: 0,
+        status: 'NOT_STARTED',
+        isLocked: false,
+      };
+
+      // Only create checklist after actual start
+      if (hasStarted || ['IN_PROGRESS', 'DONE'].includes(statusUpper)) {
+        await ensureChecklistForAssignment(a);
+        checklistSummary = await getChecklistSummary(a.id);
+      }
 
       out.push({
         id: a.id,
@@ -1881,6 +7632,7 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
         role: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
         teamRole: row.teamRole,
         status: a.status,
+        requiresStart,
         resubmissionRequired: !!a.resubmission_required,
         dueDate: a.due_date,
         assignedAt: a.assigned_at,
@@ -1941,6 +7693,204 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
   }
 });
 
+app.delete('/api/technicians/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'Invalid technician id' });
+    }
+
+    const tech = await Technician.findByPk(id);
+
+    if (!tech) {
+      return res.status(404).json({ error: 'Technician not found' });
+    }
+
+    // Safer than hard delete: keep history intact
+    await tech.update({
+      isActive: false,
+    });
+
+    res.json({
+      ok: true,
+      message: 'Technician deactivated successfully',
+      technician: tech,
+    });
+  } catch (err) {
+    console.error('Delete technician failed:', err);
+    res.status(500).json({ error: 'Failed to delete technician' });
+  }
+});
+
+app.delete('/api/jobs/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const job = await ProjectLiftAssignment.findByPk(id);
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const status = String(job.status || '').toUpperCase();
+    const sup = String(job.supervisorStatus || 'PENDING').toUpperCase();
+
+    if (status === 'DONE' || sup === 'APPROVED') {
+      return res.status(400).json({
+        error: 'Cannot delete completed or approved jobs',
+      });
+    }
+
+    await job.destroy();
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete job' });
+  }
+});
+
+app.delete('/api/project-lifts/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'Invalid lift id' });
+    }
+
+    const pl = await ProjectLift.findByPk(id);
+
+    if (!pl) {
+      return res.status(404).json({ error: 'Project lift not found' });
+    }
+
+    const jobCount = await ProjectLiftAssignment.count({
+      where: { project_lift_id: id },
+    });
+
+    if (jobCount > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete lift because related jobs/assignments exist. Delete them first.',
+      });
+    }
+
+    const contractCount = await Contract.count({
+      where: { projectLiftId: id },
+    });
+
+    if (contractCount > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete lift because AMC/contract records exist.',
+      });
+    }
+
+    const masterLiftId = pl.lift_id || pl.liftId || null;
+
+    await pl.destroy();
+
+    if (masterLiftId) {
+      const stillUsed = await ProjectLift.count({
+        where: { lift_id: masterLiftId },
+      });
+
+      if (stillUsed === 0) {
+        await Lift.destroy({
+          where: { id: masterLiftId },
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: 'Lift deleted successfully',
+    });
+  } catch (err) {
+    console.error('Delete lift failed:', err);
+    res.status(500).json({ error: 'Failed to delete lift' });
+  }
+});
+
+app.delete('/api/projects/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'Invalid project id' });
+    }
+
+    const project = await Project.findByPk(id);
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const liftCount = await ProjectLift.count({
+      where: { project_id: id },
+    });
+
+    if (liftCount > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete project because lifts exist. Delete lifts first.',
+      });
+    }
+
+    await project.destroy();
+
+    res.json({
+      ok: true,
+      message: 'Project deleted successfully',
+    });
+  } catch (err) {
+    console.error('Delete project failed:', err);
+    res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+app.delete('/api/amc/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'Invalid AMC id' });
+    }
+
+    const contract = await Contract.findByPk(id);
+
+    if (!contract) {
+      return res.status(404).json({ error: 'AMC contract not found' });
+    }
+
+    const contractType = String(contract.contractType || '').toUpperCase();
+    if (contractType !== 'AMC') {
+      return res.status(400).json({ error: 'This contract is not an AMC contract' });
+    }
+
+    const amcJobCount = await ProjectLiftAssignment.count({
+      where: {
+        project_lift_id: contract.projectLiftId,
+        assignment_role: 'AMC_SERVICE',
+      },
+    });
+
+    if (amcJobCount > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete AMC because AMC service jobs exist. Delete those jobs first.',
+      });
+    }
+
+    await contract.destroy();
+
+    res.json({
+      ok: true,
+      message: 'AMC deleted successfully',
+    });
+  } catch (err) {
+    console.error('Delete AMC failed:', err);
+    res.status(500).json({ error: 'Failed to delete AMC' });
+  }
+});
+
 async function ensureServiceReportForAssignment(assignment) {
   if (!assignment?.id) return null;
 
@@ -1951,7 +7901,7 @@ async function ensureServiceReportForAssignment(assignment) {
   if (!report) {
     report = await AssignmentServiceReport.create({
       assignmentId: assignment.id,
-      projectLiftId: assignment.project_lift_id,
+      projectLiftId: assignment.project_lift_id || assignment.projectLiftId,
       overallCondition: null,
       faultsObserved: null,
       actionTaken: null,
@@ -2003,25 +7953,25 @@ app.get('/api/tech/assignments/:id/service-report', authTech, async (req, res) =
     const report = await ensureServiceReportForAssignment(a);
 
     const parts = await AssignmentServicePart.findAll({
-      where: { reportId: report.id },
+      where: { report_id: report.id },
       order: [['id', 'ASC']],
     });
 
     res.json({
       report: {
         id: report.id,
-        assignmentId: report.assignmentId,
-        projectLiftId: report.projectLiftId,
-        overallCondition: report.overallCondition || '',
-        faultsObserved: report.faultsObserved || '',
-        actionTaken: report.actionTaken || '',
+        assignmentId: report.assignmentId || report.assignment_id,
+        projectLiftId: report.projectLiftId || report.project_lift_id,
+        overallCondition: report.overallCondition || report.overall_condition || '',
+        faultsObserved: report.faultsObserved || report.faults_observed || '',
+        actionTaken: report.actionTaken || report.action_taken || '',
         recommendations: report.recommendations || '',
-        followUpRequired: !!report.followUpRequired,
-        technicianRemarks: report.technicianRemarks || '',
+        followUpRequired: !!(report.followUpRequired ?? report.follow_up_required),
+        technicianRemarks: report.technicianRemarks || report.technician_remarks || '',
       },
       parts: parts.map((p) => ({
         id: p.id,
-        itemName: p.itemName || '',
+        itemName: p.itemName || p.item_name || '',
         qty: p.qty,
         remarks: p.remarks || '',
       })),
@@ -2032,41 +7982,71 @@ app.get('/api/tech/assignments/:id/service-report', authTech, async (req, res) =
   }
 });
 
-app.put('/api/tech/assignments/:id/service-report', authTech, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const {
-      overallCondition,
-      faultsObserved,
-      actionTaken,
-      recommendations,
-      followUpRequired,
-      technicianRemarks,
-    } = req.body || {};
+app.get(
+  '/api/tech/assignments/:id/service-report',
+  authTech,
+  requirePermission('reports.view_own'),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
 
-    const a = await ProjectLiftAssignment.findByPk(id);
-    if (!a) return res.status(404).json({ error: 'Assignment not found' });
+      const report = await AssignmentServiceReport.findOne({
+        where: { assignmentId: id },
+      });
 
-    const report = await ensureServiceReportForAssignment(a);
+      const parts = report
+        ? await AssignmentServicePart.findAll({
+            where: { reportId: report.id },
+            order: [['id', 'ASC']],
+          })
+        : [];
 
-    await report.update({
-      overallCondition: overallCondition ?? null,
-      faultsObserved: faultsObserved ?? null,
-      actionTaken: actionTaken ?? null,
-      recommendations: recommendations ?? null,
-      followUpRequired: !!followUpRequired,
-      technicianRemarks: technicianRemarks ?? null,
-      updatedAt: new Date(),
-    });
-
-    res.json({ success: true, reportId: report.id });
-  } catch (err) {
-    console.error('PUT /api/tech/assignments/:id/service-report failed', err);
-    res.status(500).json({ error: err.message || 'Failed to save service report' });
+      res.json({
+        report: report || null,
+        parts,
+      });
+    } catch (err) {
+      console.error('GET /api/tech/assignments/:id/service-report failed', err);
+      res.status(500).json({ error: err.message || 'Failed to load service report' });
+    }
   }
-});
+);
 
-app.post('/api/tech/assignments/:id/service-report/parts', authTech, async (req, res) => {
+app.get(
+  '/api/assignments/:id/service-report',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+
+      const report = await AssignmentServiceReport.findOne({
+        where: { assignmentId: id },
+      });
+
+      const parts = report
+        ? await AssignmentServicePart.findAll({
+            where: { reportId: report.id },
+            order: [['id', 'ASC']],
+          })
+        : [];
+
+      res.json({
+        report: report || null,
+        parts,
+      });
+    } catch (err) {
+      console.error('GET /api/assignments/:id/service-report failed', err);
+      res.status(500).json({ error: err.message || 'Failed to load service report' });
+    }
+  }
+);
+
+app.post(
+  '/api/tech/assignments/:id/service-report/parts',
+  authTech,
+  requirePermission('reports.update_own'),
+  async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { itemName, qty, remarks } = req.body || {};
@@ -2108,7 +8088,67 @@ app.post('/api/tech/assignments/:id/service-report/parts', authTech, async (req,
   }
 });
 
-app.put('/api/tech/service-parts/:id', authTech, async (req, res) => {
+app.put(
+  '/api/tech/assignments/:id/service-report',
+  authTech,
+  requirePermission('reports.update_own'),
+  async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid assignment id' });
+    }
+
+    const {
+      overallCondition,
+      faultsObserved,
+      actionTaken,
+      recommendations,
+      followUpRequired,
+      technicianRemarks,
+    } = req.body || {};
+
+    const assignment = await ProjectLiftAssignment.findByPk(id);
+    if (!assignment) {
+      return res.status(404).json({ error: 'Assignment not found' });
+    }
+
+    const report = await ensureServiceReportForAssignment(assignment);
+
+    await report.update({
+      overallCondition: overallCondition ? String(overallCondition).trim() : null,
+      faultsObserved: faultsObserved ? String(faultsObserved).trim() : null,
+      actionTaken: actionTaken ? String(actionTaken).trim() : null,
+      recommendations: recommendations ? String(recommendations).trim() : null,
+      followUpRequired: !!followUpRequired,
+      technicianRemarks: technicianRemarks ? String(technicianRemarks).trim() : null,
+    });
+
+    res.json({
+      success: true,
+      report: {
+        id: report.id,
+        assignmentId: report.assignmentId,
+        projectLiftId: report.projectLiftId,
+        overallCondition: report.overallCondition || '',
+        faultsObserved: report.faultsObserved || '',
+        actionTaken: report.actionTaken || '',
+        recommendations: report.recommendations || '',
+        followUpRequired: !!report.followUpRequired,
+        technicianRemarks: report.technicianRemarks || '',
+      },
+    });
+  } catch (err) {
+    console.error('PUT /api/tech/assignments/:id/service-report failed', err);
+    res.status(500).json({ error: err.message || 'Failed to save service report' });
+  }
+});
+
+app.put(
+  '/api/tech/service-parts/:id',
+  authTech,
+  requirePermission('reports.update_own'),
+  async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { itemName, qty, remarks } = req.body || {};
@@ -2147,7 +8187,11 @@ app.put('/api/tech/service-parts/:id', authTech, async (req, res) => {
   }
 });
 
-app.delete('/api/tech/service-parts/:id', authTech, async (req, res) => {
+app.delete(
+  '/api/tech/service-parts/:id',
+  authTech,
+  requirePermission('reports.update_own'),
+  async (req, res) => {
   try {
     const id = Number(req.params.id);
 
@@ -2160,6 +8204,80 @@ app.delete('/api/tech/service-parts/:id', authTech, async (req, res) => {
   } catch (err) {
     console.error('DELETE /api/tech/service-parts/:id failed', err);
     res.status(500).json({ error: err.message || 'Failed to delete part' });
+  }
+});
+
+app.put('/api/tech/breakdown-parts/:id', authTech, async (req, res) => {
+  try {
+    const partId = Number(req.params.id);
+    const { itemName, qty, remarks } = req.body || {};
+
+    const part = await BreakdownJobPart.findByPk(partId);
+    if (!part) return res.status(404).json({ error: 'Part not found' });
+
+    const ja = await JobAssignment.findOne({
+      where: {
+        job_id: part.job_id,
+        technician_id: req.tech.id,
+        unassigned_at: null,
+        assignment_role: 'LEAD',
+      },
+      include: [{ model: Job }],
+    });
+
+    if (!ja || !ja.Job || ja.Job.job_type !== 'BREAKDOWN') {
+      return res.status(403).json({ error: 'Not allowed to update this part' });
+    }
+
+    const cleanName = String(itemName || '').trim();
+    if (!cleanName) return res.status(400).json({ error: 'Part / material name is required' });
+
+    part.item_name = cleanName;
+    part.qty = Number(qty || 1);
+    part.remarks = remarks ? String(remarks).trim() : null;
+
+    await part.save();
+
+    res.json({
+      id: part.id,
+      jobId: part.job_id,
+      itemName: part.item_name,
+      qty: part.qty,
+      remarks: part.remarks,
+    });
+  } catch (err) {
+    console.error('PUT breakdown part error:', err);
+    res.status(500).json({ error: err.message || 'Failed to update breakdown part' });
+  }
+});
+
+app.delete('/api/tech/breakdown-parts/:id', authTech, async (req, res) => {
+  try {
+    const partId = Number(req.params.id);
+
+    const part = await BreakdownJobPart.findByPk(partId);
+    if (!part) return res.status(404).json({ error: 'Part not found' });
+
+    const ja = await JobAssignment.findOne({
+      where: {
+        job_id: part.job_id,
+        technician_id: req.tech.id,
+        unassigned_at: null,
+        assignment_role: 'LEAD',
+      },
+      include: [{ model: Job }],
+    });
+
+    if (!ja || !ja.Job || ja.Job.job_type !== 'BREAKDOWN') {
+      return res.status(403).json({ error: 'Not allowed to delete this part' });
+    }
+
+    await part.destroy();
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE breakdown part error:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete breakdown part' });
   }
 });
 
@@ -2205,7 +8323,7 @@ app.post('/api/project-lifts/:projectLiftId/warranty-service-assign', async (req
 
     const existing = rawAssignments.find((a) => {
       const role = String(a.assignment_role || '').toUpperCase();
-      return role === 'WARRANTY SERVICE' && isAssignmentActive(a);
+      return role === 'WARRANTY SERVICE' && isServiceJobBlockingNewCreation(a);
     });
 
     if (existing) {
@@ -2335,28 +8453,34 @@ app.post('/api/service/create-all-due-jobs', async (req, res) => {
           continue;
         }
 
-        const rawAssignments = Array.isArray(pl.assignments) ? pl.assignments : [];
-        const warrantyInfo = buildWarrantyInfo(pl, rawAssignments, today);
+ const rawAssignments = Array.isArray(pl.assignments) ? pl.assignments : [];
 
-        if (warrantyInfo.activeServiceAssignment) {
-          skipped.push({
-            type: 'WARRANTY SERVICE',
-            projectLiftId: row.projectLiftId,
-            liftCode: row.liftCode || '',
-            reason: 'Active warranty service job already exists',
-          });
-          continue;
-        }
+const warrantyInfo = buildWarrantyInfo(pl, rawAssignments, today);
 
-        if (!warrantyInfo.isDueNow || !warrantyInfo.nextServiceDue) {
-          skipped.push({
-            type: 'WARRANTY SERVICE',
-            projectLiftId: row.projectLiftId,
-            liftCode: row.liftCode || '',
-            reason: 'Warranty service not currently due',
-          });
-          continue;
-        }
+const hasBlockingWarrantyJob = rawAssignments.some((a) => {
+  const role = String(a.assignment_role || '').toUpperCase().trim();
+  return role === 'WARRANTY SERVICE' && isServiceJobBlockingNewCreation(a);
+});
+
+if (hasBlockingWarrantyJob) {
+  skipped.push({
+    type: 'WARRANTY SERVICE',
+    projectLiftId: row.projectLiftId,
+    liftCode: row.liftCode || '',
+    reason: 'Blocking warranty service job already exists (active or pending approval)',
+  });
+  continue;
+}
+
+if (!warrantyInfo.isDueNow || !warrantyInfo.nextServiceDue) {
+  skipped.push({
+    type: 'WARRANTY SERVICE',
+    projectLiftId: row.projectLiftId,
+    liftCode: row.liftCode || '',
+    reason: 'Warranty service not currently due',
+  });
+  continue;
+}
 
         const pair = await pickBestServicePair(warrantyInfo.nextServiceDue);
         if (!pair) {
@@ -2422,7 +8546,7 @@ app.post('/api/service/create-all-due-jobs', async (req, res) => {
       }
     }
 
-    // AMC
+   // AMC
 for (const row of amcDue) {
   try {
     const pl = await ProjectLift.findByPk(row.projectLiftId, {
@@ -2435,21 +8559,19 @@ for (const row of amcDue) {
       ],
     });
 
-    const resolvedLiftId = Number((pl && (pl.lift_id || pl.liftId)) || 0);
-
-    if (!pl || !resolvedLiftId) {
+    if (!pl) {
       skipped.push({
         type: 'AMC SERVICE',
         projectLiftId: row.projectLiftId,
         liftCode: row.liftCode || '',
-        reason: 'Project lift is not linked to a lift record',
+        reason: 'Project lift not found',
       });
       continue;
     }
 
     const contract = await Contract.findOne({
       where: {
-        liftId: resolvedLiftId,
+        projectLiftId: pl.id,
         contractType: 'AMC',
         status: 'ACTIVE',
       },
@@ -2472,30 +8594,19 @@ for (const row of amcDue) {
           activeServiceAssignment: null,
         });
 
-        const hasActiveAmc = rawAssignments.some((a) =>
-          isAmcServiceAssignment(a) && isAssignmentActive(a)
-        );
+        const hasBlockingAmcJob = rawAssignments.some((a) => {
+  return isAmcServiceAssignment(a) && isServiceJobBlockingNewCreation(a);
+});
 
-        console.log("==== AMC DEBUG ====");
-        console.log({
-          lift: row.liftCode || pl.lift_code || '',
-          projectLiftId: pl.id,
-          hasContract: !!contract,
-          contractId: contract.id,
-          rawAssignmentsCount: rawAssignments.length,
-          hasActiveAmc,
-          amcInfo,
-        });
-
-        if (hasActiveAmc) {
-          skipped.push({
-            type: 'AMC SERVICE',
-            projectLiftId: row.projectLiftId,
-            liftCode: row.liftCode || '',
-            reason: 'Active AMC service job already exists',
-          });
-          continue;
-        }
+if (hasBlockingAmcJob) {
+  skipped.push({
+    type: 'AMC SERVICE',
+    projectLiftId: row.projectLiftId,
+    liftCode: row.liftCode || '',
+    reason: 'Blocking AMC service job already exists (active or pending approval)',
+  });
+  continue;
+}
 
         if (!amcInfo.isDueNow || !amcInfo.nextServiceDue) {
           skipped.push({
@@ -2614,21 +8725,23 @@ app.post('/api/project-lifts/:projectLiftId/auto-amc-job', async (req, res) => {
 
     const rawAssignments = Array.isArray(pl.assignments) ? pl.assignments : [];
 
-    const hasActiveAmc = rawAssignments.some((a) =>
-      isAmcServiceAssignment(a) && isAssignmentActive(a)
-    );
+    const hasBlockingAmcJob = rawAssignments.some((a) =>
+  isAmcServiceAssignment(a) && isServiceJobBlockingNewCreation(a)
+);
 
-    if (hasActiveAmc) {
-      return res.status(409).json({ error: 'Active AMC SERVICE job already exists for this lift' });
-    }
+if (hasBlockingAmcJob) {
+  return res.status(409).json({
+    error: 'An AMC SERVICE job already exists for this lift and is still active or pending approval'
+  });
+}
 
     const contract = await Contract.findOne({
-      where: {
-        liftId: resolvedLiftId,
-        contractType: 'AMC',
-        status: 'ACTIVE',
-      },
-    });
+  where: {
+    projectLiftId: pl.id,
+    status: 'ACTIVE',
+    contractType: 'AMC',
+  },
+});
 
     if (!contract) {
       return res.status(400).json({ error: 'No active AMC contract found for this lift' });
@@ -2771,7 +8884,7 @@ app.get('/api/projects', async (req, res) => {
 });
 
 // Create project (serial code from backend)
-app.post('/api/projects', async (req, res) => {
+app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
     const body = req.body || {};
 
@@ -3133,7 +9246,7 @@ const amcByProjectLiftId = new Map(
 
 // Add a lift to a project (creates lift master if needed)
 // NOTE: AMC fields are NOT here (AMC is contract lifecycle, handled in /api/lifts)
-app.post('/api/projects/:projectId/lifts', async (req, res) => {
+app.post('/api/projects/:projectId/lifts', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   const t = await sequelize.transaction();
 
   try {
@@ -3175,13 +9288,18 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       transaction: t,
     });
 
-    console.log('PROJECT FOUND', project ? {
-      id: project.id,
-      customer_id: project.customer_id,
-      site_id: project.site_id,
-      customerName: project.Customer?.name || null,
-      siteName: project.Site?.name || null,
-    } : null);
+    console.log(
+      'PROJECT FOUND',
+      project
+        ? {
+            id: project.id,
+            customer_id: project.customer_id,
+            site_id: project.site_id,
+            customerName: project.Customer?.name || null,
+            siteName: project.Site?.name || null,
+          }
+        : null
+    );
 
     if (!project) {
       await t.rollback();
@@ -3190,26 +9308,18 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
 
     const code = String(liftCode).trim();
 
-    let lift = await Lift.findOne({
+    const existingMasterLift = await Lift.findOne({
       where: { liftCode: code },
       transaction: t,
     });
 
-    console.log('EXISTING MASTER LIFT', lift ? lift.toJSON() : null);
+    console.log('EXISTING MASTER LIFT', existingMasterLift ? existingMasterLift.toJSON() : null);
 
-    if (!lift) {
-      lift = await Lift.create(
-        {
-          liftCode: code,
-          customerName: project.Customer?.name || null,
-          building: project.Site?.name || null,
-          location: location || null,
-          status: 'ACTIVE',
-        },
-        { transaction: t }
-      );
-
-      console.log('CREATED MASTER LIFT', lift.toJSON());
+    if (existingMasterLift) {
+      await t.rollback();
+      return res.status(400).json({
+        error: `Lift code "${code}" already exists. Please use a unique lift code.`,
+      });
     }
 
     const existingProjectLift = await ProjectLift.findOne({
@@ -3220,12 +9330,30 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
       transaction: t,
     });
 
-    console.log('EXISTING PROJECT LIFT', existingProjectLift ? existingProjectLift.toJSON() : null);
+    console.log(
+      'EXISTING PROJECT LIFT',
+      existingProjectLift ? existingProjectLift.toJSON() : null
+    );
 
     if (existingProjectLift) {
       await t.rollback();
-      return res.status(400).json({ error: 'This lift is already added to the project' });
+      return res.status(400).json({
+        error: `Lift code "${code}" already exists. Please use a unique lift code.`,
+      });
     }
+
+    const lift = await Lift.create(
+      {
+        liftCode: code,
+        customerName: project.Customer?.name || null,
+        building: project.Site?.name || null,
+        location: location || null,
+        status: 'ACTIVE',
+      },
+      { transaction: t }
+    );
+
+    console.log('CREATED MASTER LIFT', lift.toJSON());
 
     const projectLift = await ProjectLift.create(
       {
@@ -3255,6 +9383,13 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
   } catch (err) {
     await t.rollback();
     console.error('POST /api/projects/:projectId/lifts error:', err);
+
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({
+        error: 'Lift code already exists. Please use a unique lift code.',
+      });
+    }
+
     return res.status(500).json({
       error: err.message || 'Failed to create lift',
       detail: Array.isArray(err.errors) ? err.errors.map((e) => e.message) : null,
@@ -3263,7 +9398,70 @@ app.post('/api/projects/:projectId/lifts', async (req, res) => {
 });
 
 // Update milestones (installation/testing/handover). On handover, auto-create WARRANTY contract.
-app.put('/api/project-lifts/:projectLiftId/milestones', async (req, res) => {
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPassword = String(password || '');
+
+    if (!cleanEmail || !cleanPassword) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const user = await User.findOne({ where: { email: cleanEmail } });
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const ok = await bcrypt.compare(cleanPassword, user.passwordHash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const permissions = user.permissions || {};
+
+const token = signAuthToken({
+  id: user.id,
+  role: normalizeRole(user.role),
+  type: 'user',
+  permissions,
+});
+
+    res.json({
+  token,
+  user: {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    permissions,
+  },
+});
+  } catch (e) {
+    console.error('POST /api/auth/login failed', e);
+    return res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.get('/api/auth/me', authUser, async (req, res) => {
+  return res.json({
+    user: {
+      id: req.user.id,
+      name: req.user.name,
+      email: req.user.email,
+      role: normalizeRole(req.user.role),
+    },
+  });
+});
+
+app.put(
+  '/api/project-lifts/:projectLiftId/milestones',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
   try {
     const id = Number(req.params.projectLiftId);
     const pl = await ProjectLift.findByPk(id);
@@ -3401,9 +9599,16 @@ app.post('/api/project-lifts/:projectLiftId/auto-warranty-job', async (req, res)
       return res.status(400).json({ error: 'Warranty service is not yet due for job creation' });
     }
 
-    if (warrantyInfo.activeServiceAssignment) {
-      return res.status(409).json({ error: 'Active WARRANTY SERVICE job already exists for this lift' });
-    }
+    const hasBlockingWarrantyJob = rawAssignments.some((a) => {
+  const role = String(a.assignment_role || '').toUpperCase().trim();
+  return role === 'WARRANTY SERVICE' && isServiceJobBlockingNewCreation(a);
+});
+
+if (hasBlockingWarrantyJob) {
+  return res.status(409).json({
+    error: 'A WARRANTY SERVICE job already exists for this lift and is still active or pending approval'
+  });
+}
 
     const pair = await pickBestServicePair(warrantyInfo.nextServiceDue);
     if (!pair) {
@@ -3452,6 +9657,411 @@ app.post('/api/project-lifts/:projectLiftId/auto-warranty-job', async (req, res)
     res.status(500).json({ error: err.message || 'Failed to auto-create warranty service job' });
   }
 });
+
+app.post(
+  '/api/breakdown-calls',
+  authUser,
+  requirePermission('breakdowns.create'),
+  async (req, res) => {
+    try {
+      const {
+        projectLiftId,
+        liftId,
+        complaint,
+        priority,
+      } = req.body || {};
+
+      if (!projectLiftId && !liftId) {
+        return res.status(400).json({
+          error: 'projectLiftId or liftId is required',
+        });
+      }
+
+      const existing = await Job.findOne({
+        where: {
+          project_lift_id: projectLiftId || null,
+          job_type: 'BREAKDOWN',
+          status: {
+            [Op.in]: ['ASSIGNED', 'IN_PROGRESS'],
+          },
+        },
+      });
+
+      if (existing) {
+        return res.status(409).json({
+          error: 'An active breakdown job already exists for this lift',
+          jobId: existing.id,
+        });
+      }
+
+      const pair = await pickBestServicePair();
+      if (!pair) {
+        return res.status(400).json({
+          error: 'No technician pair available',
+        });
+      }
+
+      const job = await createBreakdownJobWithPair({
+        projectLiftId,
+        liftId,
+        priority,
+        notes: complaint,
+        pair,
+      });
+
+      res.json({
+        ok: true,
+        jobId: job.id,
+        pair: {
+          lead: pair.leadTechnician?.name,
+          support: pair.supportTechnician?.name,
+        },
+      });
+    } catch (err) {
+      console.error('Breakdown create error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+app.post(
+  '/api/breakdown-calls/:id/close',
+  authUser,
+  requirePermission('breakdowns.close'),
+  async (req, res) => {
+    try {
+      const jobId = Number(req.params.id);
+
+      const job = await Job.findByPk(jobId);
+      if (!job || job.job_type !== 'BREAKDOWN') {
+        return res.status(404).json({ error: 'Breakdown job not found' });
+      }
+
+      job.status = 'DONE';
+      job.completed_at = new Date();
+
+      await job.save();
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to close breakdown' });
+    }
+  }
+);
+
+app.get(
+  '/api/breakdown-calls',
+  authUser,
+  requirePermission('breakdowns.view'),
+  async (req, res) => {
+  try {
+    const jobs = await Job.findAll({
+      where: { job_type: 'BREAKDOWN' },
+      include: [
+        {
+          model: JobAssignment,
+          include: [{ model: Technician, attributes: ['id', 'name'] }],
+        },
+        {
+          model: ProjectLift,
+          include: [
+            { model: Project, attributes: ['project_name', 'project_code'] },
+          ],
+        },
+      ],
+      order: [['id', 'DESC']],
+    });
+
+    const out = jobs.map(j => {
+      const team = Array.isArray(j.JobAssignments)
+        ? j.JobAssignments
+        : Array.isArray(j.job_assignments)
+        ? j.job_assignments
+        : Array.isArray(j.JobAssignment)
+        ? j.JobAssignment
+        : [];
+
+      const lead = team.find(t => t.assignment_role === 'LEAD');
+      const support = team.find(t => t.assignment_role === 'SUPPORT');
+
+      return {
+  id: j.id,
+  liftCode: j.ProjectLift?.lift_code || '',
+  project: j.ProjectLift?.Project?.project_name || '',
+  complaint: j.notes || '',
+  priority: j.priority,
+  status: j.status,
+
+  lead: lead?.Technician?.name || '',
+  support: support?.Technician?.name || '',
+
+  leadResponseStatus: lead?.technician_response_status || '',
+  supportResponseStatus: support?.technician_response_status || '',
+
+  leadEscalationStatus: lead?.escalation_status || '',
+  supportEscalationStatus: support?.escalation_status || '',
+
+  escalated:
+    lead?.escalation_status === 'ESCALATED' ||
+    support?.escalation_status === 'ESCALATED',
+};
+    });
+
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load breakdown calls' });
+  }
+});
+
+app.get('/api/tech/breakdown-jobs', authTech, async (req, res) => {
+  try {
+    const rows = await JobAssignment.findAll({
+      where: {
+        technician_id: req.tech.id,
+        unassigned_at: null,
+      },
+      include: [
+        {
+          model: Job,
+          where: {
+  job_type: 'BREAKDOWN',
+  status: {
+    [Op.in]: ['ASSIGNED', 'IN_PROGRESS', 'DONE', 'COMPLETED', 'CLOSED', 'RESOLVED'],
+  },
+},
+          include: [
+            {
+              model: ProjectLift,
+              include: [{ model: Project, attributes: ['project_name', 'project_code'] }],
+            },
+          ],
+        },
+      ],
+      order: [['id', 'DESC']],
+    });
+
+    const out = rows.map((r) => {
+      const j = r.Job;
+
+      return {
+  id: j.id,
+  assignmentId: r.id,
+  source: 'JOB',
+  job_type: j.job_type,
+  assignment_role: r.assignment_role,
+  status: j.status,
+  priority: j.priority,
+  complaint: j.notes || '',
+  liftCode: j.ProjectLift?.lift_code || '',
+  projectCode: j.ProjectLift?.Project?.project_code || '',
+  projectName: j.ProjectLift?.Project?.project_name || '',
+  assignedAt: r.assigned_at,
+  technicianResponseStatus: r.technician_response_status,
+  escalationStatus: r.escalation_status,
+};
+    });
+
+console.log('TECH BREAKDOWN JOBS DEBUG:', out.map(j => ({
+  id: j.id,
+  status: j.status,
+  assignment_role: j.assignment_role,
+  liftCode: j.liftCode,
+  complaint: j.complaint,
+})));
+
+res.json(out);
+  } catch (err) {
+    console.error('GET /api/tech/breakdown-jobs error:', err);
+    res.status(500).json({ error: 'Failed to load breakdown jobs' });
+  }
+});
+
+app.put('/api/tech/breakdown-jobs/:id/status', authTech, async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    const status = String(req.body?.status || '').toUpperCase();
+
+    if (!['IN_PROGRESS', 'DONE'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const ja = await JobAssignment.findOne({
+      where: {
+        job_id: jobId,
+        technician_id: req.tech.id,
+        unassigned_at: null,
+      },
+      include: [{ model: Job }],
+    });
+
+    if (!ja || !ja.Job) {
+      return res.status(404).json({ error: 'Breakdown job not found for this technician' });
+    }
+
+    if (ja.assignment_role !== 'LEAD') {
+      return res.status(403).json({ error: 'Only lead technician can update breakdown status' });
+    }
+
+    const job = ja.Job;
+
+    if (job.job_type !== 'BREAKDOWN') {
+      return res.status(400).json({ error: 'Not a breakdown job' });
+    }
+
+    if (status === 'IN_PROGRESS') {
+      job.status = 'IN_PROGRESS';
+      job.started_at = job.started_at || new Date();
+    }
+
+    if (status === 'DONE') {
+      job.status = 'DONE';
+      job.completed_at = new Date();
+    }
+
+    await job.save();
+
+    res.json({ ok: true, id: job.id, status: job.status });
+  } catch (err) {
+    console.error('PUT /api/tech/breakdown-jobs/:id/status error:', err);
+    res.status(500).json({ error: err.message || 'Failed to update breakdown job status' });
+  }
+});
+
+app.get('/api/tech/breakdown-jobs/:id/parts', authTech, async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+
+    const ja = await JobAssignment.findOne({
+      where: { job_id: jobId, technician_id: req.tech.id, unassigned_at: null },
+      include: [{ model: Job }],
+    });
+
+    if (!ja || !ja.Job || ja.Job.job_type !== 'BREAKDOWN') {
+      return res.status(404).json({ error: 'Breakdown job not found' });
+    }
+
+    const [parts] = await sequelize.query(
+      `SELECT id, job_id AS "jobId", item_name AS "itemName", qty, remarks, created_at AS "createdAt"
+       FROM breakdown_job_parts
+       WHERE job_id = :jobId
+       ORDER BY id DESC`,
+      { replacements: { jobId } }
+    );
+
+    res.json({ parts });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load breakdown parts' });
+  }
+});
+
+app.post('/api/tech/breakdown-jobs/:id/parts', authTech, async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    const { itemName, qty, remarks } = req.body || {};
+
+    const ja = await JobAssignment.findOne({
+      where: {
+        job_id: jobId,
+        technician_id: req.tech.id,
+        unassigned_at: null,
+      },
+      include: [{ model: Job }],
+    });
+
+    if (!ja || !ja.Job || ja.Job.job_type !== 'BREAKDOWN') {
+      return res.status(404).json({ error: 'Breakdown job not found' });
+    }
+
+    if (ja.assignment_role !== 'LEAD') {
+      return res.status(403).json({ error: 'Only lead technician can add parts' });
+    }
+
+    const cleanName = String(itemName || '').trim();
+    if (!cleanName) {
+      return res.status(400).json({ error: 'Part / material name is required' });
+    }
+
+    const part = await BreakdownJobPart.create({
+      job_id: jobId,
+      item_name: cleanName,
+      qty: Number(qty || 1),
+      remarks: remarks ? String(remarks).trim() : null,
+    });
+
+    res.json({
+      id: part.id,
+      jobId: part.job_id,
+      itemName: part.item_name,
+      qty: part.qty,
+      remarks: part.remarks,
+    });
+  } catch (err) {
+    console.error('POST breakdown part error:', err);
+    res.status(500).json({ error: err.message || 'Failed to add breakdown part' });
+  }
+});
+
+app.post('/api/tech/job-assignments/:id/acknowledge', authTech, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const assignment = await JobAssignment.findByPk(id, {
+      include: [{ model: Job }],
+    });
+
+    if (!assignment) {
+      return res.status(404).json({ error: 'Job assignment not found' });
+    }
+
+    if (Number(assignment.technician_id) !== Number(req.tech.id)) {
+  return res.status(403).json({ error: 'Not your assignment' });
+}
+
+    if (assignment.Job?.job_type !== 'BREAKDOWN') {
+      return res.status(400).json({ error: 'Only breakdown jobs require acknowledgement' });
+    }
+
+    await assignment.update({
+  technician_response_status: 'ACKNOWLEDGED',
+  technician_responded_at: new Date(),
+  escalation_status: 'NONE',
+  escalated_at: null,
+});
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to acknowledge breakdown job:', err);
+    res.status(500).json({ error: 'Failed to acknowledge breakdown job' });
+  }
+});
+
+app.delete(
+  '/api/breakdown-calls/:id',
+  authUser,
+  requirePermission('breakdowns.delete'),
+  async (req, res) => {
+    try {
+      const jobId = Number(req.params.id);
+
+      const job = await Job.findByPk(jobId);
+      if (!job || job.job_type !== 'BREAKDOWN') {
+        return res.status(404).json({ error: 'Breakdown job not found' });
+      }
+
+      await JobAssignment.destroy({ where: { job_id: jobId } });
+      await BreakdownJobPart.destroy({ where: { job_id: jobId } });
+      await job.destroy();
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('Delete breakdown error:', err);
+      res.status(500).json({ error: 'Failed to delete breakdown call' });
+    }
+  }
+);
 
 // Create or update AMC for a project lift after warranty
 app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
@@ -3525,8 +10135,8 @@ app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
       contractType: 'AMC',
       status: 'ACTIVE',
       amcType: amcType || 'LABOUR_ONLY',
-      startDate: toDateOnlyString(start),
-      endDate: end.toISOString().slice(0, 10),
+      startDate: formatLocalDate(start),
+      endDate: formatLocalDate(end),
       serviceIntervalDays: interval,
       serviceVisitCount: visits,
       billingCycle: billingCycle || 'ANNUAL',
@@ -3607,7 +10217,15 @@ app.get('/api/jobs/:id/reassign-options', async (req, res) => {
           include: [
             {
               model: Technician,
-              attributes: ['id', 'name', 'phone', 'role', 'skills', 'isActive'],
+              attributes: [
+                'id',
+                'name',
+                'phone',
+                'role',
+                'skills',
+                'isActive',
+                'availability_status',
+              ],
             },
           ],
         },
@@ -3625,15 +10243,36 @@ app.get('/api/jobs/:id/reassign-options', async (req, res) => {
         : [Number(job.technician_id || 0)]
     );
 
+    const today = new Date().toISOString().slice(0, 10);
+
     const techs = await Technician.findAll({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        availability_status: 'AVAILABLE',
+      },
       order: [['name', 'ASC']],
     });
 
-    const suggestions = techs
+    const leaves = await TechnicianLeave.findAll({
+      where: {
+        status: 'APPROVED',
+        from_date: { [Op.lte]: today },
+        to_date: { [Op.gte]: today },
+      },
+      attributes: ['technician_id'],
+    });
+
+    const leaveSet = new Set(leaves.map((l) => Number(l.technician_id)));
+
+    const filteredTechs = techs.filter(
+      (t) => !leaveSet.has(Number(t.id))
+    );
+
+    const suggestions = filteredTechs
       .filter((t) => technicianHasRequiredSkill(t, role))
       .map((t) => {
-        const load = loads.find((x) => Number(x.technicianId) === Number(t.id)) || {};
+        const load =
+          loads.find((x) => Number(x.technicianId) === Number(t.id)) || {};
 
         return {
           id: t.id,
@@ -3658,7 +10297,7 @@ app.get('/api/jobs/:id/reassign-options', async (req, res) => {
       suggestions,
     });
   } catch (err) {
-    console.error(err);
+    console.error('GET /api/jobs/:id/reassign-options error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3666,27 +10305,94 @@ app.get('/api/jobs/:id/reassign-options', async (req, res) => {
 app.post('/api/jobs/:id/reassign', async (req, res) => {
   try {
     const jobId = Number(req.params.id);
-    const { technicianId } = req.body;
+    const newTechnicianId = Number(req.body?.technicianId || 0);
+
+    if (!jobId) {
+      return res.status(400).json({ error: 'Valid job id is required' });
+    }
+
+    if (!newTechnicianId) {
+      return res.status(400).json({ error: 'Valid technicianId is required' });
+    }
 
     const job = await ProjectLiftAssignment.findByPk(jobId);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
 
-    // 🔥 update lead technician
-    await job.update({ technician_id: technicianId });
+    const tech = await Technician.findByPk(newTechnicianId);
 
-    // 🔥 reset team
-    await JobTechnician.destroy({ where: { assignmentId: jobId } });
+    if (!tech || tech.isActive === false) {
+      return res.status(400).json({ error: 'Technician is inactive or not found' });
+    }
+
+    const availability = String(tech.availability_status || 'AVAILABLE')
+      .toUpperCase()
+      .trim();
+
+    if (availability !== 'AVAILABLE') {
+      return res.status(400).json({
+        error: `Technician is not available. Current status: ${availability}`,
+      });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const leave = await TechnicianLeave.findOne({
+      where: {
+        technician_id: tech.id,
+        status: 'APPROVED',
+        from_date: { [Op.lte]: today },
+        to_date: { [Op.gte]: today },
+      },
+    });
+
+    if (leave) {
+      return res.status(400).json({
+        error: 'Technician is on approved leave today',
+      });
+    }
+
+    const role = String(job.assignment_role || '').toUpperCase().trim();
+
+    if (!technicianHasRequiredSkill(tech, role)) {
+      const requiredSkill = getRequiredSkillForAssignmentRole(role);
+
+      return res.status(400).json({
+        error: `Selected technician does not have required ${requiredSkill} skill for ${role}`,
+      });
+    }
+
+    await job.update({
+      technician_id: newTechnicianId,
+    });
+
+    await JobTechnician.destroy({
+      where: { assignmentId: jobId },
+    });
 
     await JobTechnician.create({
       assignmentId: jobId,
-      technicianId,
-      teamRole: 'LEAD'
+      technicianId: newTechnicianId,
+      teamRole: 'LEAD',
+      assignedAt: new Date(),
+      notes: 'Reassigned manually',
     });
 
-    res.json({ success: true });
-
+    res.json({
+      success: true,
+      jobId,
+      technician: {
+        id: tech.id,
+        name: tech.name,
+        phone: tech.phone,
+        role: tech.role,
+        skills: tech.skills || '',
+      },
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('POST /api/jobs/:id/reassign error:', err);
+    res.status(500).json({ error: err.message || 'Failed to reassign job' });
   }
 });
 
@@ -4003,10 +10709,12 @@ app.post('/api/project-lifts/:projectLiftId/assign', async (req, res) => {
   try {
     const projectLiftId = Number(req.params.projectLiftId);
     const { technicianId, leadTechnicianId, role, notes, dueDate } = req.body || {};
+
     const leadId = Number(leadTechnicianId || technicianId || 0);
     if (!leadId) return res.status(400).json({ error: 'leadTechnicianId is required' });
 
-    const r = String(role || 'INSTALL').toUpperCase();
+    const r = String(role || 'INSTALL').toUpperCase().trim();
+
     if (!['INSTALL', 'TEST', 'AMC SERVICE'].includes(r)) {
       return res.status(400).json({ error: 'role must be INSTALL, TEST, or AMC SERVICE' });
     }
@@ -4017,7 +10725,57 @@ app.post('/api/project-lifts/:projectLiftId/assign', async (req, res) => {
     const tech = await Technician.findByPk(leadId);
     if (!tech) return res.status(404).json({ error: 'Lead technician not found' });
 
+    if (!tech.isActive) {
+      return res.status(400).json({ error: 'Selected technician is inactive' });
+    }
+
+    const availability = String(tech.availability_status || 'AVAILABLE')
+      .toUpperCase()
+      .trim();
+
+    const roleUpper = r;
+    const isStrictService = ['AMC SERVICE', 'WARRANTY SERVICE', 'BREAKDOWN'].includes(roleUpper);
+    const isLongJob = ['INSTALL', 'TEST'].includes(roleUpper);
+
+    let leaveWarning = null;
+
+    if (availability !== 'AVAILABLE' && isStrictService) {
+      return res.status(400).json({
+        error: `Selected technician is not available. Current status: ${availability}`,
+      });
+    }
+
+    if (availability !== 'AVAILABLE' && isLongJob) {
+      leaveWarning = `Selected technician current status is ${availability}. Assignment is allowed for ${roleUpper}, but please review availability.`;
+    }
+
+    const checkDate = dueDate
+      ? String(dueDate).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+
+    const leaveToday = await TechnicianLeave.findOne({
+      where: {
+        technician_id: tech.id,
+        status: 'APPROVED',
+        from_date: { [Op.lte]: checkDate },
+        to_date: { [Op.gte]: checkDate },
+      },
+    });
+
+    if (leaveToday && isStrictService) {
+      return res.status(400).json({
+        error: 'Selected technician is on approved leave for the assignment date',
+      });
+    }
+
+    if (leaveToday && isLongJob) {
+      leaveWarning = leaveWarning
+        ? `${leaveWarning} Also, approved leave overlaps the assignment date.`
+        : 'Selected technician has approved leave overlapping the assignment date.';
+    }
+
     const requiredSkill = getRequiredSkillForAssignmentRole(r);
+
     if (!technicianHasRequiredSkill(tech, r)) {
       return res.status(400).json({
         error: `Selected technician does not have required ${requiredSkill} skill for ${r}`,
@@ -4025,28 +10783,40 @@ app.post('/api/project-lifts/:projectLiftId/assign', async (req, res) => {
     }
 
     const openStatuses = ['ASSIGNED', 'IN_PROGRESS'];
+
     const existing = await ProjectLiftAssignment.findOne({
-      where: { project_lift_id: pl.id, assignment_role: r, status: openStatuses },
+      where: {
+        project_lift_id: pl.id,
+        assignment_role: r,
+        status: openStatuses,
+      },
       order: [['id', 'DESC']],
     });
 
     if (existing) {
-      return res.status(409).json({ error: `${r} already has an active job on this lift. Complete or cancel it first.` });
+      return res.status(409).json({
+        error: `${r} already has an active job on this lift. Complete or cancel it first.`,
+      });
     }
 
     const a = await ProjectLiftAssignment.create({
-  project_lift_id: pl.id,
-  technician_id: tech.id,
-  assignment_role: String(r || '').trim(),
-  due_date: dueDate || null,
-  status: 'ASSIGNED',
-  notes: notes ? String(notes).trim() : null,
-  assigned_at: new Date(),
-});
+      project_lift_id: pl.id,
+      technician_id: tech.id,
+      assignment_role: r,
+      due_date: dueDate || null,
+      status: 'ASSIGNED',
+      notes: notes ? String(notes).trim() : null,
+      assigned_at: new Date(),
+    });
 
     await JobTechnician.findOrCreate({
       where: { assignmentId: a.id, technicianId: tech.id },
-      defaults: { assignmentId: a.id, technicianId: tech.id, teamRole: 'LEAD', notes: null },
+      defaults: {
+        assignmentId: a.id,
+        technicianId: tech.id,
+        teamRole: 'LEAD',
+        notes: null,
+      },
     });
 
     await ensureChecklistForAssignment(a);
@@ -4063,31 +10833,38 @@ app.post('/api/project-lifts/:projectLiftId/assign', async (req, res) => {
           skills: tech.skills || '',
         },
         technicianId: tech.id,
-        teamRole: 'LEAD'
+        teamRole: 'LEAD',
       }]
     );
 
+console.log('ASSIGN RESPONSE DEBUG', {
+  assignmentId: a.id,
+  role: r,
+  leaveWarning,
+});
     res.json({
-      id: a.id,
-      role: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
-      technician: {
-        id: tech.id,
-        name: tech.name,
-        phone: tech.phone,
-        role: tech.role,
-        skills: tech.skills || '',
-      },
-      leadTechnician: summary.lead ? summary.lead.technician : null,
-      supportTechnicians: [],
-      team: summary.team,
-      status: a.status,
-      dueDate: a.due_date,
-      assignedAt: a.assigned_at,
-      startedAt: a.started_at,
-      completedAt: a.completed_at,
-      checklistSummary,
-      checklistLocked: checklistSummary.totalRequired > 0 && checklistSummary.doneRequired < checklistSummary.totalRequired,
-    });
+  id: a.id,
+  role: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
+  leaveWarning,
+  debugLeaveWarning: leaveWarning,
+  technician: {
+    id: tech.id,
+    name: tech.name,
+    phone: tech.phone,
+    role: tech.role,
+    skills: tech.skills || '',
+  },
+  leadTechnician: summary.lead ? summary.lead.technician : null,
+  supportTechnicians: [],
+  team: summary.team,
+  status: a.status,
+  dueDate: a.due_date,
+  assignedAt: a.assigned_at,
+  startedAt: a.started_at,
+  completedAt: a.completed_at,
+  checklistSummary,
+  checklistLocked: checklistSummary.totalRequired > 0 && checklistSummary.doneRequired < checklistSummary.totalRequired,
+});
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -4196,26 +10973,15 @@ app.get('/api/jobs/:id', async (req, res) => {
   }
 });
 
-app.get('/api/tech/assignments/:id/checklist', authTech, async (req, res) => {
+app.get('/api/assignments/:id/checklist', async (req, res) => {
   try {
     const id = Number(req.params.id);
+
     const a = await ProjectLiftAssignment.findByPk(id);
     if (!a) return res.status(404).json({ error: 'Assignment not found' });
 
-    const member = await JobTechnician.findOne({
-      where: { assignmentId: id, technicianId: req.tech.id }
-    });
-
-    const isLegacyDirectTech = Number(a.technician_id) === Number(req.tech.id);
-    if (!member && !isLegacyDirectTech) {
-      return res.status(403).json({ error: 'Not your assignment' });
-    }
-const myTeamRole =
-  member
-    ? String(member.teamRole || '').toUpperCase()
-    : (isLegacyDirectTech ? 'LEAD' : null);
-    
-await ensureChecklistForAssignment(a);
+    // ✅ Office can always create checklist if missing
+    await ensureChecklistForAssignment(a);
 
     const items = await AssignmentChecklistItem.findAll({
       where: { assignmentId: id },
@@ -4231,39 +10997,120 @@ await ensureChecklistForAssignment(a);
     const summary = await getChecklistSummary(id);
 
     res.json({
-  assignmentId: id,
-  myTeamRole,
-
-  supervisorStatus: a.supervisor_status || 'PENDING',
-  supervisorRemarks: a.supervisor_remarks || '',
-
-  items: items.map((x) => ({
-    id: x.id,
-    sortOrder: x.sortOrder,
-    itemText: x.itemText,
-    isRequired: x.isRequired,
-    itemType: x.itemType,
-    isDone: x.isDone,
-    textValue: x.textValue,
-    numberValue: x.numberValue,
-    doneByTechnicianId: x.doneByTechnicianId,
-    doneAt: x.doneAt,
-  })),
-
-  notes: notes.map((n) => ({
-    id: n.id,
-    noteText: n.noteText,
-    createdAt: n.createdAt,
-    technician: n.Technician ? {
-      id: n.Technician.id,
-      name: n.Technician.name,
-      phone: n.Technician.phone,
-      role: n.Technician.role,
-    } : null,
-  })),
-
-  summary,
+      assignmentId: id,
+      status: a.status,
+      supervisorStatus: a.supervisor_status || 'PENDING',
+      supervisorRemarks: a.supervisor_remarks || '',
+      items,
+      notes,
+      summary,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
+
+app.get('/api/assignments/:id/service-report', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const report = await AssignmentServiceReport.findOne({
+      where: { assignmentId: id },
+    });
+
+    const parts = await AssignmentServicePart.findAll({
+      where: { assignmentId: id },
+      order: [['id', 'ASC']],
+    });
+
+    res.json({
+      report: report || null,
+      parts: parts || [],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get(
+  '/api/tech/assignments/:id/checklist',
+  authTech,
+  // ❌ remove this
+  // requirePermission('jobs.view_own'),
+  async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const a = await ProjectLiftAssignment.findByPk(id);
+    if (!a) return res.status(404).json({ error: 'Assignment not found' });
+
+    const member = await JobTechnician.findOne({
+      where: { assignmentId: id, technicianId: req.tech.id }
+    });
+
+    const isLegacyDirectTech = Number(a.technician_id) === Number(req.tech.id);
+    if (!member && !isLegacyDirectTech) {
+      return res.status(403).json({ error: 'Not your assignment' });
+    }
+
+    const myTeamRole =
+      member
+        ? String(member.teamRole || '').toUpperCase()
+        : (isLegacyDirectTech ? 'LEAD' : null);
+
+    // ✅ Technician must start the job before accessing checklist
+    assertChecklistAccessibleForTechnician(a);
+
+    await ensureChecklistForAssignment(a);
+
+    const items = await AssignmentChecklistItem.findAll({
+      where: { assignmentId: id },
+      order: [['sortOrder', 'ASC'], ['id', 'ASC']],
+    });
+
+    const notes = await AssignmentChecklistNote.findAll({
+      where: { assignmentId: id },
+      include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role'] }],
+      order: [['id', 'DESC']],
+    });
+
+    const summary = await getChecklistSummary(id);
+
+    res.json({
+      assignmentId: id,
+      myTeamRole,
+
+      supervisorStatus: a.supervisor_status || 'PENDING',
+      supervisorRemarks: a.supervisor_remarks || '',
+
+      items: items.map((x) => ({
+        id: x.id,
+        sortOrder: x.sortOrder,
+        itemText: x.itemText,
+        isRequired: x.isRequired,
+        itemType: x.itemType,
+        isDone: x.isDone,
+        textValue: x.textValue,
+        numberValue: x.numberValue,
+        doneByTechnicianId: x.doneByTechnicianId,
+        doneAt: x.doneAt,
+      })),
+
+      notes: notes.map((n) => ({
+        id: n.id,
+        noteText: n.noteText,
+        createdAt: n.createdAt,
+        technician: n.Technician ? {
+          id: n.Technician.id,
+          name: n.Technician.name,
+          phone: n.Technician.phone,
+          role: n.Technician.role,
+        } : null,
+      })),
+
+      summary,
+    });
   } catch (err) {
     console.error(err);
     res.status(err.statusCode || 500).json({
@@ -4273,7 +11120,11 @@ await ensureChecklistForAssignment(a);
   }
 });
 
-app.put('/api/tech/assignments/:jobId/checklist/:itemId', authTech, async (req, res) => {
+app.put(
+  '/api/tech/assignments/:jobId/checklist/:itemId',
+  authTech,
+  // requirePermission('jobs.update_own'),
+  async (req, res) => {
   try {
     const jobId = Number(req.params.jobId);
     const itemId = Number(req.params.itemId);
@@ -4356,7 +11207,11 @@ await ProjectLiftAssignment.update(
   }
 });
 
-app.post('/api/tech/assignments/:jobId/checklist-notes', authTech, async (req, res) => {
+app.post(
+  '/api/tech/assignments/:jobId/checklist-notes',
+  authTech,
+  requirePermission('jobs.update_own'),
+  async (req, res) => {
   try {
     const jobId = Number(req.params.jobId);
     const noteText = String(req.body?.noteText || '').trim();
@@ -4477,7 +11332,7 @@ app.put('/api/tech/assignments/:id/status', authTech, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { status } = req.body || {};
-    const s = String(status || '').toUpperCase();
+    const s = String(status || '').toUpperCase().trim();
 
     if (!['ASSIGNED', 'IN_PROGRESS', 'DONE', 'CANCELLED'].includes(s)) {
       return res.status(400).json({ error: 'Invalid status' });
@@ -4486,86 +11341,27 @@ app.put('/api/tech/assignments/:id/status', authTech, async (req, res) => {
     const a = await ProjectLiftAssignment.findByPk(id);
     if (!a) return res.status(404).json({ error: 'Assignment not found' });
 
-    const now = new Date();
-    const update = { status: s };
-
-    if (s === 'IN_PROGRESS' && !a.started_at) {
-      update.started_at = now;
-    }
-
-    if (s === 'DONE') {
-      await ensureChecklistForAssignment(a);
-      await assertChecklistCompleteOrThrow(a.id);
-      await assertServiceReportCompleteOrThrow(a);
-
-      if (!a.started_at) {
-        update.started_at = now;
-      }
-
-      update.completed_at = now;
-      update.supervisor_status = 'PENDING';
-      update.supervisor_approved_at = null;
-    }
-
-    if (s === 'CANCELLED') {
-      update.completed_at = now;
-    }
-
-    await a.update(update);
-
-    const pl = await ProjectLift.findByPk(a.project_lift_id);
-    if (pl) {
-      const role = String(a.assignment_role || '').toUpperCase();
-
-      if (role === 'INSTALL') {
-        if (s === 'IN_PROGRESS' && !pl.installation_actual_start_date) {
-          await pl.update({ installation_actual_start_date: now });
-        }
-        if (s === 'DONE') {
-          await pl.update({ installation_actual_end_date: now });
-        }
-      }
-
-      if (role === 'TEST') {
-        if (s === 'IN_PROGRESS' && !pl.testing_actual_start_date) {
-          await pl.update({ testing_actual_start_date: now });
-        }
-        if (s === 'DONE') {
-          await pl.update({ testing_actual_end_date: now });
-        }
-      }
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(err.statusCode || 500).json({
-      error: err.message,
-      ...(err.payload || {}),
+    const member = await JobTechnician.findOne({
+      where: { assignmentId: id, technicianId: req.tech.id }
     });
-  }
-});
 
-app.put('/api/tech/assignments/:id/status', authTech, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const { status } = req.body || {};
-    const s = String(status || '').toUpperCase();
-
-    if (!['ASSIGNED', 'IN_PROGRESS', 'DONE', 'CANCELLED'].includes(s)) {
-      return res.status(400).json({ error: 'Invalid status' });
+    const isLegacyDirectTech = Number(a.technician_id) === Number(req.tech.id);
+    if (!member && !isLegacyDirectTech) {
+      return res.status(403).json({ error: 'Not your assignment' });
     }
-
-    const a = await ProjectLiftAssignment.findByPk(id);
-    if (!a) return res.status(404).json({ error: 'Assignment not found' });
 
     const now = new Date();
     const update = { status: s };
 
+    // START JOB
     if (s === 'IN_PROGRESS' && !a.started_at) {
       update.started_at = now;
+
+      // Create checklist only on first actual start
+      await ensureChecklistForAssignment(a);
     }
 
+    // COMPLETE JOB
     if (s === 'DONE') {
       await ensureChecklistForAssignment(a);
       await assertChecklistCompleteOrThrow(a.id);
@@ -4623,6 +11419,148 @@ app.put('/api/job-team/:id', async (req, res) => {
   // your existing job-team route here
 });
 
+// List leave records for one technician
+app.get('/api/technicians/:id/leaves', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
+  try {
+    const technicianId = Number(req.params.id);
+
+    if (!technicianId) {
+      return res.status(400).json({ error: 'Valid technician id is required' });
+    }
+
+    const tech = await Technician.findByPk(technicianId);
+    if (!tech) {
+      return res.status(404).json({ error: 'Technician not found' });
+    }
+
+    const leaves = await TechnicianLeave.findAll({
+      where: { technician_id: technicianId },
+      order: [['from_date', 'DESC'], ['id', 'DESC']],
+    });
+
+    res.json(leaves);
+  } catch (err) {
+    console.error('GET /api/technicians/:id/leaves error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load technician leave records' });
+  }
+});
+
+
+// Create approved leave for one technician
+app.post('/api/technicians/:id/leaves', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
+  try {
+    const technicianId = Number(req.params.id);
+    const { from_date, to_date, reason } = req.body || {};
+
+    if (!technicianId) {
+      return res.status(400).json({ error: 'Valid technician id is required' });
+    }
+
+    if (!from_date || !to_date) {
+      return res.status(400).json({ error: 'from_date and to_date are required' });
+    }
+
+    const from = parseDateOnly(from_date);
+    const to = parseDateOnly(to_date);
+
+    if (!from || !to) {
+      return res.status(400).json({ error: 'Valid from_date and to_date are required' });
+    }
+
+    if (to < from) {
+      return res.status(400).json({ error: 'Leave To Date cannot be earlier than From Date' });
+    }
+
+    const tech = await Technician.findByPk(technicianId);
+    if (!tech) {
+      return res.status(404).json({ error: 'Technician not found' });
+    }
+
+    const overlapping = await TechnicianLeave.findOne({
+      where: {
+        technician_id: technicianId,
+        status: 'APPROVED',
+        from_date: { [Op.lte]: to_date },
+        to_date: { [Op.gte]: from_date },
+      },
+    });
+
+    if (overlapping) {
+      return res.status(409).json({
+        error: 'This leave overlaps with an existing approved leave record',
+      });
+    }
+
+    const leave = await TechnicianLeave.create({
+      technician_id: technicianId,
+      from_date,
+      to_date,
+      reason: reason ? String(reason).trim() : null,
+      status: 'APPROVED',
+    });
+
+    const today = formatLocalDate(new Date());
+
+    if (from_date <= today && to_date >= today) {
+      await tech.update({ availability_status: 'ON_LEAVE' });
+    }
+
+    res.json({
+      success: true,
+      leave,
+    });
+  } catch (err) {
+    console.error('POST /api/technicians/:id/leaves error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create technician leave' });
+  }
+});
+
+
+// Cancel leave record
+app.put('/api/technician-leaves/:id/cancel', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
+  try {
+    const leaveId = Number(req.params.id);
+
+    if (!leaveId) {
+      return res.status(400).json({ error: 'Valid leave id is required' });
+    }
+
+    const leave = await TechnicianLeave.findByPk(leaveId);
+    if (!leave) {
+      return res.status(404).json({ error: 'Leave record not found' });
+    }
+
+    await leave.update({ status: 'CANCELLED' });
+
+    const technicianId = Number(leave.technician_id || 0);
+    const today = formatLocalDate(new Date());
+
+    const activeLeave = await TechnicianLeave.findOne({
+      where: {
+        technician_id: technicianId,
+        status: 'APPROVED',
+        from_date: { [Op.lte]: today },
+        to_date: { [Op.gte]: today },
+      },
+    });
+
+    if (!activeLeave && technicianId) {
+      await Technician.update(
+        { availability_status: 'AVAILABLE' },
+        { where: { id: technicianId, availability_status: 'ON_LEAVE' } }
+      );
+    }
+
+    res.json({
+      success: true,
+      leave,
+    });
+  } catch (err) {
+    console.error('PUT /api/technician-leaves/:id/cancel error:', err);
+    res.status(500).json({ error: err.message || 'Failed to cancel technician leave' });
+  }
+});
+
 app.delete('/api/job-team/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -4644,7 +11582,9 @@ app.delete('/api/job-team/:id', async (req, res) => {
 // Office: list assignments across all projects (canonical endpoint)
 app.get('/api/jobs', async (req, res) => {
   try {
-    const status = (req.query.status ? String(req.query.status) : '').toUpperCase();
+    const status = (req.query.status ? String(req.query.status) : '').toUpperCase().trim();
+    const view = String(req.query.view || 'open').toLowerCase().trim();
+
     const where = {};
     if (status) where.status = status;
 
@@ -4658,7 +11598,6 @@ app.get('/api/jobs', async (req, res) => {
           model: ProjectLift,
           include: [
             { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
-            
           ],
         },
       ],
@@ -4670,6 +11609,33 @@ app.get('/api/jobs', async (req, res) => {
 
     const out = [];
     for (const a of rows) {
+      const statusUpper = String(a.status || '').toUpperCase().trim();
+      const supervisorUpper = String(a.supervisor_status || '').toUpperCase().trim();
+
+      let includeRow = true;
+
+      if (view === 'open') {
+        includeRow =
+          statusUpper === 'ASSIGNED' ||
+          statusUpper === 'IN_PROGRESS' ||
+          (statusUpper === 'DONE' && supervisorUpper === 'PENDING');
+      } else if (view === 'pending') {
+        includeRow =
+          statusUpper === 'DONE' && supervisorUpper === 'PENDING';
+      } else if (view === 'completed') {
+        includeRow =
+          statusUpper === 'DONE' && supervisorUpper === 'APPROVED';
+      } else if (view === 'all') {
+        includeRow = true;
+      } else {
+        includeRow =
+          statusUpper === 'ASSIGNED' ||
+          statusUpper === 'IN_PROGRESS' ||
+          (statusUpper === 'DONE' && supervisorUpper === 'PENDING');
+      }
+
+      if (!includeRow) continue;
+
       const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
       await ensureChecklistForAssignment(a);
       const checklistSummary = await getChecklistSummary(a.id);
@@ -4763,7 +11729,11 @@ app.get('/api/jobs', async (req, res) => {
       });
     }
 
-    res.json(out);
+    res.json({
+      view,
+      total: out.length,
+      rows: out,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -4889,6 +11859,7 @@ app.put('/api/assignments/:id/status', async (req, res) => {
   }
 });
 
+
 // --------------------
 // LIFTS
 // --------------------
@@ -4915,24 +11886,80 @@ function pickAmcContract(contracts) {
     .sort((a, b) => new Date(b.startDate || b.start_date) - new Date(a.startDate || a.start_date))[0] || null;
 }
 
-async function getOrCreateAmcContract(liftId, defaults = {}) {
-  let c = await Contract.findOne({ where: { liftId, contractType: 'AMC' } });
-  if (c) return c;
-  c = await Contract.create({
+async function getAmcContract(liftId) {
+  return await Contract.findOne({
+    where: { liftId, contractType: 'AMC' },
+  });
+}
+
+async function createAmcContract(liftId, defaults = {}) {
+  return await Contract.create({
     liftId,
     contractType: 'AMC',
     status: 'ACTIVE',
-    startDate: null,
-    endDate: null,
+    startDate: defaults.startDate || null,
+    endDate: defaults.endDate || null,
     amcType: defaults.amcType || null,
     billingCycle: defaults.billingCycle || 'ANNUAL',
     contractValue: defaults.contractValue ?? 0,
     serviceIntervalDays: defaults.serviceIntervalDays ?? 30,
     amcNotes: defaults.amcNotes || null,
-    remarks: null,
+    remarks: defaults.remarks || null,
   });
-  return c;
 }
+
+app.post(
+  '/api/contracts/amc',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const {
+        liftId,
+        amcType,
+        billingCycle,
+        contractValue,
+        serviceIntervalDays,
+        startDate,
+        endDate,
+        amcNotes,
+      } = req.body || {};
+
+      const id = Number(liftId);
+      if (!id) {
+        return res.status(400).json({ error: 'liftId is required' });
+      }
+
+      // Prevent duplicate AMC
+      const existing = await Contract.findOne({
+        where: { liftId: id, contractType: 'AMC' },
+      });
+
+      if (existing) {
+        return res.status(400).json({ error: 'AMC contract already exists for this lift' });
+      }
+
+      const contract = await Contract.create({
+        liftId: id,
+        contractType: 'AMC',
+        status: 'ACTIVE',
+        startDate: startDate || null,
+        endDate: endDate || null,
+        amcType: amcType || null,
+        billingCycle: billingCycle || 'ANNUAL',
+        contractValue: contractValue ?? 0,
+        serviceIntervalDays: serviceIntervalDays ?? 30,
+        amcNotes: amcNotes || null,
+        remarks: null,
+      });
+
+      res.json({ ok: true, contract });
+    } catch (err) {
+      console.error('Create AMC failed', err);
+      res.status(500).json({ error: 'Failed to create AMC contract' });
+    }
+  }
+);
 
 app.get('/api/lifts', async (req, res) => {
   try {
@@ -4951,6 +11978,7 @@ app.get('/api/lifts', async (req, res) => {
     });
 
     const today = startOfDay(new Date());
+
 
     const result = projectLifts.map((pl) => {
       const project = pl.Project || null;
@@ -5024,22 +12052,39 @@ app.post('/api/lifts', async (req, res) => {
       return res.status(400).json({ error: 'Customer Name, Building and Lift Code are required' });
     }
 
+    const code = String(liftCode).trim();
+
+    const existingLift = await Lift.findOne({
+      where: { liftCode: code },
+    });
+
+    if (existingLift) {
+      return res.status(400).json({
+        error: `Lift code "${code}" already exists. Please use a unique lift code.`,
+      });
+    }
+
     const customer = await findOrCreateCustomerByName(customerName);
     const site = await findOrCreateSiteByName(building);
 
     const lift = await Lift.create({
-      liftCode: String(liftCode).trim(),
-      customerId: customer.id,
-      siteId: site.id,
-      location: location ? String(location).trim() : null,
-      status: (status || 'ACTIVE').toUpperCase(),
-    });
+  liftCode: code,
+  customerId: customer.id,
+  siteId: site.id,
+  location: location ? String(location).trim() : null,
+  status: (status || 'ACTIVE').toUpperCase(),
+});
 
-    await getOrCreateAmcContract(lift.id, { amcType: amcType || 'LABOUR_ONLY' });
-
-    res.status(201).json({ id: lift.id });
+res.status(201).json({ id: lift.id });
   } catch (err) {
     console.error('POST /api/lifts error:', err);
+
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({
+        error: 'Lift code already exists. Please use a unique lift code.',
+      });
+    }
+
     res.status(500).json({ error: err.message || 'Failed to create lift' });
   }
 });
@@ -5084,7 +12129,7 @@ app.put('/api/lifts/:id/amc-type', async (req, res) => {
   }
 });
 
-app.put('/api/lifts/:id/amc', async (req, res) => {
+app.put('/api/lifts/:id/amc', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
     const lift = await Lift.findByPk(req.params.id);
     if (!lift) return res.status(404).json({ error: 'Lift not found' });
@@ -5099,26 +12144,33 @@ app.put('/api/lifts/:id/amc', async (req, res) => {
       amcNotes,
     } = req.body;
 
-    const c = await getOrCreateAmcContract(lift.id, {
-      amcType: amcType || 'LABOUR_ONLY',
-      billingCycle: billingCycle || 'ANNUAL',
-      contractValue: normalizeCost(contractValue) ?? 0,
-      serviceIntervalDays: Number(serviceIntervalDays) || 30,
-      amcNotes: amcNotes || null,
-    });
+    let c = await getAmcContract(lift.id);
 
-    if (amcType !== undefined) c.amcType = amcType || 'LABOUR_ONLY';
-    if (amcStartDate !== undefined) c.startDate = amcStartDate || null;
-    if (amcEndDate !== undefined) c.endDate = amcEndDate || null;
-    if (billingCycle !== undefined) c.billingCycle = billingCycle || 'ANNUAL';
-    if (contractValue !== undefined) c.contractValue = normalizeCost(contractValue) ?? 0;
-    if (serviceIntervalDays !== undefined) {
-      const n = Number(serviceIntervalDays);
-      c.serviceIntervalDays = Number.isFinite(n) ? n : 30;
+    if (!c) {
+      c = await createAmcContract(lift.id, {
+        amcType: amcType || 'LABOUR_ONLY',
+        startDate: amcStartDate || null,
+        endDate: amcEndDate || null,
+        billingCycle: billingCycle || 'ANNUAL',
+        contractValue: normalizeCost(contractValue) ?? 0,
+        serviceIntervalDays: Number(serviceIntervalDays) || 30,
+        amcNotes: amcNotes || null,
+      });
+    } else {
+      if (amcType !== undefined) c.amcType = amcType || 'LABOUR_ONLY';
+      if (amcStartDate !== undefined) c.startDate = amcStartDate || null;
+      if (amcEndDate !== undefined) c.endDate = amcEndDate || null;
+      if (billingCycle !== undefined) c.billingCycle = billingCycle || 'ANNUAL';
+      if (contractValue !== undefined) c.contractValue = normalizeCost(contractValue) ?? 0;
+      if (serviceIntervalDays !== undefined) {
+        const n = Number(serviceIntervalDays);
+        c.serviceIntervalDays = Number.isFinite(n) ? n : 30;
+      }
+      if (amcNotes !== undefined) c.amcNotes = amcNotes || null;
+
+      await c.save();
     }
-    if (amcNotes !== undefined) c.amcNotes = amcNotes || null;
 
-    await c.save();
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/lifts/:id/amc error:', err);
@@ -5211,6 +12263,103 @@ app.post('/api/lifts/:id/service-logs', async (req, res) => {
   }
 });
 
+app.get('/api/service/jobs', async (req, res) => {
+  try {
+    const rawView = String(req.query.view || 'open').toLowerCase().trim();
+    const limit = Math.min(Math.max(Number(req.query.limit || 300), 1), 1000);
+
+    const rows = await ProjectLiftAssignment.findAll({
+      where: {
+        assignment_role: ['WARRANTY SERVICE', 'AMC SERVICE'],
+      },
+      include: [
+        { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
+        {
+          model: ProjectLift,
+          include: [
+            { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
+          ],
+        },
+      ],
+      order: [['id', 'DESC']],
+      limit,
+    });
+
+    const teamMap = await buildJobTeamMap(rows.map((a) => a.id));
+
+    const out = [];
+    for (const a of rows) {
+      const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
+      await ensureChecklistForAssignment(a);
+      const checklistSummary = await getChecklistSummary(a.id);
+
+      const statusUpper = String(a.status || '').toUpperCase().trim();
+      const supervisorUpper = String(a.supervisor_status || '').toUpperCase().trim();
+
+      let includeRow = true;
+
+      if (rawView === 'open') {
+        includeRow =
+          statusUpper === 'ASSIGNED' ||
+          statusUpper === 'IN_PROGRESS' ||
+          (statusUpper === 'DONE' && supervisorUpper === 'PENDING');
+      } else if (rawView === 'completed') {
+        includeRow =
+          statusUpper === 'DONE' && supervisorUpper === 'APPROVED';
+      } else if (rawView === 'pending') {
+        includeRow =
+          statusUpper === 'DONE' && supervisorUpper === 'PENDING';
+      } else if (rawView === 'all') {
+        includeRow = true;
+      }
+
+      if (!includeRow) continue;
+
+      out.push({
+        id: a.id,
+        jobCode: `A-${a.id}`,
+        role: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
+        status: a.status,
+        supervisorStatus: a.supervisor_status || '',
+        dueDate: a.due_date,
+        assignedAt: a.assigned_at,
+        startedAt: a.started_at,
+        completedAt: a.completed_at,
+        notes: a.notes || '',
+        checklistSummary,
+
+        project: a.ProjectLift?.Project
+          ? {
+              id: a.ProjectLift.Project.id,
+              projectName: a.ProjectLift.Project.project_name,
+              projectCode: a.ProjectLift.Project.project_code || '',
+            }
+          : null,
+
+        lift: {
+          id: a.ProjectLift?.lift_id || null,
+          liftCode: a.ProjectLift?.lift_code || '',
+          location: a.ProjectLift?.location_label || '',
+        },
+
+        leadTechnician: summary.lead?.technician || a.Technician || null,
+        supportTechnicians: summary.supports
+          .map((m) => m.technician)
+          .filter(Boolean),
+      });
+    }
+
+    res.json({
+      view: rawView,
+      total: out.length,
+      rows: out,
+    });
+  } catch (err) {
+    console.error('GET /api/service/jobs error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load service jobs' });
+  }
+});
+
 async function buildServiceDashboardData() {
   const today = startOfDay(new Date());
 
@@ -5243,7 +12392,12 @@ const allAmcCandidates = projectLiftIds.length
   : [];
 
 // 🔥 FILTER manually (robust against snake_case / casing)
-const activeAmcContracts = allAmcCandidates;
+const activeAmcContracts = allAmcCandidates.filter((c) => {
+  const type = String(c.contractType || c.contract_type || '').toUpperCase();
+  const status = String(c.status || '').toUpperCase();
+
+  return type === 'AMC' && status === 'ACTIVE';
+});
 
 console.log('ALL AMC CANDIDATES RAW', allAmcCandidates.map((c) => ({
   id: c.id,
@@ -5319,7 +12473,7 @@ console.log('AMC DEBUG', {
 
       const warrantyInfo = buildWarrantyInfo(pl, rawAssignments, today);
 
-      rows.push({
+     rows.push({
   projectId: String(p.id),
   projectName: p.project_name || '',
   customerName: p.Customer?.name || '',
@@ -5328,6 +12482,8 @@ console.log('AMC DEBUG', {
   liftId: String(pl.lift_id || pl.liftId || ''),
   liftCode: pl.lift_code || '',
   location: pl.location_label || (pl.Lift ? pl.Lift.location : '') || '',
+  hasAmcContract: !!contract,
+  amcId: contract ? contract.id : null,
 
   warrantyMonths: pl.warranty_months ?? null,
   warrantyStartDate: warrantyInfo.startDate,
@@ -5644,10 +12800,216 @@ const PORT = Number(process.env.PORT || 5000);
 // Lightweight DB auto-migration (idempotent)
 // --------------------
 async function ensureSchema() {
-  // Sequence for serial Project Codes
-  await sequelize.query(`CREATE SEQUENCE IF NOT EXISTS public.project_code_seq START 1;`);
+  // ---------------- UTILS ----------------
 
-  // Projects table
+  async function addColumnIfMissing(table, column, definition) {
+    await sequelize.query(`
+      ALTER TABLE ${table}
+      ADD COLUMN IF NOT EXISTS ${column} ${definition};
+    `);
+  }
+
+  async function createIndexSafe(name, table, expr, extra = '') {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS ${name}
+      ON ${table} ${expr} ${extra};
+    `);
+  }
+
+  async function createUniqueIndexSafe(name, table, expr, extra = '') {
+    await sequelize.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS ${name}
+      ON ${table} ${expr} ${extra};
+    `);
+  }
+
+  // ---------------- SEQUENCES ----------------
+
+  await sequelize.query(`
+    CREATE SEQUENCE IF NOT EXISTS public.project_code_seq START 1;
+  `);
+
+  // ---------------- BASE TABLES ----------------
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS customers (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      address TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('customers', 'phone', 'TEXT');
+  await addColumnIfMissing('customers', 'email', 'TEXT');
+  await addColumnIfMissing('customers', 'address', 'TEXT');
+  await addColumnIfMissing('customers', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('customers', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS sites (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      address TEXT,
+      gps_lat DECIMAL(10,7),
+      gps_lng DECIMAL(10,7),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('sites', 'address', 'TEXT');
+  await addColumnIfMissing('sites', 'gps_lat', 'DECIMAL(10,7)');
+  await addColumnIfMissing('sites', 'gps_lng', 'DECIMAL(10,7)');
+  await addColumnIfMissing('sites', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('sites', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS buildings (
+      id BIGSERIAL PRIMARY KEY,
+      name VARCHAR(200) NOT NULL,
+      address VARCHAR(500),
+      contact_name VARCHAR(200),
+      contact_phone VARCHAR(50),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('buildings', 'address', 'VARCHAR(500)');
+  await addColumnIfMissing('buildings', 'contact_name', 'VARCHAR(200)');
+  await addColumnIfMissing('buildings', 'contact_phone', 'VARCHAR(50)');
+  await addColumnIfMissing('buildings', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('buildings', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS "Lifts" (
+      id BIGSERIAL PRIMARY KEY,
+      "liftCode" TEXT UNIQUE NOT NULL,
+      "customerName" TEXT,
+      "building" TEXT,
+      "location" TEXT,
+      "status" TEXT DEFAULT 'ACTIVE',
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await sequelize.query(`ALTER TABLE "Lifts" ADD COLUMN IF NOT EXISTS "customerName" TEXT;`);
+  await sequelize.query(`ALTER TABLE "Lifts" ADD COLUMN IF NOT EXISTS "building" TEXT;`);
+  await sequelize.query(`ALTER TABLE "Lifts" ADD COLUMN IF NOT EXISTS "location" TEXT;`);
+  await sequelize.query(`ALTER TABLE "Lifts" ADD COLUMN IF NOT EXISTS "status" TEXT DEFAULT 'ACTIVE';`);
+  await sequelize.query(`ALTER TABLE "Lifts" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+  await sequelize.query(`ALTER TABLE "Lifts" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS technicians (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      role TEXT,
+      skills TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      pin_salt TEXT,
+      pin_hash TEXT,
+      must_change_pin BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('technicians', 'email', 'TEXT');
+  await addColumnIfMissing('technicians', 'role', 'TEXT');
+  await addColumnIfMissing('technicians', 'skills', 'TEXT');
+  await addColumnIfMissing('technicians', 'is_active', 'BOOLEAN NOT NULL DEFAULT TRUE');
+  await addColumnIfMissing('technicians', 'pin_salt', 'TEXT');
+  await addColumnIfMissing('technicians', 'pin_hash', 'TEXT');
+  await addColumnIfMissing('technicians', 'must_change_pin', 'BOOLEAN NOT NULL DEFAULT TRUE');
+  await addColumnIfMissing('technicians', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('technicians', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+// 🔥 ADD: availability_status column
+await addColumnIfMissing(
+  'technicians',
+  'availability_status',
+  "VARCHAR(20) NOT NULL DEFAULT 'AVAILABLE'"
+);
+
+// 🔥 Ensure no NULL values (safety for old DBs)
+await sequelize.query(`
+  UPDATE technicians
+  SET availability_status = 'AVAILABLE'
+  WHERE availability_status IS NULL;
+`);
+
+// 🔥 Optional: enforce valid values (safe constraint)
+await sequelize.query(`
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'chk_technicians_availability_status'
+    ) THEN
+      ALTER TABLE technicians
+      ADD CONSTRAINT chk_technicians_availability_status
+      CHECK (availability_status IN ('AVAILABLE', 'OFF_DUTY', 'ON_LEAVE', 'SUSPENDED'));
+    END IF;
+  END $$;
+`);
+
+await sequelize.query(`
+  CREATE TABLE IF NOT EXISTS technician_leaves (
+    id BIGSERIAL PRIMARY KEY,
+    technician_id BIGINT NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
+    from_date DATE NOT NULL,
+    to_date DATE NOT NULL,
+    reason TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+await addColumnIfMissing('technician_leaves', 'technician_id', 'BIGINT');
+await addColumnIfMissing('technician_leaves', 'from_date', 'DATE');
+await addColumnIfMissing('technician_leaves', 'to_date', 'DATE');
+await addColumnIfMissing('technician_leaves', 'reason', 'TEXT');
+await addColumnIfMissing('technician_leaves', 'status', "VARCHAR(20) NOT NULL DEFAULT 'APPROVED'");
+await addColumnIfMissing('technician_leaves', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+await addColumnIfMissing('technician_leaves', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+await sequelize.query(`
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'chk_technician_leaves_status'
+    ) THEN
+      ALTER TABLE technician_leaves
+      ADD CONSTRAINT chk_technician_leaves_status
+      CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'));
+    END IF;
+  END $$;
+`);
+
+await createIndexSafe(
+  'idx_technician_leaves_technician_id',
+  'technician_leaves',
+  '(technician_id)'
+);
+
+await createIndexSafe(
+  'idx_technician_leaves_dates',
+  'technician_leaves',
+  '(from_date, to_date)'
+);
+
+  // ---------------- PROJECTS ----------------
+
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS projects (
       id BIGSERIAL PRIMARY KEY,
@@ -5662,32 +13024,33 @@ async function ensureSchema() {
     );
   `);
 
-  await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_code TEXT;`);
-  await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_name TEXT;`);
-  await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS customer_id BIGINT;`);
-  await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS site_id BIGINT;`);
-  await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS status TEXT;`);
-  await sequelize.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS notes TEXT;`);
+  await addColumnIfMissing('projects', 'project_code', 'TEXT');
+  await addColumnIfMissing('projects', 'project_name', 'TEXT');
+  await addColumnIfMissing('projects', 'customer_id', 'BIGINT');
+  await addColumnIfMissing('projects', 'site_id', 'BIGINT');
+  await addColumnIfMissing('projects', 'status', `TEXT NOT NULL DEFAULT 'OPEN'`);
+  await addColumnIfMissing('projects', 'notes', 'TEXT');
+  await addColumnIfMissing('projects', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('projects', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
 
-  // Project lifts
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lifts (
       id BIGSERIAL PRIMARY KEY,
       project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      lift_id BIGINT REFERENCES lifts(id) ON DELETE SET NULL,
+      lift_id BIGINT REFERENCES "Lifts"(id) ON DELETE SET NULL,
       lift_code TEXT NOT NULL,
       location_label TEXT,
-
       passenger_capacity INTEGER,
       lift_type TEXT,
       number_of_floors INTEGER,
-
       installation_start_date DATE,
       installation_end_date DATE,
       testing_start_date DATE,
       testing_end_date DATE,
       handover_date DATE,
+      handover_actual_date DATE,
       warranty_months INTEGER NOT NULL DEFAULT 12,
+      warranty_service_visits INTEGER NOT NULL DEFAULT 5,
       warranty_start_date DATE,
       warranty_end_date DATE,
       notes TEXT,
@@ -5696,109 +13059,165 @@ async function ensureSchema() {
     );
   `);
 
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS lift_code TEXT;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS location_label TEXT;`);
+  await addColumnIfMissing('project_lifts', 'lift_code', 'TEXT');
+  await addColumnIfMissing('project_lifts', 'location_label', 'TEXT');
+  await addColumnIfMissing('project_lifts', 'passenger_capacity', 'INTEGER');
+  await addColumnIfMissing('project_lifts', 'lift_type', 'TEXT');
+  await addColumnIfMissing('project_lifts', 'number_of_floors', 'INTEGER');
+  await addColumnIfMissing('project_lifts', 'installation_start_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'installation_end_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'testing_start_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'testing_end_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'handover_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'handover_actual_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'warranty_months', 'INTEGER NOT NULL DEFAULT 12');
+  await addColumnIfMissing('project_lifts', 'warranty_service_visits', 'INTEGER NOT NULL DEFAULT 5');
+  await addColumnIfMissing('project_lifts', 'warranty_start_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'warranty_end_date', 'DATE');
+  await addColumnIfMissing('project_lifts', 'notes', 'TEXT');
+  await addColumnIfMissing('project_lifts', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('project_lifts', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
 
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS passenger_capacity INTEGER;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS lift_type TEXT;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS number_of_floors INTEGER;`);
+  await createUniqueIndexSafe('ux_project_lifts_lift_code', 'project_lifts', '(lift_code)');
+  await createIndexSafe('idx_project_lifts_project_id', 'project_lifts', '(project_id)');
+  await createIndexSafe('idx_project_lifts_lift_id', 'project_lifts', '(lift_id)');
 
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_months INTEGER;`);
-await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_service_visits INTEGER NOT NULL DEFAULT 5;`);
-await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_actual_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_start_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS warranty_end_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS handover_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS installation_start_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS installation_end_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS testing_start_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lifts ADD COLUMN IF NOT EXISTS testing_end_date DATE;`);
+  // ---------------- CONTRACTS ----------------
 
-  await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_project_lifts_lift_code ON project_lifts(lift_code);`);
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS contracts (
+      id BIGSERIAL PRIMARY KEY,
+      project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
+      contract_type TEXT,
+      status TEXT,
+      amc_type TEXT,
+      start_date DATE,
+      end_date DATE,
+      service_interval_days INTEGER,
+      service_visit_count INTEGER NOT NULL DEFAULT 5,
+      billing_cycle TEXT,
+      contract_value NUMERIC(12,2),
+      amc_notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 
-// Contracts (AMC)
+  await addColumnIfMissing('contracts', 'contract_type', 'TEXT');
+  await addColumnIfMissing('contracts', 'status', 'TEXT');
+  await addColumnIfMissing('contracts', 'amc_type', 'TEXT');
+  await addColumnIfMissing('contracts', 'start_date', 'DATE');
+  await addColumnIfMissing('contracts', 'end_date', 'DATE');
+  await addColumnIfMissing('contracts', 'service_interval_days', 'INTEGER');
+  await addColumnIfMissing('contracts', 'service_visit_count', 'INTEGER NOT NULL DEFAULT 5');
+  await addColumnIfMissing('contracts', 'billing_cycle', 'TEXT');
+  await addColumnIfMissing('contracts', 'contract_value', 'NUMERIC(12,2)');
+  await addColumnIfMissing('contracts', 'amc_notes', 'TEXT');
+  await addColumnIfMissing('contracts', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('contracts', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await createIndexSafe('idx_contracts_project_lift_id', 'contracts', '(project_lift_id)');
+  await createIndexSafe('idx_contracts_status', 'contracts', '(status)');
+  await createIndexSafe('idx_contracts_type', 'contracts', '(contract_type)');
+
 await sequelize.query(`
-  CREATE TABLE IF NOT EXISTS contracts (
-    id BIGSERIAL PRIMARY KEY,
-    project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
-    amc_type TEXT,
-    start_date DATE,
-    end_date DATE,
-    service_interval_days INTEGER,
-    service_visit_count INTEGER NOT NULL DEFAULT 5,
-    billing_cycle TEXT,
-    contract_value NUMERIC,
-    amc_notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  );
+  CREATE INDEX IF NOT EXISTS idx_contracts_active_amc
+  ON contracts (project_lift_id)
+  WHERE contract_type = 'AMC' AND status = 'ACTIVE';
 `);
 
-await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_visit_count INTEGER NOT NULL DEFAULT 5;`);
+  // ---------------- PROJECT LIFT ASSIGNMENTS ----------------
 
-  // Assignments
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lift_assignments (
       id BIGSERIAL PRIMARY KEY,
       project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
       technician_id BIGINT NOT NULL REFERENCES technicians(id) ON DELETE RESTRICT,
       assignment_role TEXT NOT NULL,
-      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      unassigned_at TIMESTAMPTZ,
-      notes TEXT,
       status TEXT NOT NULL DEFAULT 'ASSIGNED',
       due_date DATE,
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       started_at TIMESTAMPTZ,
-      completed_at TIMESTAMPTZ
+      completed_at TIMESTAMPTZ,
+      unassigned_at TIMESTAMPTZ,
+      notes TEXT,
+      supervisor_status TEXT DEFAULT 'PENDING',
+      supervisor_approved_at TIMESTAMPTZ,
+      supervisor_remarks TEXT,
+      checklist_status TEXT,
+      checklist_completion_percent INTEGER,
+      supervisor_rejected_at TIMESTAMPTZ,
+      resubmission_required BOOLEAN NOT NULL DEFAULT FALSE
     );
   `);
 
-  await sequelize.query(`ALTER TABLE project_lift_assignments ADD COLUMN IF NOT EXISTS status TEXT;`);
-  await sequelize.query(`ALTER TABLE project_lift_assignments ADD COLUMN IF NOT EXISTS due_date DATE;`);
-  await sequelize.query(`ALTER TABLE project_lift_assignments ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;`);
-  await sequelize.query(`ALTER TABLE project_lift_assignments ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;`);
+  await addColumnIfMissing('project_lift_assignments', 'status', `TEXT NOT NULL DEFAULT 'ASSIGNED'`);
+  await addColumnIfMissing('project_lift_assignments', 'due_date', 'DATE');
+  await addColumnIfMissing('project_lift_assignments', 'assigned_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('project_lift_assignments', 'started_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('project_lift_assignments', 'completed_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('project_lift_assignments', 'unassigned_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('project_lift_assignments', 'notes', 'TEXT');
+  await addColumnIfMissing('project_lift_assignments', 'supervisor_status', `TEXT DEFAULT 'PENDING'`);
+  await addColumnIfMissing('project_lift_assignments', 'supervisor_approved_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('project_lift_assignments', 'supervisor_remarks', 'TEXT');
+  await addColumnIfMissing('project_lift_assignments', 'checklist_status', 'TEXT');
+  await addColumnIfMissing('project_lift_assignments', 'checklist_completion_percent', 'INTEGER');
+  await addColumnIfMissing('project_lift_assignments', 'supervisor_rejected_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('project_lift_assignments', 'resubmission_required', 'BOOLEAN NOT NULL DEFAULT FALSE');
 
-  // Multi-technician job members
+  await createIndexSafe('idx_pla_project_lift_id', 'project_lift_assignments', '(project_lift_id)');
+  await createIndexSafe('idx_pla_technician_id', 'project_lift_assignments', '(technician_id)');
+  await createIndexSafe('idx_pla_status', 'project_lift_assignments', '(status)');
+  await createIndexSafe('idx_pla_assignment_role', 'project_lift_assignments', '(assignment_role)');
+  await createIndexSafe('idx_pla_due_date', 'project_lift_assignments', '(due_date)');
+
+  // Optional but very useful: prevents duplicate open service jobs
+  await sequelize.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_open_service_per_lift_role
+    ON project_lift_assignments (project_lift_id, assignment_role)
+    WHERE status IN ('ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'PENDING');
+  `);
+
+  // ---------------- PROJECT LIFT JOB TECHNICIANS ----------------
+
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lift_job_technicians (
       id BIGSERIAL PRIMARY KEY,
       assignment_id BIGINT NOT NULL REFERENCES project_lift_assignments(id) ON DELETE CASCADE,
       technician_id BIGINT NOT NULL REFERENCES technicians(id) ON DELETE RESTRICT,
-      team_role TEXT NOT NULL,
+      team_role TEXT NOT NULL DEFAULT 'MEMBER',
       assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       started_at TIMESTAMPTZ,
       completed_at TIMESTAMPTZ,
       notes TEXT
     );
   `);
-  await sequelize.query(`ALTER TABLE project_lift_job_technicians ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;`);
-  await sequelize.query(`ALTER TABLE project_lift_job_technicians ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;`);
-  await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_project_lift_job_technicians_unique_member ON project_lift_job_technicians(assignment_id, technician_id);`);
-  await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_project_lift_job_technicians_one_lead ON project_lift_job_technicians(assignment_id) WHERE team_role = 'LEAD';`);
 
-  // Technicians + sessions
+  await addColumnIfMissing('project_lift_job_technicians', 'team_role', `TEXT NOT NULL DEFAULT 'MEMBER'`);
+  await addColumnIfMissing('project_lift_job_technicians', 'assigned_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('project_lift_job_technicians', 'started_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('project_lift_job_technicians', 'completed_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('project_lift_job_technicians', 'notes', 'TEXT');
+
+  await createUniqueIndexSafe(
+    'uq_project_lift_job_technicians_unique_member',
+    'project_lift_job_technicians',
+    '(assignment_id, technician_id)'
+  );
+
   await sequelize.query(`
-    CREATE TABLE IF NOT EXISTS technicians (
-      id BIGSERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      phone TEXT,
-      email TEXT,
-      role TEXT,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      pin_salt TEXT,
-      pin_hash TEXT,
-      must_change_pin BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_project_lift_job_technicians_one_lead
+    ON project_lift_job_technicians (assignment_id)
+    WHERE team_role = 'LEAD';
   `);
 
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_salt TEXT;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS pin_hash TEXT;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS must_change_pin BOOLEAN NOT NULL DEFAULT TRUE;`);
-  await sequelize.query(`ALTER TABLE technicians ADD COLUMN IF NOT EXISTS skills TEXT;`);
-  
-        await sequelize.query(`
+  await createIndexSafe('idx_pljt_assignment_id', 'project_lift_job_technicians', '(assignment_id)');
+  await createIndexSafe('idx_pljt_technician_id', 'project_lift_job_technicians', '(technician_id)');
+
+  // ---------------- TECHNICIAN SESSIONS ----------------
+
+  await sequelize.query(`
     CREATE TABLE IF NOT EXISTS technician_sessions (
       id BIGSERIAL PRIMARY KEY,
       technician_id BIGINT NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
@@ -5808,6 +13227,270 @@ await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_vi
       last_seen_at TIMESTAMPTZ
     );
   `);
+
+  await addColumnIfMissing('technician_sessions', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('technician_sessions', 'last_seen_at', 'TIMESTAMPTZ');
+
+  await createIndexSafe('idx_tech_sessions_technician_id', 'technician_sessions', '(technician_id)');
+  await createIndexSafe('idx_tech_sessions_expires_at', 'technician_sessions', '(expires_at)');
+
+  // ---------------- CHECKLIST ----------------
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS assignment_checklist_items (
+      id BIGSERIAL PRIMARY KEY,
+      assignment_id BIGINT NOT NULL REFERENCES project_lift_assignments(id) ON DELETE CASCADE,
+      template_item_id BIGINT,
+      sort_order INTEGER NOT NULL DEFAULT 1,
+      item_text TEXT NOT NULL,
+      is_required BOOLEAN NOT NULL DEFAULT TRUE,
+      item_type TEXT NOT NULL DEFAULT 'BOOLEAN',
+      is_done BOOLEAN NOT NULL DEFAULT FALSE,
+      text_value TEXT,
+      number_value NUMERIC(18,2),
+      done_by_technician_id BIGINT,
+      done_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('assignment_checklist_items', 'template_item_id', 'BIGINT');
+  await addColumnIfMissing('assignment_checklist_items', 'sort_order', 'INTEGER NOT NULL DEFAULT 1');
+  await addColumnIfMissing('assignment_checklist_items', 'item_text', `TEXT NOT NULL DEFAULT ''`);
+  await addColumnIfMissing('assignment_checklist_items', 'is_required', 'BOOLEAN NOT NULL DEFAULT TRUE');
+  await addColumnIfMissing('assignment_checklist_items', 'item_type', `TEXT NOT NULL DEFAULT 'BOOLEAN'`);
+  await addColumnIfMissing('assignment_checklist_items', 'is_done', 'BOOLEAN NOT NULL DEFAULT FALSE');
+  await addColumnIfMissing('assignment_checklist_items', 'text_value', 'TEXT');
+  await addColumnIfMissing('assignment_checklist_items', 'number_value', 'NUMERIC(18,2)');
+  await addColumnIfMissing('assignment_checklist_items', 'done_by_technician_id', 'BIGINT');
+  await addColumnIfMissing('assignment_checklist_items', 'done_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('assignment_checklist_items', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('assignment_checklist_items', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await createIndexSafe('idx_aci_assignment_id', 'assignment_checklist_items', '(assignment_id)');
+  await createIndexSafe('idx_aci_done_by_technician_id', 'assignment_checklist_items', '(done_by_technician_id)');
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS assignment_checklist_notes (
+      id BIGSERIAL PRIMARY KEY,
+      assignment_id BIGINT NOT NULL REFERENCES project_lift_assignments(id) ON DELETE CASCADE,
+      technician_id BIGINT REFERENCES technicians(id) ON DELETE SET NULL,
+      note_text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await createIndexSafe('idx_acn_assignment_id', 'assignment_checklist_notes', '(assignment_id)');
+
+  // ---------------- SERVICE REPORTS ----------------
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS assignment_service_reports (
+      id BIGSERIAL PRIMARY KEY,
+      assignment_id BIGINT NOT NULL UNIQUE REFERENCES project_lift_assignments(id) ON DELETE CASCADE,
+      project_lift_id BIGINT NOT NULL REFERENCES project_lifts(id) ON DELETE CASCADE,
+
+      overall_condition TEXT,
+      faults_observed TEXT,
+      action_taken TEXT,
+      recommendations TEXT,
+      follow_up_required BOOLEAN NOT NULL DEFAULT FALSE,
+      technician_remarks TEXT,
+      
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('assignment_service_reports', 'overall_condition', 'TEXT');
+  await addColumnIfMissing('assignment_service_reports', 'faults_observed', 'TEXT');
+  await addColumnIfMissing('assignment_service_reports', 'action_taken', 'TEXT');
+  await addColumnIfMissing('assignment_service_reports', 'recommendations', 'TEXT');
+  await addColumnIfMissing('assignment_service_reports', 'follow_up_required', 'BOOLEAN NOT NULL DEFAULT FALSE');
+  await addColumnIfMissing('assignment_service_reports', 'technician_remarks', 'TEXT');
+
+  // compatibility columns
+  
+  await addColumnIfMissing('assignment_service_reports', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('assignment_service_reports', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await createIndexSafe('idx_asr_project_lift_id', 'assignment_service_reports', '(project_lift_id)');
+  await createIndexSafe('idx_asr_assignment_id', 'assignment_service_reports', '(assignment_id)');
+
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS assignment_service_parts (
+      id BIGSERIAL PRIMARY KEY,
+      report_id BIGINT NOT NULL REFERENCES assignment_service_reports(id) ON DELETE CASCADE,
+      item_name TEXT NOT NULL,
+      qty NUMERIC(18,2) NOT NULL DEFAULT 1,
+      remarks TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('assignment_service_parts', 'remarks', 'TEXT');
+  await addColumnIfMissing('assignment_service_parts', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await createIndexSafe('idx_asp_report_id', 'assignment_service_parts', '(report_id)');
+
+  // ---------------- LEGACY / DASHBOARD SERVICE LOGS ----------------
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS service_logs (
+      id BIGSERIAL PRIMARY KEY,
+      lift_id BIGINT NOT NULL REFERENCES "Lifts"(id) ON DELETE CASCADE,
+      service_date DATE NOT NULL,
+      technician_name TEXT NOT NULL,
+      work_done TEXT,
+      remarks TEXT,
+      cost NUMERIC(10,2),
+      next_service_due DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await addColumnIfMissing('service_logs', 'work_done', 'TEXT');
+  await addColumnIfMissing('service_logs', 'remarks', 'TEXT');
+  await addColumnIfMissing('service_logs', 'cost', 'NUMERIC(10,2)');
+  await addColumnIfMissing('service_logs', 'next_service_due', 'DATE');
+  await addColumnIfMissing('service_logs', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('service_logs', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  await createIndexSafe('idx_service_logs_lift_id', 'service_logs', '(lift_id)');
+  await createIndexSafe('idx_service_logs_service_date', 'service_logs', '(service_date)');
+
+  // ---------------- JOBS ----------------
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id BIGSERIAL PRIMARY KEY,
+      job_type VARCHAR(30) NOT NULL,
+      source_type VARCHAR(30) NOT NULL,
+      project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL,
+      project_lift_id BIGINT REFERENCES project_lifts(id) ON DELETE SET NULL,
+      lift_id BIGINT REFERENCES "Lifts"(id) ON DELETE SET NULL,
+      title TEXT,
+      notes TEXT,
+      priority VARCHAR(20) NOT NULL DEFAULT 'NORMAL',
+      status VARCHAR(20) NOT NULL DEFAULT 'ASSIGNED',
+      due_date DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      cancelled_at TIMESTAMPTZ
+    );
+  `);
+
+  await addColumnIfMissing('jobs', 'title', 'TEXT');
+  await addColumnIfMissing('jobs', 'notes', 'TEXT');
+  await addColumnIfMissing('jobs', 'priority', `VARCHAR(20) NOT NULL DEFAULT 'NORMAL'`);
+  await addColumnIfMissing('jobs', 'status', `VARCHAR(20) NOT NULL DEFAULT 'ASSIGNED'`);
+  await addColumnIfMissing('jobs', 'due_date', 'DATE');
+  await addColumnIfMissing('jobs', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('jobs', 'started_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('jobs', 'completed_at', 'TIMESTAMPTZ');
+  await addColumnIfMissing('jobs', 'cancelled_at', 'TIMESTAMPTZ');
+
+  await createIndexSafe('idx_jobs_project_id', 'jobs', '(project_id)');
+  await createIndexSafe('idx_jobs_project_lift_id', 'jobs', '(project_lift_id)');
+  await createIndexSafe('idx_jobs_lift_id', 'jobs', '(lift_id)');
+  await createIndexSafe('idx_jobs_status', 'jobs', '(status)');
+  await createIndexSafe('idx_jobs_due_date', 'jobs', '(due_date)');
+
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS job_assignments (
+      id BIGSERIAL PRIMARY KEY,
+      job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      technician_id BIGINT NOT NULL REFERENCES technicians(id) ON DELETE RESTRICT,
+      assignment_role VARCHAR(30) NOT NULL DEFAULT 'TECH',
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      unassigned_at TIMESTAMPTZ
+    );
+  `);
+
+  await addColumnIfMissing('job_assignments', 'assignment_role', `VARCHAR(30) NOT NULL DEFAULT 'TECH'`);
+  await addColumnIfMissing('job_assignments', 'assigned_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+  await addColumnIfMissing('job_assignments', 'unassigned_at', 'TIMESTAMPTZ');
+
+  await createIndexSafe('idx_job_assignments_job_id', 'job_assignments', '(job_id)');
+  await createIndexSafe('idx_job_assignments_technician_id', 'job_assignments', '(technician_id)');
+  await createUniqueIndexSafe('uq_job_assignments_job_technician', 'job_assignments', '(job_id, technician_id)');
+
+  // ---------------- OPTIONAL BACKFILL / SAFETY ----------------
+
+  // backfill team_role if older DB rows exist with nulls
+  await sequelize.query(`
+    UPDATE project_lift_job_technicians
+    SET team_role = 'MEMBER'
+    WHERE team_role IS NULL;
+  `);
+
+await sequelize.query(`
+  ALTER TABLE technicians
+  ADD COLUMN IF NOT EXISTS role_id BIGINT;
+`);
+
+await sequelize.query(`
+  ALTER TABLE technicians
+  ADD CONSTRAINT technicians_role_id_fkey
+  FOREIGN KEY (role_id)
+  REFERENCES roles(id)
+  ON DELETE SET NULL;
+`).catch(() => {});
+
+  // normalize old null created_at values where practical
+  await sequelize.query(`
+    UPDATE jobs
+    SET created_at = NOW()
+    WHERE created_at IS NULL;
+  `);
+
+  await sequelize.query(`
+    UPDATE technician_sessions
+    SET created_at = NOW()
+    WHERE created_at IS NULL;
+  `);
+}
+
+async function ensureBreakdownEscalationSchema() {
+  const qi = sequelize.getQueryInterface();
+
+  const table = await qi.describeTable('job_assignments');
+
+  if (!table.technician_response_status) {
+    await qi.addColumn('job_assignments', 'technician_response_status', {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: 'PENDING',
+    });
+  }
+
+  if (!table.technician_responded_at) {
+    await qi.addColumn('job_assignments', 'technician_responded_at', {
+      type: DataTypes.DATE,
+      allowNull: true,
+    });
+  }
+
+  if (!table.escalation_status) {
+    await qi.addColumn('job_assignments', 'escalation_status', {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: 'NONE',
+    });
+  }
+
+  if (!table.escalated_at) {
+    await qi.addColumn('job_assignments', 'escalated_at', {
+      type: DataTypes.DATE,
+      allowNull: true,
+    });
+  }
+
+  console.log('✅ Breakdown escalation schema checked');
 }
 
 (async () => {
@@ -5818,13 +13501,36 @@ await sequelize.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS service_vi
     await ensureSchema();
     console.log('✅ Schema checked');
 
+    await ensureBreakdownJobPartsTable();
+    console.log('✅ Breakdown job parts table checked/created');
+
+    await ensureBreakdownEscalationSchema();
+    console.log('✅ Breakdown escalation schema checked');
+
+    await User.sync();
+    await Role.sync();
+    await Permission.sync();
+    await RolePermission.sync();
+    console.log('✅ Auth/RBAC tables checked/created');
+
+    await ensureDefaultRoles();
+    await ensureDefaultPermissions();
+    await ensureRolePermissions();
+    await ensureDefaultAdmin();
+
+    console.log('✅ Default admin checked/created');
+
     if (String(process.env.DB_SYNC || '').toLowerCase() === 'true') {
       const alter = String(process.env.DB_SYNC_ALTER || '').toLowerCase() === 'true';
       await sequelize.sync({ alter });
       console.log(`✅ Tables synced (alter=${alter})`);
     }
 
-    app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`));
+    startBreakdownEscalationChecker();
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Server running on http://localhost:${PORT}`);
+    });
   } catch (err) {
     console.error('❌ Database connection failed:', err);
     process.exit(1);

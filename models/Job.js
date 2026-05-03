@@ -39,12 +39,17 @@ module.exports = (sequelize, DataTypes) => {
     }
   );
 
-  Job.associate = (models) => {
+    Job.associate = (models) => {
     Job.belongsTo(models.Project, { foreignKey: "project_id" });
     Job.belongsTo(models.ProjectLift, { foreignKey: "project_lift_id" });
     Job.belongsTo(models.Lift, { foreignKey: "lift_id" });
 
     Job.hasMany(models.JobAssignment, { foreignKey: "job_id" });
+
+    Job.hasMany(models.BreakdownJobPart, {
+      foreignKey: "job_id",
+      as: "parts",
+    });
   };
 
   return Job;

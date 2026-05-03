@@ -1,9 +1,80 @@
 // Phase 2 UI Shell (Theme 3) — Technician Dashboard + Job Status Buttons
 const LS_TOKEN = "liftapp.tech.token";
 const LS_TECH = "liftapp.tech.profile";
+const LS_USER_TOKEN = "liftapp.user.token";
+const LS_USER = "liftapp.user.profile";
+
+let breakdownFilter = "open";
+
+function getCurrentUser() {
+  try {
+    const officeUser = JSON.parse(localStorage.getItem(LS_USER) || 'null');
+    if (officeUser) return officeUser;
+
+    const technician = JSON.parse(localStorage.getItem(LS_TECH) || 'null');
+    if (technician) return technician;
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function can(permissionCode) {
+  const user = getCurrentUser();
+  const role = String(user?.role || '').trim().toUpperCase();
+
+  // temporary role-based fallback for office users
+  if (['ADMIN', 'MANAGER', 'SUPERVISOR'].includes(role)) {
+    return true;
+  }
+
+  const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  return permissions.includes(permissionCode);
+}
+
+function isLoggedIn() {
+  return !!localStorage.getItem(LS_TOKEN);
+}
+
+function setSession(token, technician) {
+  state.techToken = token || null;
+  state.tech = technician || null;
+
+  if (state.techToken) {
+    localStorage.setItem(LS_TOKEN, state.techToken);
+  } else {
+    localStorage.removeItem(LS_TOKEN);
+  }
+
+  localStorage.setItem(LS_TECH, JSON.stringify(state.tech || null));
+}
+
+function clearSession() {
+  state.userToken = null;
+  state.user = null;
+  state.techToken = null;
+  state.tech = null;
+  state.currentProjectId = null;
+  state.currentProject = null;
+
+  localStorage.removeItem(LS_USER_TOKEN);
+  localStorage.removeItem(LS_USER);
+  localStorage.removeItem(LS_TOKEN);
+  localStorage.removeItem(LS_TECH);
+
+  setSidebarVisible(false);
+}
 
 const state = {
   view: "dashboard",
+
+// office session
+  userToken: localStorage.getItem(LS_USER_TOKEN) || null,
+  user: (() => {
+    try { return JSON.parse(localStorage.getItem(LS_USER) || "null"); }
+    catch { return null; }
+  })(),
 
   // technician session
   techToken: localStorage.getItem(LS_TOKEN) || null,
@@ -16,6 +87,9 @@ const state = {
   currentProjectId: null,
   currentProject: null,
 };
+
+let serviceJobsView = "open";
+let projectJobsView = "open";
 
 const el = (id) => document.getElementById(id);
 function setActiveNav(view) {
@@ -294,7 +368,293 @@ function isServiceJobRole(role) {
   return ["WARRANTY SERVICE", "AMC SERVICE"].includes(r);
 }
 
+const ROLE_DEFAULT_PERMISSIONS = {
+  ADMIN: {
+    "dashboard.view": true,
+    "projects.view": true,
+    "projects.create": true,
+    "projects.edit": true,
+    "projects.delete": true,
+    "lifts.view": true,
+    "lifts.create": true,
+    "lifts.edit": true,
+    "lifts.delete": true,
+    "jobs.view": true,
+    "jobs.create": true,
+    "jobs.edit": true,
+    "jobs.assign": true,
+    "jobs.close": true,
+    "jobs.delete": true,
+"breakdowns.view": true,
+"breakdowns.create": true,
+"breakdowns.assign": true,
+"breakdowns.edit": true,
+"breakdowns.close": true,
+"breakdowns.escalate": true,
+"breakdowns.delete": true,
+    "technicians.view": true,
+    "technicians.create": true,
+    "technicians.edit": true,
+    "technicians.deactivate": true,
+    "service.view": true,
+    "service.update": true,
+    "service.approve": true,
+    "amc.view": true,
+    "amc.create": true,
+    "amc.edit": true,
+    "amc.close": true,
+    "reports.view": true,
+    "reports.export": true,
+    "users.view": true,
+    "users.create": true,
+    "users.edit": true,
+    "users.deactivate": true,
+    "users.permissions": true,
+  },
+
+  MANAGER: {
+    "dashboard.view": true,
+    "projects.view": true,
+    "projects.create": true,
+    "projects.edit": true,
+    "projects.delete": false,
+    "lifts.view": true,
+    "lifts.create": true,
+    "lifts.edit": true,
+    "lifts.delete": false,
+    "jobs.view": true,
+    "jobs.create": true,
+    "jobs.edit": true,
+    "jobs.assign": true,
+    "jobs.close": true,
+    "jobs.delete": false,
+"breakdowns.view": true,
+"breakdowns.create": true,
+"breakdowns.assign": true,
+"breakdowns.edit": true,
+"breakdowns.close": true,
+"breakdowns.escalate": true,
+"breakdowns.delete": false,
+    "technicians.view": true,
+    "technicians.create": true,
+    "technicians.edit": true,
+    "technicians.deactivate": false,
+    "service.view": true,
+    "service.update": true,
+    "service.approve": true,
+    "amc.view": true,
+    "amc.create": true,
+    "amc.edit": true,
+    "amc.close": false,
+    "reports.view": true,
+    "reports.export": true,
+    "users.view": false,
+    "users.create": false,
+    "users.edit": false,
+    "users.deactivate": false,
+    "users.permissions": false,
+  },
+
+  SUPERVISOR: {
+    "dashboard.view": true,
+    "projects.view": true,
+    "projects.create": false,
+    "projects.edit": true,
+    "projects.delete": false,
+    "lifts.view": true,
+    "lifts.create": false,
+    "lifts.edit": true,
+    "lifts.delete": false,
+    "jobs.view": true,
+    "jobs.create": false,
+    "jobs.edit": true,
+    "jobs.assign": false,
+    "jobs.close": true,
+    "jobs.delete": false,
+"breakdowns.view": true,
+"breakdowns.create": false,
+"breakdowns.assign": true,
+"breakdowns.edit": true,
+"breakdowns.close": true,
+"breakdowns.escalate": true,
+"breakdowns.delete": false,
+    "technicians.view": true,
+    "technicians.create": false,
+    "technicians.edit": false,
+    "technicians.deactivate": false,
+    "service.view": true,
+    "service.update": true,
+    "service.approve": false,
+    "amc.view": false,
+    "amc.create": false,
+    "amc.edit": false,
+    "amc.close": false,
+    "reports.view": false,
+    "reports.export": false,
+    "users.view": false,
+    "users.create": false,
+    "users.edit": false,
+    "users.deactivate": false,
+    "users.permissions": false,
+  },
+};
+
+function getOfficePermissions() {
+  const user = state.user || {};
+  const role = String(user.role || "").trim().toUpperCase();
+  const base = ROLE_DEFAULT_PERMISSIONS[role] || {};
+  const overrides = user.permissions || {};
+  return { ...base, ...overrides };
+}
+
+function hasPermission(code) {
+  return !!getOfficePermissions()[code];
+}
+
+const PERMISSION_GROUPS = [
+  {
+    module: "Dashboard",
+    items: [
+      { code: "dashboard.view", label: "View Dashboard" },
+    ],
+  },
+  {
+    module: "Projects",
+    items: [
+      { code: "projects.view", label: "View Projects" },
+      { code: "projects.create", label: "Create Projects" },
+      { code: "projects.edit", label: "Edit Projects" },
+      { code: "projects.delete", label: "Delete Projects" },
+    ],
+  },
+  {
+    module: "Lifts",
+    items: [
+      { code: "lifts.view", label: "View Lifts" },
+      { code: "lifts.create", label: "Create Lifts" },
+      { code: "lifts.edit", label: "Edit Lifts" },
+      { code: "lifts.delete", label: "Delete Lifts" },
+    ],
+  },
+  {
+    module: "Jobs",
+    items: [
+      { code: "jobs.view", label: "View Jobs" },
+      { code: "jobs.create", label: "Create Jobs" },
+      { code: "jobs.edit", label: "Edit Jobs" },
+      { code: "jobs.assign", label: "Assign Jobs" },
+      { code: "jobs.close", label: "Close Jobs" },
+      { code: "jobs.delete", label: "Delete Jobs" },
+    ],
+  },
+{
+  module: "Breakdown Calls",
+  items: [
+    { code: "breakdowns.view", label: "View Breakdown Calls" },
+    { code: "breakdowns.create", label: "Create Breakdown Calls" },
+    { code: "breakdowns.assign", label: "Assign Breakdown Calls" },
+    { code: "breakdowns.edit", label: "Edit Breakdown Calls" },
+    { code: "breakdowns.close", label: "Close Breakdown Calls" },
+    { code: "breakdowns.escalate", label: "Escalate Breakdown Calls" },
+    { code: "breakdowns.delete", label: "Delete Breakdown Calls" },
+  ],
+},
+  {
+    module: "Technicians",
+    items: [
+      { code: "technicians.view", label: "View Technicians" },
+      { code: "technicians.create", label: "Create Technicians" },
+      { code: "technicians.edit", label: "Edit Technicians" },
+      { code: "technicians.deactivate", label: "Deactivate Technicians" },
+    ],
+  },
+  {
+    module: "Service",
+    items: [
+      { code: "service.view", label: "View Service" },
+      { code: "service.update", label: "Update Service" },
+      { code: "service.approve", label: "Approve Service / Jobs" },
+    ],
+  },
+  {
+    module: "AMC",
+    items: [
+      { code: "amc.view", label: "View AMC" },
+      { code: "amc.create", label: "Create AMC" },
+      { code: "amc.edit", label: "Edit AMC" },
+      { code: "amc.close", label: "Close AMC" },
+      { code: "amc.delete", label: "Delete AMC" },
+    ],
+  },
+  {
+    module: "Reports",
+    items: [
+      { code: "reports.view", label: "View Reports" },
+      { code: "reports.export", label: "Export Reports" },
+    ],
+  },
+  {
+    module: "Users",
+    items: [
+      { code: "users.view", label: "View Users" },
+      { code: "users.create", label: "Create Users" },
+      { code: "users.edit", label: "Edit Users" },
+      { code: "users.deactivate", label: "Deactivate Users" },
+      { code: "users.permissions", label: "Manage Permissions" },
+    ],
+  },
+];
+
+function getRoleBasePermissions(role) {
+  const r = normalizeRole(role);
+  return ROLE_DEFAULT_PERMISSIONS[r] || {};
+}
+
+function getUserPermissionOverrides(user) {
+  return user?.permissions && typeof user.permissions === "object"
+    ? user.permissions
+    : {};
+}
+
+function getEffectivePermissionsForUser(user) {
+  return {
+    ...getRoleBasePermissions(user?.role),
+    ...getUserPermissionOverrides(user),
+  };
+}
+
+function buildPermissionOverrides(role, effectivePermissions) {
+  const base = getRoleBasePermissions(role);
+  const overrides = {};
+
+  Object.keys(effectivePermissions || {}).forEach((code) => {
+    const baseValue = !!base[code];
+    const currentValue = !!effectivePermissions[code];
+    if (baseValue !== currentValue) {
+      overrides[code] = currentValue;
+    }
+  });
+
+  return overrides;
+}
+
 // ===== Technician Skill Helpers (ADD HERE) =====
+
+function getActiveProfile() {
+  return state.user || state.tech || null;
+}
+
+function getActiveRole() {
+  return String(state.user?.role || state.tech?.role || "").trim().toUpperCase();
+}
+
+function setSidebarVisible(show) {
+  const sidebar = document.querySelector(".side");
+  if (sidebar) {
+    sidebar.style.display = show ? "" : "none";
+  }
+}
+
 function parseSkills(skills) {
   return String(skills || "")
     .split(",")
@@ -614,7 +974,68 @@ el("modalBack").onclick = (e) => {
   if (e.target === el("modalBack")) closeModal();
 };
 
+function getOfficeAuthHeaders(extra = {}) {
+  const token =
+    state.userToken ||
+    localStorage.getItem("liftapp.user.token");
+
+  return {
+    "Content-Type": "application/json",
+    Authorization: token ? `Bearer ${token}` : "",
+    ...extra,
+  };
+}
+
+function getTechAuthHeaders(extra = {}) {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${state.techToken}`,
+    ...extra,
+  };
+}
+
+function normalizeRole(role) {
+  return String(role || "").trim().toUpperCase();
+}
+
+function getCurrentRole() {
+  return normalizeRole(state.user?.role || state.tech?.role || "");
+}
+
+async function showWarningModal(message) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    wrap.style.position = "fixed";
+    wrap.style.inset = "0";
+    wrap.style.background = "rgba(0,0,0,0.4)";
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "center";
+    wrap.style.zIndex = "9999";
+
+    wrap.innerHTML = `
+      <div class="card" style="max-width:420px;">
+        <div class="label">Warning</div>
+        <div class="hr"></div>
+        <div style="margin-bottom:16px;">
+          ${escapeHtml(message)}
+        </div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button class="btn primary">OK</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(wrap);
+
+    wrap.querySelector("button").onclick = () => {
+      wrap.remove();
+      resolve();
+    };
+  });
+}
 // ---------- API ----------
+
 const API = {
   async getDashboardKpis() {
     const r = await fetch("/api/dashboard");
@@ -629,7 +1050,58 @@ async getServiceDashboard() {
   return j;
 },
 
-  async createAllDueServiceJobs() {
+async userMe() {
+  const r = await fetch("/api/auth/me", {
+    headers: { Authorization: `Bearer ${state.userToken}` },
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to load office user");
+  return j;
+},
+
+async listUsers() {
+  const r = await fetch('/api/users', {
+    headers: getOfficeAuthHeaders({}),
+  });
+  const j = await r.json().catch(() => ([]));
+  if (!r.ok) throw new Error(j?.error || 'Failed to load users');
+  return j;
+},
+
+async createUser(payload) {
+  const r = await fetch('/api/users', {
+    method: 'POST',
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || 'Failed to create user');
+  return j;
+},
+
+async updateUser(userId, payload) {
+  const r = await fetch(`/api/users/${userId}`, {
+    method: 'PUT',
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || 'Failed to update user');
+  return j;
+},
+
+async updateUserPermissions(userId, permissions) {
+  const r = await fetch(`/api/users/${userId}/permissions`, {
+    method: "PUT",
+    headers: getOfficeAuthHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ permissions }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to update permissions");
+  return j;
+},
+
+async createAllDueServiceJobs() {
     const r = await fetch('/api/service/create-all-due-jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -675,6 +1147,20 @@ async reassignJob(jobId, technicianId) {
   });
   const j = await r.json();
   if (!r.ok) throw new Error(j?.error || "Reassign failed");
+  return j;
+},
+
+async getChecklist(jobId) {
+  const r = await fetch(`/api/assignments/${jobId}/checklist`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || 'Failed to load checklist');
+  return j;
+},
+
+async getServiceReport(jobId) {
+  const r = await fetch(`/api/assignments/${jobId}/service-report`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || 'Failed to load service report');
   return j;
 },
 
@@ -801,7 +1287,7 @@ async updateJobStatusOffice(id, status) {
   return j;
 },
 
-  async techLogin(phone, pin) {
+    async techLogin(phone, pin) {
     const r = await fetch("/api/tech/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -810,6 +1296,19 @@ async updateJobStatusOffice(id, status) {
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error || "Login failed");
     return j;
+  },
+
+  async userLogin(email, password) {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
+
+    return data;
   },
 
   async techMyJobs(status = "") {
@@ -825,11 +1324,18 @@ async updateJobStatusOffice(id, status) {
 async updateTechnician(id, payload) {
   const r = await fetch(`/api/technicians/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: getOfficeAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j?.error || "Failed to update technician");
+
+  const text = await r.text();
+  let j = {};
+  try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+
+  if (!r.ok) {
+    throw new Error(j?.error || j?.message || j?.raw || "Failed to update technician");
+  }
+
   return j;
 },
 
@@ -860,10 +1366,13 @@ async updateTechnician(id, payload) {
 },
 
   async listProjects() {
-    const r = await fetch("/api/projects");
-    if (!r.ok) throw new Error("Failed to load projects");
-    return r.json();
-  },
+  const r = await fetch('/api/projects', {
+    headers: getOfficeAuthHeaders({}),
+  });
+  const j = await r.json().catch(() => ([]));
+  if (!r.ok) throw new Error(j?.error || 'Failed to load projects');
+  return j;
+},
 
   async listLifts() {
     const r = await fetch("/api/lifts");
@@ -872,15 +1381,18 @@ async updateTechnician(id, payload) {
   },
 
   async listTechnicians() {
-    const r = await fetch("/api/technicians");
-    if (!r.ok) throw new Error("Failed to load technicians");
-    return r.json();
-  },
+  const r = await fetch("/api/technicians", {
+    headers: getOfficeAuthHeaders(),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to load technicians");
+  return j;
+},
 
 updateJobTeam(jobId, payload) {
   return fetch(`/api/jobs/${jobId}/team`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: getOfficeAuthHeaders(),
     body: JSON.stringify(payload),
   }).then(async (r) => {
     const j = await r.json().catch(() => ({}));
@@ -897,81 +1409,204 @@ async getTechnicianJobs(id) {
 },
  
 async createTechnician(payload) {
-    const r = await fetch("/api/technicians", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "Failed to create technician");
-    return j;
-  },
+  const r = await fetch("/api/technicians", {
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to create technician");
+  return j;
+},
 
-  async setTechnicianPin(id, pin) {
+async setTechnicianPin(id, pin) {
   const r = await fetch(`/api/technicians/${id}/pin`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: getOfficeAuthHeaders(),
     body: JSON.stringify({ pin }),
+  });
+  const text = await r.text();
+  let j = {};
+  try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+  if (!r.ok) throw new Error(j?.error || j?.message || j?.raw || "Failed to set technician PIN");
+  return j;
+},
+
+async deleteTechnician(id) {
+  const r = await fetch(`/api/technicians/${id}`, {
+    method: "DELETE",
+    headers: getOfficeAuthHeaders(),
   });
 
   const text = await r.text();
   let j = {};
-  try {
-    j = text ? JSON.parse(text) : {};
-  } catch {
-    j = { raw: text };
-  }
+  try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
 
   if (!r.ok) {
-    throw new Error(j?.error || j?.message || j?.raw || "Failed to set technician PIN");
+    throw new Error(j?.error || j?.message || j?.raw || "Failed to delete technician");
+  }
+
+  return j;
+},
+
+listTechnicianLeaves(technicianId) {
+  return fetch(`/api/technicians/${technicianId}/leaves`, {
+    headers: getOfficeAuthHeaders(),
+  }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || "Failed to load leave records");
+    return j;
+  });
+},
+
+createTechnicianLeave(technicianId, payload) {
+  return fetch(`/api/technicians/${technicianId}/leaves`, {
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || "Failed to create leave");
+    return j;
+  });
+},
+
+cancelTechnicianLeave(leaveId) {
+  return fetch(`/api/technician-leaves/${leaveId}/cancel`, {
+    method: "PUT",
+    headers: getOfficeAuthHeaders(),
+  }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || "Failed to cancel leave");
+    return j;
+  });
+},
+
+async deleteJob(id) {
+  const r = await fetch(`/api/jobs/${id}`, {
+    method: "DELETE",
+    headers: getOfficeAuthHeaders(),
+  });
+
+  const text = await r.text();
+  let j = {};
+  try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+
+  if (!r.ok) {
+    throw new Error(j?.error || j?.message || j?.raw || "Failed to delete job");
+  }
+
+  return j;
+},
+
+async deleteProjectLift(id) {
+  const r = await fetch(`/api/project-lifts/${id}`, {
+    method: "DELETE",
+    headers: getOfficeAuthHeaders(),
+  });
+
+  const text = await r.text();
+  let j = {};
+  try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+
+  if (!r.ok) {
+    throw new Error(j?.error || j?.message || j?.raw || "Failed to delete lift");
+  }
+
+  return j;
+},
+
+async deleteProject(id) {
+  const r = await fetch(`/api/projects/${id}`, {
+    method: "DELETE",
+    headers: getOfficeAuthHeaders(),
+  });
+
+  const text = await r.text();
+  let j = {};
+  try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+
+  if (!r.ok) {
+    throw new Error(j?.error || j?.message || j?.raw || "Failed to delete project");
+  }
+
+  return j;
+},
+
+async deleteAmc(id) {
+  const r = await fetch(`/api/amc/${id}`, {
+    method: "DELETE",
+    headers: getOfficeAuthHeaders(),
+  });
+
+  const text = await r.text();
+  let j = {};
+  try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+
+  if (!r.ok) {
+    throw new Error(j?.error || j?.message || j?.raw || "Failed to delete AMC");
   }
 
   return j;
 },
 
   async createProject(payload) {
-    const r = await fetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "Create project failed");
-    return j;
-  },
+  const r = await fetch("/api/projects", {
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Create project failed");
+  return j;
+},
+
 
   async assignTechToProjectLift(projectLiftId, payload) {
-    const r = await fetch(`/api/project-lifts/${projectLiftId}/assign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "Create job failed");
-    return j;
-  },
+  console.log("THIS MODAL VERSION 2 RUNNING");
+
+  const r = await fetch(`/api/project-lifts/${projectLiftId}/assign`, {
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  const j = await r.json().catch(() => ({}));
+
+  console.log("ASSIGN API RESPONSE:", j);
+
+  if (!r.ok) throw new Error(j?.error || "Create job failed");
+
+  const warning = j?.leaveWarning || j?.debugLeaveWarning;
+
+  if (warning) {
+    await showWarningModal(warning);
+  }
+
+  return j;
+},
 
 async assignWarrantyService(projectLiftId, payload) {
   const r = await fetch(`/api/project-lifts/${projectLiftId}/warranty-service-assign`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j?.error || 'Failed to assign warranty service');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to assign warranty service");
   return j;
 },
   
 async assignAmcService(projectLiftId, payload) {
-    const r = await fetch(`/api/project-lifts/${projectLiftId}/amc-service-assign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "Failed to assign AMC service");
-    return j;
-  },
+  const r = await fetch(`/api/project-lifts/${projectLiftId}/amc-service-assign`, {
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to assign AMC service");
+  return j;
+},
 
 async dueAmcJobs() {
   const r = await fetch('/api/amc/due-jobs');
@@ -989,33 +1624,33 @@ async getServiceDashboard() {
 
 async autoCreateAmcJob(projectLiftId, payload) {
   const r = await fetch(`/api/project-lifts/${projectLiftId}/auto-amc-job`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j?.error || 'Failed to create AMC job');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to create AMC job");
   return j;
 },
 
   async saveProjectLiftMilestones(projectLiftId, payload) {
-    const r = await fetch(`/api/project-lifts/${projectLiftId}/milestones`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "Failed to save milestones");
-    return j;
-  },
+  const r = await fetch(`/api/project-lifts/${projectLiftId}/milestones`, {
+    method: "PUT",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to save milestones");
+  return j;
+},
 
 async completeProjectLiftHandover(projectLiftId, payload) {
   const r = await fetch(`/api/project-lifts/${projectLiftId}/complete-handover`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: getOfficeAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const j = await r.json();
+  const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error || "Failed to complete handover");
   return j;
 },
@@ -1027,84 +1662,270 @@ async completeProjectLiftHandover(projectLiftId, payload) {
     return j;
   },
 
+getJobs: async (view = "open") => {
+  const r = await fetch(`/api/jobs?view=${encodeURIComponent(view)}`);
+  return r.json();
+},
+
   async addJobTeamMember(jobId, payload) {
-    const r = await fetch(`/api/jobs/${jobId}/team`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j?.error || "Failed to add team member");
-    return j;
-  },
+  const r = await fetch(`/api/jobs/${jobId}/team`, {
+    method: "POST",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to add team member");
+  return j;
+},
+
  async updateJobTeamMember(memberId, payload) {
-    const r = await fetch(`/api/job-team/${memberId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j?.error || "Failed to update team member");
-    return j;
-  },
+  const r = await fetch(`/api/job-team/${memberId}`, {
+    method: "PUT",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to update team member");
+  return j;
+},
 
   async removeJobTeamMember(memberId) {
-    const r = await fetch(`/api/job-team/${memberId}`, {
-      method: "DELETE",
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j?.error || "Failed to remove team member");
-    return j;
+  const r = await fetch(`/api/job-team/${memberId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${state.userToken}`,
+    },
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error || "Failed to remove team member");
+  return j;
   },
 };
 
 // ---------- Side actions ----------
+
+const SIDE_ACTIONS = [
+  {
+    key: "tech",
+    label: "My Jobs",
+    roles: ["TECHNICIAN"],
+  },
+  {
+    key: "jobs",
+    label: "Jobs",
+    roles: ["SUPERVISOR", "MANAGER", "ADMIN"],
+  },
+  {
+    key: "serviceJobs",
+    label: "Service Jobs",
+    roles: ["TECHNICIAN", "SUPERVISOR", "MANAGER", "ADMIN"],
+  },
+  {
+    key: "reports",
+    label: "Reports",
+    roles: ["MANAGER", "ADMIN"],
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    roles: ["ADMIN"],
+  },
+];
+
+function canAccess(view, role) {
+  const r = normalizeRole(role);
+
+  const viewRoles = {
+    dashboard: ["TECHNICIAN", "SUPERVISOR", "MANAGER", "ADMIN"],
+    projects: ["SUPERVISOR", "MANAGER", "ADMIN"],
+    lifts: ["SUPERVISOR", "MANAGER", "ADMIN"],
+    jobs: ["SUPERVISOR", "MANAGER", "ADMIN"],
+    technicians: ["MANAGER", "ADMIN"],
+    reports: ["MANAGER", "ADMIN"],
+    service: ["TECHNICIAN", "SUPERVISOR", "MANAGER", "ADMIN"],
+    tech: ["TECHNICIAN"],
+    amc: ["MANAGER", "ADMIN"],
+    users: ["ADMIN"],
+  };
+
+  const allowed = viewRoles[view];
+  if (!allowed) return true;
+
+  return allowed.includes(r);
+}
+
+function getViewPermission(view) {
+  const map = {
+    dashboard: "dashboard.view",
+    projects: "projects.view",
+    lifts: "lifts.view",
+    jobs: "jobs.view",
+    breakdowns: "jobs.view",
+    technicians: "technicians.view",
+    service: "service.view",
+    amc: "amc.view",
+    reports: "reports.view",
+    users: "users.view",
+    tech: null, // technician shell stays separate
+  };
+
+  return map[view] || null;
+}
+
+function getOfficeMenuItems() {
+  return [
+    { key: "dashboard", label: "Dashboard", perm: "dashboard.view" },
+    { key: "projects", label: "Projects", perm: "projects.view" },
+    { key: "lifts", label: "Lifts", perm: "lifts.view" },
+    { key: "jobs", label: "Jobs", perm: "jobs.view" },
+
+    // ✅ ADD THIS
+    { key: "breakdowns", label: "Breakdown Calls", perm: "jobs.view" },
+
+    { key: "technicians", label: "Technicians", perm: "technicians.view" },
+    { key: "service", label: "Service", perm: "service.view" },
+    { key: "amc", label: "AMC", perm: "amc.view" },
+    { key: "reports", label: "Reports", perm: "reports.view" },
+    { key: "users", label: "Users", perm: "users.view" },
+  ];
+}
+
 function renderSideActions() {
   const box = el("sideActions");
   if (!box) return;
 
   box.innerHTML = "";
 
-  if (!state.techToken) {
-    const b = document.createElement("button");
-    b.className = "btn secondary";
-    b.type = "button";
-    b.textContent = "Technician Login";
-    b.onclick = showTechLoginModal;
-    box.appendChild(b);
+  if (!state.techToken && !state.userToken) {
+    const b1 = document.createElement("button");
+    b1.className = "btn secondary";
+    b1.type = "button";
+    b1.textContent = "Technician Login";
+    b1.onclick = showTechLoginModal;
+
+    const b2 = document.createElement("button");
+    b2.className = "btn";
+    b2.type = "button";
+    b2.style.marginTop = "8px";
+    b2.textContent = "Office Login";
+    b2.onclick = showUserLoginModal;
+
+    box.appendChild(b1);
+    box.appendChild(b2);
     return;
   }
+
+  const profile = getActiveProfile();
+  const role = normalizeRole(getActiveRole());
+  const currentView = currentViewFromHash();
 
   const info = document.createElement("div");
   info.className = "muted";
   info.style.fontSize = "12px";
   info.style.marginBottom = "10px";
-  info.innerHTML = `Logged in as <b>${state.tech?.name || "Technician"}</b>`;
+  info.innerHTML = `
+    Logged in as <b>${escapeHtml(profile?.name || "User")}</b>
+    <br><span style="opacity:.75">${escapeHtml(role || "UNKNOWN ROLE")}</span>
+  `;
   box.appendChild(info);
 
-  const my = document.createElement("button");
-  my.className = "btn";
-  my.type = "button";
-  my.textContent = "My Jobs";
-  my.onclick = () => { location.hash = "tech"; };
-  box.appendChild(my);
+  let items = [];
+
+  if (role === "TECHNICIAN") {
+    items = [
+      { key: "tech", label: "My Jobs", allowed: true },
+      { key: "service", label: "Service", allowed: true },
+    ];
+  } else {
+    items = getOfficeMenuItems().map((item) => ({
+      ...item,
+      allowed: hasPermission(item.perm),
+    }));
+  }
+
+  items.forEach((item, index) => {
+    const b = document.createElement("button");
+    b.className = "btn";
+    b.type = "button";
+    if (index > 0) b.style.marginTop = "8px";
+
+    if (item.key === currentView) {
+      b.classList.add("secondary");
+    }
+
+    b.textContent = item.label;
+
+    if (!item.allowed) {
+      b.style.opacity = "0.55";
+      b.title = "Access restricted";
+    }
+
+    b.onclick = () => {
+      location.hash = item.key;
+    };
+
+    box.appendChild(b);
+  });
 
   const lo = document.createElement("button");
   lo.className = "btn secondary";
   lo.type = "button";
-  lo.style.marginTop = "8px";
+  lo.style.marginTop = "10px";
   lo.textContent = "Logout";
-  lo.onclick = techLogout;
+  lo.onclick = () => {
+    clearSession();
+    renderOpeningLogin();
+  };
+
   box.appendChild(lo);
 }
 
 function techLogout() {
-  state.techToken = null;
-  state.tech = null;
-  localStorage.removeItem(LS_TOKEN);
-  localStorage.removeItem(LS_TECH);
+  clearSession();
   renderSideActions();
-  location.hash = "dashboard";
+  renderOpeningLogin();   // 👈 THIS is important
+}
+
+function showUserLoginModal() {
+  const wrap = document.createElement('div');
+
+  wrap.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <input id="loginEmail" placeholder="Email" />
+      <input id="loginPassword" type="password" placeholder="Password" />
+    </div>
+  `;
+
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.textContent = 'Login';
+
+  btn.onclick = async () => {
+    try {
+      const email = document.getElementById('loginEmail').value;
+      const password = document.getElementById('loginPassword').value;
+
+      const data = await API.userLogin(email, password);
+
+      state.userToken = data.token;
+      state.user = data.user;
+
+      localStorage.setItem(LS_USER_TOKEN, data.token);
+      localStorage.setItem(LS_USER, JSON.stringify(data.user));
+
+      closeModal();
+      renderSideActions();
+      render('dashboard');
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  openModal({
+    title: 'Office Login',
+    bodyNode: wrap,
+    footerNodes: [btn],
+  });
 }
 
 function showTechLoginModal() {
@@ -1137,11 +1958,7 @@ function showTechLoginModal() {
       const pin = body.querySelector("#techPin").value.trim();
       const res = await API.techLogin(phone, pin);
 
-      state.techToken = res.token;
-      state.tech = res.technician;
-
-      localStorage.setItem(LS_TOKEN, state.techToken);
-      localStorage.setItem(LS_TECH, JSON.stringify(state.tech));
+      setSession(res.token, res.technician);
 
       closeModal();
       renderSideActions();
@@ -1247,11 +2064,50 @@ if (pin) {
     }
   };
 
-  openModal({
-    title: "Edit Technician",
-    bodyNode: body,
-    footerNodes: [btnCancel, btnSave],
+  const btnDelete = smallBtn("Delete", "danger");
+
+btnDelete.onclick = async () => {
+  if (!confirm(`Delete technician "${tech.name}"?`)) return;
+
+  try {
+    await API.deleteTechnician(tech.id);
+
+    closeModal();
+    await renderTechnicians();
+
+    showToast("Technician deleted successfully");
+  } catch (e) {
+    alert(e.message || "Failed to delete technician");
+  }
+};
+
+openModal({
+  title: "Edit Technician",
+  bodyNode: body,
+  footerNodes: [btnDelete, btnCancel, btnSave],
+});
+}
+
+async function filterAvailableTechnicians(technicians, date = new Date()) {
+  const d = new Date(date).toISOString().slice(0, 10);
+
+  const leaves = await TechnicianLeave.findAll({
+    where: {
+      status: "APPROVED",
+      from_date: { [Op.lte]: d },
+      to_date: { [Op.gte]: d },
+    },
+    attributes: ["technician_id"],
   });
+
+  const leaveSet = new Set(leaves.map((l) => l.technician_id));
+
+  return technicians.filter(
+    (t) =>
+      t.isActive &&
+      t.availability_status === "AVAILABLE" &&
+      !leaveSet.has(t.id)
+  );
 }
 
 function showMilestoneModal(projectLiftId, lift) {
@@ -1502,6 +2358,100 @@ function renderAmcAssignmentPanel(rows = []) {
   `;
 }
 // ---------- Views ----------
+const sidebar = document.querySelector(".side");
+if (sidebar) sidebar.style.display = "none";
+
+function renderOpeningLogin() {
+  const root = setViewMode(false);
+
+  setTitle("Login");
+  setToolbar([]);
+
+  setSidebarVisible(false);
+
+  document.querySelectorAll('#nav a').forEach(a => a.classList.remove('active'));
+
+  root.innerHTML = `
+    <div class="card" style="max-width:460px;margin:60px auto;">
+      <div class="label" style="font-size:22px;">Lift Management Login</div>
+      <div class="hr"></div>
+
+      <div id="loginForm"></div>
+      <div id="loginMsg" class="muted" style="margin-top:12px;"></div>
+    </div>
+  `;
+
+  const formWrap = document.getElementById("loginForm");
+  const msg = document.getElementById("loginMsg");
+
+  // ✅ Only Office login now
+  formWrap.innerHTML = `
+    <div class="field">
+      <label>Email</label>
+      <input id="loginEmail" placeholder="admin@liftapp.com" />
+    </div>
+
+    <div class="field" style="margin-top:12px;">
+      <label>Password</label>
+      <input id="loginPassword" type="password" placeholder="Password" />
+    </div>
+
+    <div style="margin-top:16px;display:flex;gap:8px;">
+      <button id="btnOfficeLogin" class="btn primary">Login</button>
+    </div>
+  `;
+
+  const emailInput = document.getElementById("loginEmail");
+  const passwordInput = document.getElementById("loginPassword");
+  const btn = document.getElementById("btnOfficeLogin");
+
+  async function submitOfficeLogin() {
+    try {
+      const email = String(emailInput?.value || "").trim();
+      const password = String(passwordInput?.value || "").trim();
+
+      if (!email) {
+        msg.textContent = "Email is required";
+        return;
+      }
+
+      if (!password) {
+        msg.textContent = "Password is required";
+        return;
+      }
+
+      msg.textContent = "Signing in...";
+
+      const res = await API.userLogin(email, password);
+
+      state.userToken = res.token;
+      state.user = res.user;
+
+      localStorage.setItem(LS_USER_TOKEN, res.token);
+      localStorage.setItem(LS_USER, JSON.stringify(res.user));
+
+      // 🔥 IMPORTANT: clear technician session
+      state.techToken = null;
+      state.tech = null;
+      localStorage.removeItem(LS_TOKEN);
+      localStorage.removeItem(LS_TECH);
+
+      msg.textContent = "";
+      setViewMode(true);
+      setSidebarVisible(true);
+      renderSideActions();
+      location.hash = "dashboard";
+      await render(currentViewFromHash());
+    } catch (e) {
+      msg.textContent = e.message || "Login failed";
+    }
+  }
+
+  btn.onclick = submitOfficeLogin;
+  emailInput?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitOfficeLogin(); });
+  passwordInput?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitOfficeLogin(); });
+}
+
 async function renderDashboard() {
   const root = setViewMode(false);
   setTitle("Dashboard");
@@ -1510,60 +2460,16 @@ async function renderDashboard() {
   root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
 
   try {
-    const [kpi, workflow, jobs, lifts] = await Promise.all([
+    const [kpi, workflow, jobsData] = await Promise.all([
       API.getDashboardKpis(),
       API.getWorkflowReadiness(),
-      API.getJobs(),
-      API.listLifts(),
+      API.getJobs("open"),
     ]);
+
+    const jobs = Array.isArray(jobsData?.rows) ? jobsData.rows : [];
 
     const rows = Array.isArray(jobs) ? jobs : [];
     const workflowRows = Array.isArray(workflow?.rows) ? workflow.rows : [];
-    const liftRows = Array.isArray(lifts) ? lifts : [];
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const activeAmcJobLiftKeys = new Set(
-      rows
-        .filter((j) =>
-          String(j.role || "").toUpperCase() === "AMC SERVICE" &&
-          ["ASSIGNED", "IN_PROGRESS"].includes(String(j.status || "").toUpperCase())
-        )
-        .map((j) => String(j.lift?.liftCode || j.liftCode || "").trim())
-        .filter(Boolean)
-    );
-
-    const amcDueSoonRows = liftRows.filter((l) => {
-  const status = String(l.amcStatus || "").toUpperCase();
-  if (!["AMC ACTIVE", "AMC EXPIRING SOON"].includes(status)) return false;
-  if (!l.amcNextServiceDue) return false;
-
-  const due = new Date(l.amcNextServiceDue);
-  due.setHours(0, 0, 0, 0);
-
-  const diffDays = Math.floor((due - today) / (1000 * 60 * 60 * 24));
-  return diffDays >= 0 && diffDays <= 7;
-});
-
-const amcOverdueRows = liftRows.filter((l) => {
-  const status = String(l.amcStatus || "").toUpperCase();
-  return ["AMC ACTIVE", "AMC EXPIRING SOON"].includes(status) && Number(l.amcOverdueDays || 0) > 0;
-});
-
-const amcNeedsAssignmentRows = liftRows.filter((l) => {
-  const status = String(l.amcStatus || "").toUpperCase();
-  const key = String(l.liftCode || "").trim();
-
-  if (!["AMC ACTIVE", "AMC EXPIRING SOON"].includes(status)) return false;
-  if (!l.amcNextServiceDue) return false;
-  if (activeAmcJobLiftKeys.has(key)) return false;
-
-  const due = new Date(l.amcNextServiceDue);
-  due.setHours(0, 0, 0, 0);
-
-  return due <= today;
-});
 
     const activeJobs = rows.filter((j) =>
       ["ASSIGNED", "IN_PROGRESS"].includes(String(j.status || "").toUpperCase())
@@ -1618,14 +2524,6 @@ const amcNeedsAssignmentRows = liftRows.filter((l) => {
       `)
       .join("");
 
-const amcActiveCount = liftRows.filter(
-  (l) => String(l.amcStatus || "").toUpperCase() === "AMC ACTIVE"
-).length;
-
-const amcExpiringSoonCount = liftRows.filter(
-  (l) => String(l.amcStatus || "").toUpperCase() === "AMC EXPIRING SOON"
-).length;
-
     root.innerHTML = `
       <div class="dashboardGrid">
         <div class="card kpiCard">
@@ -1651,26 +2549,6 @@ const amcExpiringSoonCount = liftRows.filter(
         <div class="card kpiCard">
           <div class="label">Assigned Not Started</div>
           <div class="kpiValue">${assignedNotStarted}</div>
-        </div>
-        <div class="card kpiCard">
-  <div class="label">AMC Active</div>
-  <div class="kpiValue">${amcActiveCount}</div>
-</div>
-<div class="card kpiCard">
-  <div class="label">AMC Expiring Soon</div>
-  <div class="kpiValue">${amcExpiringSoonCount}</div>
-</div>
-        <div class="card kpiCard">
-          <div class="label">AMC Due 7 Days</div>
-          <div class="kpiValue">${amcDueSoonRows.length}</div>
-        </div>
-        <div class="card kpiCard">
-          <div class="label">AMC Overdue</div>
-          <div class="kpiValue">${amcOverdueRows.length}</div>
-        </div>
-        <div class="card kpiCard">
-          <div class="label">AMC Needs Assignment</div>
-          <div class="kpiValue">${amcNeedsAssignmentRows.length}</div>
         </div>
       </div>
 
@@ -1725,60 +2603,6 @@ const amcExpiringSoonCount = liftRows.filter(
         </div>
       </div>
 
-      <div class="dashboardGrid twoCols" style="margin-top:16px">
-  <div class="card">
-    <div class="label">AMC Due Soon</div>
-    <div class="hr"></div>
-    ${
-      !amcDueSoonRows.length
-        ? `<div class="muted">No AMC services due in the next 7 days.</div>`
-        : amcDueSoonRows.slice(0, 6).map((l) => `
-            <div class="listRow">
-              <div>
-                <b>${l.liftCode || ""}</b>
-                <div class="muted">${[l.customerName, l.building].filter(Boolean).join(" - ")}</div>
-              </div>
-              ${l.amcNextServiceDue || "—"}
-            </div>
-          `).join("")
-    }
-  </div>
-
-    <div class="card">
-    <div class="label">AMC Overdue / Unassigned</div>
-    <div class="hr"></div>
-    ${
-      (!amcOverdueRows.length && !amcNeedsAssignmentRows.length)
-        ? `<div class="muted">No AMC alerts.</div>`
-        : [
-            ...amcOverdueRows.slice(0, 3).map((l) => `
-              <div class="listRow alertRow danger">
-                <div>
-                  <b>${l.liftCode || ""}</b>
-                  <div class="muted">${[l.customerName, l.building].filter(Boolean).join(" - ")}</div>
-                </div>
-                <div>Overdue ${Number(l.amcOverdueDays || 0)}d</div>
-              </div>
-            `),
-            ...amcNeedsAssignmentRows.slice(0, 3).map((l) => `
-              <div class="listRow alertRow warn">
-                <div>
-                  <b>${l.liftCode || ""}</b>
-                  <div class="muted">${[l.customerName, l.building].filter(Boolean).join(" - ")}</div>
-                </div>
-                <div>Assign AMC Job</div>
-              </div>
-            `)
-          ].join("")
-    }
-  </div>
-</div>
-
-<div style="margin-top:16px">
-  ${renderAmcAssignmentPanel(amcNeedsAssignmentRows)}
-</div>
-
-        
       <div class="card" style="margin-top:16px">
         <div class="label">Technician Workload</div>
         <div class="hr"></div>
@@ -1800,7 +2624,7 @@ const amcExpiringSoonCount = liftRows.filter(
       </div>
     `;
 
-        root.querySelectorAll(".clickableRow").forEach((row) => {
+    root.querySelectorAll(".clickableRow").forEach((row) => {
       row.addEventListener("click", () => {
         const projectId = row.dataset.projectId;
         if (!projectId) {
@@ -1808,27 +2632,6 @@ const amcExpiringSoonCount = liftRows.filter(
           return;
         }
         openProjectFromDashboard(projectId);
-      });
-    });
-
-    root.querySelectorAll("[data-action='assign-amc']").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        let data = {};
-        try {
-          data = JSON.parse(btn.dataset.lift || "{}");
-        } catch (e) {
-          console.error("Invalid lift data:", e);
-          alert("Could not read lift data");
-          return;
-        }
-
-        if (typeof showAssignAmcTechModal === "function") {
-          showAssignAmcTechModal(data);
-        } else if (typeof showAssignTechnicianModal === "function") {
-          showAssignTechnicianModal(data);
-        } else {
-          alert("Assign modal not connected");
-        }
       });
     });
 
@@ -1861,238 +2664,412 @@ const amcExpiringSoonCount = liftRows.filter(
   }
 } 
 
-async function showAssignJobModal(lift, prefillRole = null) {
-  const techs = await API.listTechnicians();
+async function renderUsers() {
+  const root = setViewMode(true);
 
-  const body = document.createElement("div");
-  body.innerHTML = `
-    <div class="formGrid">
-      <div class="field" style="grid-column:1/-1">
-        <label>Lift</label>
-        <input value="${lift?.liftCode || lift?.lift_code || ""}" disabled />
-      </div>
+  if (!hasPermission("users.view")) {
+    setTitle("Access Denied");
+    setToolbar([]);
+    root.innerHTML = `<div class="card"><div class="muted">You do not have access to Users.</div></div>`;
+    return;
+  }
 
-      <div class="field">
-        <label>Lead Technician</label>
-        <select id="jobLeadTech"></select>
-      </div>
+  setTitle("Users");
+  setToolbar([]);
 
-      <div class="field">
-        <label>Job Type</label>
-        <select id="jobType">
-          <option value="INSTALL">INSTALL</option>
-          <option value="TEST">TEST</option>
-          
-        </select>
-      </div>
+  root.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
+      <div class="label">Office Users</div>
+      <button id="btnCreateUser" class="btn primary">+ Create User</button>
+    </div>
 
-      <div class="field">
-        <label id="dueDateLabel">Due Date</label>
-        <input type="date" id="jobDueDate" />
-        <div id="dueDateHint" class="muted" style="font-size:12px;margin-top:4px;"></div>
-      </div>
-
-      <div class="field" style="grid-column:1/-1">
-        <label>Notes</label>
-        <textarea id="jobNotes" placeholder="Job notes..."></textarea>
+    <div class="card">
+      <div style="overflow:auto;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th style="width:180px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody"></tbody>
+        </table>
       </div>
     </div>
   `;
 
-  const techSelect = body.querySelector("#jobLeadTech");
-  const jobTypeEl = body.querySelector("#jobType");
-  const dueDateEl = body.querySelector("#jobDueDate");
-  const hintEl = body.querySelector("#dueDateHint");
-  const labelEl = body.querySelector("#dueDateLabel");
+  const btn = document.getElementById("btnCreateUser");
+  if (btn) {
+    btn.style.display = hasPermission("users.create") ? "" : "none";
+    btn.onclick = showCreateUserModal;
+  }
 
-  function populateTechnicianOptions() {
-    techSelect.innerHTML = "";
+  const tb = document.getElementById("usersTableBody");
 
-    const requiredSkill = getRequiredSkillForJob(jobTypeEl.value);
-    const filteredTechs = (techs || []).filter((t) => technicianHasSkill(t, requiredSkill));
+  try {
+    const users = await API.listUsers();
+    const rows = Array.isArray(users) ? users : (users.users || []);
 
-    if (!filteredTechs.length) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = `No technicians with ${requiredSkill || "required"} skill found`;
-      techSelect.appendChild(opt);
+    if (!rows.length) {
+      tb.innerHTML = `
+        <tr>
+          <td colspan="5" class="muted" style="text-align:center;padding:20px;">
+            No users found
+          </td>
+        </tr>
+      `;
       return;
     }
 
-    filteredTechs.forEach((t) => {
-      const opt = document.createElement("option");
-      opt.value = t.id;
-      opt.textContent = `${t.name}${t.skills ? ` (${parseSkills(t.skills).join(", ")})` : ""}`;
-      techSelect.appendChild(opt);
-    });
+    tb.innerHTML = "";
+
+    rows.forEach((u) => {
+      const tr = document.createElement("tr");
+
+      tr.innerHTML = `
+        <td>${escapeHtml(u.name || "")}</td>
+        <td>${escapeHtml(u.email || "—")}</td>
+        <td>${escapeHtml(u.role || "")}</td>
+        <td>
+          <span class="statusBadge ${u.isActive ? "active" : "inactive"}">
+            <span class="dot"></span>
+            ${u.isActive ? "Active" : "Inactive"}
+          </span>
+        </td>
+        <td>
+  <div style="display:flex;gap:6px;flex-direction:column;">
+    <button class="btn secondary btnEditUser">Edit</button>
+    <button class="btn secondary btnPermUser">Permissions</button>
+    <button class="btn ${u.isActive ? "secondary" : "primary"} btnToggleUser">
+      ${u.isActive ? "Deactivate" : "Activate"}
+    </button>
+  </div>
+</td>
+      `;
+      
+      const btnPerm = tr.querySelector(".btnPermUser");
+      const btnEdit = tr.querySelector(".btnEditUser");
+      const btnToggle = tr.querySelector(".btnToggleUser");
+      const currentUser = getActiveProfile();
+      
+if (btnPerm) {
+  if (!hasPermission("users.permissions")) {
+    btnPerm.style.display = "none";
+  } else {
+    btnPerm.onclick = () => showUserPermissionsModal(u);
   }
-
-  if (prefillRole) {
-    jobTypeEl.value = prefillRole;
-  }
-
-  function applyDueDateFromMilestone() {
-    const jobType = jobTypeEl.value;
-
-    const suggested = getSuggestedDueDateForJob(lift, jobType);
-    const label = getTargetLabelForJob(jobType);
-
-    labelEl.textContent = `Due Date (${label})`;
-
-    if (suggested) {
-      dueDateEl.value = suggested;
-      hintEl.textContent = `Auto-filled from ${label}`;
-      hintEl.className = "muted";
-    } else {
-      dueDateEl.value = "";
-      hintEl.textContent = `No ${label.toLowerCase()} found — please enter manually`;
-      hintEl.className = "warnText";
-    }
-
-    populateTechnicianOptions();
-  }
-
-  applyDueDateFromMilestone();
-  jobTypeEl.onchange = applyDueDateFromMilestone;
-
-  const btnCancel = smallBtn("Cancel", "secondary");
-  btnCancel.onclick = closeModal;
-
-  const btnSave = smallBtn("Assign Job", "primary");
-  btnSave.onclick = async () => {
-    try {
-      if (!techSelect.value) throw new Error("Please select a lead technician");
-
-      const projectLiftId =
-        lift?.projectLiftId ||
-        lift?.project_lift_id ||
-        lift?.id;
-
-      if (!projectLiftId) throw new Error("Project lift not found");
-
-      const payload = {
-        leadTechnicianId: Number(techSelect.value),
-        role: jobTypeEl.value,
-        dueDate: dueDateEl.value || null,
-        notes: body.querySelector("#jobNotes").value || "",
-      };
-
-      const r = await fetch(`/api/project-lifts/${projectLiftId}/assign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j?.error || "Failed to assign job");
-
-      closeModal();
-
-      if (state.currentProjectId) {
-        await openProject(state.currentProjectId);
-      } else {
-        await renderJobs();
-      }
-    } catch (e) {
-      alert(e.message || String(e));
-    }
-  };
-
-  openModal({
-    title: `Assign Job - ${lift?.liftCode || lift?.lift_code || ""}`,
-    bodyNode: body,
-    footerNodes: [btnCancel, btnSave],
-  });
 }
+      if (btnEdit) {
+        if (!hasPermission("users.edit")) {
+          btnEdit.style.display = "none";
+        } else {
+          btnEdit.onclick = () => showEditUserModal(u);
+        }
+      }
 
-async function renderProjects() {
-  const root = setViewMode(false);
+      if (btnToggle) {
+        if (!hasPermission("users.deactivate")) {
+          btnToggle.style.display = "none";
+        } else if (currentUser?.id === u.id) {
+          btnToggle.disabled = true;
+          btnToggle.title = "You cannot deactivate yourself";
+        } else {
+          btnToggle.onclick = async () => {
+            try {
+              if (u.isActive) {
+                const ok = confirm(`Deactivate ${u.name}?`);
+                if (!ok) return;
+              }
 
-  setTitle("Projects");
+              btnToggle.disabled = true;
+              btnToggle.textContent = "Working...";
 
-  const btnCreate = smallBtn("+ Create Project", "primary");
-  btnCreate.onclick = () => showCreateProjectModal();
+              await API.updateUser(u.id, {
+                isActive: !u.isActive,
+              });
 
-  const btnRefresh = smallBtn("Refresh", "secondary");
-  btnRefresh.onclick = () => renderProjects();
+              await renderUsers();
+            } catch (e) {
+              btnToggle.disabled = false;
+              btnToggle.textContent = u.isActive ? "Deactivate" : "Activate";
+              alert(e.message || "Failed to update user");
+            }
+          };
+        }
+      }
 
-  setToolbar([btnCreate, btnRefresh]);
-
-  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
-
-  const rows = await API.listProjects();
-
-  root.innerHTML = `
-    <div class="card">
-      <div class="label">Projects</div>
-      <div class="hr"></div>
-    </div>
-  `;
-
-  const card = root.querySelector(".card");
-
-  const wrap = document.createElement("div");
-  wrap.className = "tableContainer";
-  wrap.style.maxHeight = "420px";
-  wrap.style.overflow = "auto";
-
-  wrap.innerHTML = `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Project Code</th>
-          <th>Project Name</th>
-          <th>Customer</th>
-          <th>Site</th>
-          <th>Lifts</th>
-          <th>Status</th>
-          <th>Open</th>
-        </tr>
-      </thead>
-      <tbody id="pBody"></tbody>
-    </table>
-  `;
-
-  card.appendChild(wrap);
-
-  const tb = wrap.querySelector("#pBody");
-
-  (rows || []).forEach((p) => {
-    const tr = document.createElement("tr");
-
-    tr.innerHTML = `
-      <td>${p.projectCode || ""}</td>
-      <td>${p.projectName || ""}</td>
-      <td>${p.customer?.name || ""}</td>
-      <td>${p.site?.name || ""}</td>
-      <td>${p.liftCount ?? 0}</td>
-      <td class="text-center"></td>
-      <td class="text-center"></td>
-    `;
-
-    const statusEl = badge(p.status || "OPEN");
-    tr.children[5].appendChild(statusEl);
-
-    const openBtn = smallBtn("Open", "secondary");
-    openBtn.onclick = async () => {
-      await openProject(p.id);
-    };
-    tr.children[6].appendChild(openBtn);
-
-    tb.appendChild(tr);
-  });
-
-  if (!rows || !rows.length) {
+      tb.appendChild(tr);
+    });
+  } catch (e) {
     tb.innerHTML = `
       <tr>
-        <td colspan="7" class="muted text-center">No projects found.</td>
+        <td colspan="5" class="muted" style="text-align:center;padding:20px;">
+          ${escapeHtml(e.message || "Failed to load users")}
+        </td>
       </tr>
     `;
   }
 }
 
+function showUserPermissionsModal(user) {
+  const effective = getEffectivePermissionsForUser(user);
+
+  const body = document.createElement("div");
+  body.style.maxHeight = "70vh";
+  body.style.overflow = "auto";
+
+  const role = normalizeRole(user?.role);
+  const currentUser = getActiveProfile();
+  const isSelf = currentUser?.id === user?.id;
+
+  let html = `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="label">Permissions for ${escapeHtml(user?.name || "User")}</div>
+      <div class="muted" style="margin-top:6px;">
+        Role: <b>${escapeHtml(role)}</b>
+      </div>
+      <div class="muted" style="margin-top:4px;">
+        Toggle permissions below. Only differences from the role default will be saved.
+      </div>
+    </div>
+  `;
+
+  PERMISSION_GROUPS.forEach((group, groupIndex) => {
+    html += `
+      <div class="card" style="margin-bottom:12px;">
+        <div class="label">${escapeHtml(group.module)}</div>
+        <div style="margin-top:10px;display:grid;grid-template-columns:1fr auto auto;gap:8px 12px;align-items:center;">
+    `;
+
+    group.items.forEach((item, itemIndex) => {
+      const checked = !!effective[item.code];
+      const id = `perm_${groupIndex}_${itemIndex}_${user.id}`;
+
+      html += `
+        <div>${escapeHtml(item.label)}</div>
+        <div class="muted" style="font-size:12px;">${escapeHtml(item.code)}</div>
+        <label style="display:flex;align-items:center;justify-content:flex-end;">
+          <input type="checkbox" data-perm-code="${escapeHtml(item.code)}" id="${id}" ${checked ? "checked" : ""} />
+        </label>
+      `;
+    });
+
+    html += `
+        </div>
+      </div>
+    `;
+  });
+
+  body.innerHTML = html;
+
+  if (isSelf) {
+    const warn = document.createElement("div");
+    warn.className = "muted";
+    warn.style.marginTop = "8px";
+    warn.style.color = "#b42318";
+    warn.textContent = "Caution: you are editing your own permissions.";
+    body.prepend(warn);
+  }
+
+  const btnReset = smallBtn("Reset to Role Default", "secondary");
+  btnReset.onclick = () => {
+    body.querySelectorAll("input[type='checkbox'][data-perm-code]").forEach((cb) => {
+      const code = cb.getAttribute("data-perm-code");
+      cb.checked = !!getRoleBasePermissions(role)[code];
+    });
+  };
+
+  const btnCancel = smallBtn("Cancel", "secondary");
+  btnCancel.onclick = closeModal;
+
+  const btnSave = smallBtn("Save Permissions", "primary");
+  btnSave.onclick = async () => {
+    try {
+      if (btnSave.disabled) return;
+
+      const effectivePermissions = {};
+      body.querySelectorAll("input[type='checkbox'][data-perm-code]").forEach((cb) => {
+        const code = cb.getAttribute("data-perm-code");
+        effectivePermissions[code] = !!cb.checked;
+      });
+if (isSelf) {
+  if (!effectivePermissions["users.view"] || !effectivePermissions["users.permissions"]) {
+    alert("You cannot remove your own user-management access.");
+    btnSave.disabled = false;
+    btnSave.textContent = "Save Permissions";
+    return;
+  }
+}
+      const overrides = buildPermissionOverrides(role, effectivePermissions);
+
+      btnSave.disabled = true;
+      btnSave.textContent = "Saving...";
+
+      await API.updateUserPermissions(user.id, overrides);
+
+      closeModal();
+      await renderUsers();
+    } catch (e) {
+      btnSave.disabled = false;
+      btnSave.textContent = "Save Permissions";
+      alert(e.message || "Failed to update permissions");
+    }
+  };
+
+  openModal({
+    title: "User Permissions",
+    bodyNode: body,
+    footerNodes: [btnReset, btnCancel, btnSave],
+  });
+}
+
+async function renderProjects() {
+  const root = setViewMode(true);
+
+  if (!hasPermission("projects.view")) {
+    setTitle("Access Denied");
+    setToolbar([]);
+    root.innerHTML = `<div class="card"><div class="muted">You do not have access to Projects.</div></div>`;
+    return;
+  }
+
+  setTitle("Projects");
+
+  const toolbar = [];
+
+  if (hasPermission("projects.create")) {
+    const btnCreate = smallBtn("+ Create Project", "primary");
+    btnCreate.onclick = () => showCreateProjectModal();
+    toolbar.push(btnCreate);
+  }
+
+  const btnRefresh = smallBtn("Refresh", "secondary");
+  btnRefresh.onclick = () => renderProjects();
+  toolbar.push(btnRefresh);
+
+  setToolbar(toolbar);
+
+  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
+
+  try {
+    const rows = await API.listProjects();
+
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">Projects</div>
+        <div class="hr"></div>
+      </div>
+    `;
+
+    const card = root.querySelector(".card");
+
+    const wrap = document.createElement("div");
+    wrap.className = "tableContainer";
+    wrap.style.maxHeight = "420px";
+    wrap.style.overflow = "auto";
+
+    wrap.innerHTML = `
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Project Code</th>
+            <th>Project Name</th>
+            <th>Customer</th>
+            <th>Site</th>
+            <th>Lifts</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="pBody"></tbody>
+      </table>
+    `;
+
+    card.appendChild(wrap);
+
+    const tb = wrap.querySelector("#pBody");
+
+    if (!rows || !rows.length) {
+      tb.innerHTML = `
+        <tr>
+          <td colspan="7" class="muted text-center">No projects found.</td>
+        </tr>
+      `;
+      return;
+    }
+
+    rows.forEach((p) => {
+      const tr = document.createElement("tr");
+
+      tr.innerHTML = `
+        <td>${escapeHtml(p.projectCode || "")}</td>
+        <td>${escapeHtml(p.projectName || "")}</td>
+        <td>${escapeHtml(p.customer?.name || "")}</td>
+        <td>${escapeHtml(p.site?.name || "")}</td>
+        <td>${escapeHtml(String(p.liftCount ?? 0))}</td>
+        <td class="text-center"></td>
+        <td class="text-center"></td>
+      `;
+
+      const statusEl = badge(p.status || "OPEN");
+      tr.children[5].appendChild(statusEl);
+
+      const openBtn = smallBtn("Open", "secondary");
+      openBtn.onclick = async () => {
+        try {
+          openBtn.disabled = true;
+          openBtn.textContent = "Opening...";
+          await openProject(p.id);
+        } catch (e) {
+          openBtn.disabled = false;
+          openBtn.textContent = "Open";
+          alert(e.message || "Failed to open project");
+        }
+      };
+      tr.children[6].appendChild(openBtn);
+
+if (hasPermission("projects.delete")) {
+  const deleteBtn = smallBtn("Delete", "danger");
+  deleteBtn.style.marginLeft = "8px";
+
+  deleteBtn.onclick = async () => {
+    if (!confirm(`Delete project "${p.projectName}"?\n\nAll lifts must be deleted first.`)) return;
+
+    try {
+      await API.deleteProject(p.id);
+
+      showToast("Project deleted successfully");
+      await renderProjects();
+    } catch (e) {
+      alert(e.message || "Failed to delete project");
+    }
+  };
+
+  tr.children[6].appendChild(deleteBtn);
+}
+
+      tb.appendChild(tr);
+    });
+  } catch (e) {
+    root.innerHTML = `
+      <div class="card">
+        <div class="muted" style="text-align:center;padding:20px;">
+          ${escapeHtml(e.message || "Failed to load projects")}
+        </div>
+      </div>
+    `;
+  }
+}
+
 async function openProject(projectId) {
-  const root = setViewMode(false);
+  if (!hasPermission("projects.view")) {
+    throw new Error("You do not have access to Projects.");
+  }
+
+  const root = setViewMode(true);
 
   root.innerHTML = `
     <div class="card">
@@ -2102,8 +3079,11 @@ async function openProject(projectId) {
     </div>
   `;
 
-  const r = await fetch(`/api/projects/${projectId}`);
-  const pj = await r.json();
+  const r = await fetch(`/api/projects/${projectId}`, {
+    headers: getOfficeAuthHeaders({}),
+  });
+
+  const pj = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(pj?.error || "Failed to open project");
 
   state.currentProjectId = projectId;
@@ -2124,11 +3104,21 @@ async function openProjectAndRunAction(projectId, projectLiftId, actionType) {
   }
 
   if (actionType === "ASSIGN_TEST_JOB") {
-    showCreateJobModalForProjectLift(projectLiftId, lift.liftCode, "TEST");
+  if (!hasPermission("jobs.assign")) {
+    alert("You do not have permission to assign jobs.");
     return;
   }
 
+  showCreateJobModalForProjectLift(projectLiftId, lift.liftCode, "TEST");
+  return;
+}
+
   if (actionType === "COMPLETE_HANDOVER") {
+    if (!hasPermission("projects.edit") && !hasPermission("lifts.edit")) {
+      alert("You do not have permission to complete handover.");
+      return;
+    }
+
     showMilestoneModal(projectLiftId, lift);
   }
 }
@@ -2200,6 +3190,22 @@ function showCompleteHandoverModal(projectLiftId, lift) {
     return 0;
   }
 
+// 🔧 Get actual TEST completion date (if available)
+const testAssignment = (lift.assignments || []).find((a) =>
+  String(a.assignment_role || a.role || "").toUpperCase() === "TEST" &&
+  String(a.status || "").toUpperCase() === "DONE"
+);
+
+const actualTestCompletedDate =
+  testAssignment?.completedAt ||
+  testAssignment?.completed_at ||
+  null;
+
+console.log("TEST COMPLETION DEBUG:", {
+  testAssignment,
+  actualTestCompletedDate
+});
+
   function validateCompleteHandover() {
     const errors = [];
     const warnings = [];
@@ -2241,9 +3247,15 @@ if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
       errors.push("Actual Handover Date cannot be earlier than Testing Start Date.");
     }
 
-    if (testingEndDate && actualHandoverDate && compareDateOnly(actualHandoverDate, testingEndDate) < 0) {
-      errors.push("Actual Handover Date cannot be earlier than Testing End Date.");
-    }
+    const testingReferenceDate = actualTestCompletedDate || testingEndDate;
+
+if (testingReferenceDate && actualHandoverDate && compareDateOnly(actualHandoverDate, testingReferenceDate) < 0) {
+  errors.push(
+    actualTestCompletedDate
+      ? "Actual Handover Date cannot be earlier than TEST job completion date."
+      : "Actual Handover Date cannot be earlier than Testing End Date."
+  );
+}
 
     if (!Number.isFinite(warrantyMonths) || warrantyMonths < 1) {
       errors.push("Warranty Months must be at least 1.");
@@ -2400,15 +3412,21 @@ function renderProjectDetails() {
     renderProjects();
   };
 
-  const btnAddLift = smallBtn("+ Add Lift", "primary");
-  btnAddLift.onclick = () => showAddLiftToProjectModal(pj.id);
+  const toolbar = [btnBack];
+
+  if (hasPermission("lifts.create")) {
+    const btnAddLift = smallBtn("+ Add Lift", "primary");
+    btnAddLift.onclick = () => showAddLiftToProjectModal(pj.id);
+    toolbar.push(btnAddLift);
+  }
 
   const btnRefresh = smallBtn("Refresh", "secondary");
   btnRefresh.onclick = async () => {
     await openProject(pj.id);
   };
+  toolbar.push(btnRefresh);
 
-  setToolbar([btnBack, btnAddLift, btnRefresh]);
+  setToolbar(toolbar);
 
   const lifts = Array.isArray(pj.lifts) ? pj.lifts : [];
   const workflowCounts = {
@@ -2557,13 +3575,14 @@ lifts.forEach((l) => {
       block.className = 'jobTeamBlock';
       block.innerHTML = renderJobSummaryHtml(job);
 
-      const manageBtn = smallBtn('Manage Team', 'secondary');
-      manageBtn.style.marginTop = '8px';
-      manageBtn.onclick = () => {
-        showManageTeamModal(job.id, job.role || 'JOB');
-      };
-
-      block.appendChild(manageBtn);
+      if (hasPermission('jobs.assign')) {
+  const manageBtn = smallBtn('Manage Team', 'secondary');
+  manageBtn.style.marginTop = '8px';
+  manageBtn.onclick = () => {
+    showManageTeamModal(job.id, job.role || 'JOB');
+  };
+  block.appendChild(manageBtn);
+}
       jobsCell.appendChild(block);
     });
   }
@@ -2574,82 +3593,103 @@ lifts.forEach((l) => {
   const projectLiftId = l.projectLiftId || l.id;
   const workflowStatus = String(getLiftExecutionStatus(l) || "").toUpperCase();
 
+console.log("Lift actions", l.liftCode, {
+  liftsEdit: hasPermission("lifts.edit"),
+  jobsAssign: hasPermission("jobs.assign"),
+  workflowStatus
+});
+
+
   const goToService = () => {
     location.hash = '#service';
   };
 
+  if (hasPermission('lifts.edit')) {
   const btnMilestone = smallBtn("Milestones", "secondary");
   btnMilestone.onclick = () => showMilestoneModal(projectLiftId, l);
   actionWrap.appendChild(btnMilestone);
+}
 
-  const hasActiveInstallJob = assignments.some((a) =>
-    String(a.role || '').toUpperCase() === 'INSTALL' &&
-    ['ASSIGNED', 'IN_PROGRESS'].includes(String(a.status || '').toUpperCase())
-  );
+const hasActiveInstallJob = assignments.some((a) =>
+  String(a.role || '').toUpperCase() === 'INSTALL' &&
+  ['ASSIGNED', 'IN_PROGRESS'].includes(String(a.status || '').toUpperCase())
+);
 
-  if (!hasActiveInstallJob && workflowStatus === 'NOT STARTED') {
-    const btnAssignInstall = smallBtn("Create Install Job", "primary");
-    btnAssignInstall.onclick = () => showCreateJobModalForProjectLift(projectLiftId, l.liftCode, "INSTALL");
-    actionWrap.appendChild(btnAssignInstall);
+if (
+  !hasActiveInstallJob &&
+  workflowStatus === 'NOT STARTED' &&
+  hasPermission('jobs.assign')
+) {
+  const btnAssignInstall = smallBtn("Create Install Job", "primary");
+  btnAssignInstall.onclick = () =>
+    showCreateJobModalForProjectLift(projectLiftId, l.liftCode, "INSTALL");
+  actionWrap.appendChild(btnAssignInstall);
+}
+
+if (
+  workflowStatus === 'READY FOR TEST ASSIGNMENT' &&
+  !l.hasActiveTestJob &&
+  hasPermission('jobs.assign')
+) {
+  const btnCreateTest = smallBtn('Create Test Job', 'primary');
+  btnCreateTest.onclick = () =>
+    showCreateJobModalForProjectLift(projectLiftId, l.liftCode, 'TEST');
+  actionWrap.appendChild(btnCreateTest);
+}
+
+if (
+  workflowStatus === 'READY FOR HANDOVER' &&
+  (hasPermission('jobs.assign') || hasPermission('lifts.edit'))
+) {
+  const btnHandover = smallBtn("Complete Handover", "primary");
+  btnHandover.onclick = () => showCompleteHandoverModal(projectLiftId, l);
+  actionWrap.appendChild(btnHandover);
+}
+
+if (workflowStatus === 'HANDED OVER') {
+  const isAmcServiceDueNow = !!l?.amc?.isDueNow;
+  const isWarrantyServiceDueNow = !!l?.warranty?.isDueNow;
+
+  const hasActiveAmcService = !!l?.amc?.activeServiceAssignment;
+  const hasActiveWarrantyService = !!l?.warranty?.activeServiceAssignment;
+
+  const hasEligibleAmcContract =
+    !!l?.amc &&
+    ['AMC ACTIVE', 'AMC EXPIRING SOON'].includes(
+      String(l.amc.status || '').toUpperCase()
+    );
+
+  if (!l.amc) {
+    const hint = document.createElement('div');
+    hint.className = 'muted';
+    hint.textContent = 'AMC not created (manage in Service)';
+    actionWrap.appendChild(hint);
   }
 
-  if (workflowStatus === 'READY FOR TEST ASSIGNMENT' && !l.hasActiveTestJob) {
-    const btnCreateTest = smallBtn('Create Test Job', 'primary');
-    btnCreateTest.onclick = () =>
-      showCreateJobModalForProjectLift(projectLiftId, l.liftCode, 'TEST');
-    actionWrap.appendChild(btnCreateTest);
+  if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
+    const btn = document.createElement('button');
+    btn.className = 'btn secondary';
+    btn.textContent = 'Manage Service';
+    btn.onclick = goToService;
+    actionWrap.appendChild(btn);
   }
 
-  if (workflowStatus === 'READY FOR HANDOVER') {
-    const btnHandover = smallBtn("Complete Handover", "primary");
-    btnHandover.onclick = () => showCompleteHandoverModal(projectLiftId, l);
-    actionWrap.appendChild(btnHandover);
+  if (hasEligibleAmcContract && isAmcServiceDueNow && !hasActiveAmcService) {
+    const hint = document.createElement('div');
+    hint.className = 'muted';
+    hint.textContent = 'AMC service due (manage in Service)';
+    actionWrap.appendChild(hint);
   }
 
-  if (workflowStatus === 'HANDED OVER') {
-    const isAmcServiceDueNow = !!l?.amc?.isDueNow;
-    const isWarrantyServiceDueNow = !!l?.warranty?.isDueNow;
-
-    const hasActiveAmcService = !!l?.amc?.activeServiceAssignment;
-    const hasActiveWarrantyService = !!l?.warranty?.activeServiceAssignment;
-
-    const hasEligibleAmcContract =
-      !!l?.amc &&
-      ['AMC ACTIVE', 'AMC EXPIRING SOON'].includes(
-        String(l.amc.status || '').toUpperCase()
-      );
-
-    if (!l.amc) {
-      const hint = document.createElement('div');
-      hint.className = 'muted';
-      hint.textContent = 'AMC not created (manage in Service)';
-      actionWrap.appendChild(hint);
-    }
-
-    if (isWarrantyServiceDueNow && !hasActiveWarrantyService) {
-      const btn = document.createElement('button');
-      btn.className = 'btn secondary';
-      btn.textContent = 'Manage Service';
-      btn.onclick = goToService;
-      actionWrap.appendChild(btn);
-    }
-
-    if (hasEligibleAmcContract && isAmcServiceDueNow && !hasActiveAmcService) {
-      const hint = document.createElement('div');
-      hint.className = 'muted';
-      hint.textContent = 'AMC service due (manage in Service)';
-      actionWrap.appendChild(hint);
-    }
-
-    if (hasActiveWarrantyService || hasActiveAmcService) {
-      const hint = document.createElement('div');
-      hint.className = 'muted';
-      hint.textContent = 'Active service job in progress';
-      actionWrap.appendChild(hint);
-    }
+  if (hasActiveWarrantyService || hasActiveAmcService) {
+    const hint = document.createElement('div');
+    hint.className = 'muted';
+    hint.textContent = 'Active service job in progress';
+    actionWrap.appendChild(hint);
   }
+}
+const btnHistory = smallBtn("History", "secondary");
 
-  const btnHistory = smallBtn('Service History', 'secondary');
 btnHistory.onclick = () => {
   try {
     showServiceHistoryModal(l);
@@ -2659,6 +3699,26 @@ btnHistory.onclick = () => {
   }
 };
 actionWrap.appendChild(btnHistory);
+
+// DELETE LIFT
+if (hasPermission("projects.delete")) {
+  const btnDeleteLift = smallBtn("Delete Lift", "danger");
+
+  btnDeleteLift.onclick = async () => {
+    if (!confirm(`Delete Lift "${l.liftCode}"?\n\nAll jobs must be deleted first.`)) return;
+
+    try {
+      await API.deleteProjectLift(projectLiftId);
+
+      showToast("Lift deleted successfully");
+      await openProject(pj.id); // refresh project screen
+    } catch (e) {
+  alert(e.message || "Cannot delete lift. Remove jobs first.");
+}
+  };
+
+  actionWrap.appendChild(btnDeleteLift);
+}
 
 tr.children[5].appendChild(actionWrap);
 tb.appendChild(tr);
@@ -2757,8 +3817,7 @@ tr.onclick = () => {
   if (rowClass) tr.className = rowClass;
 
   tr.style.cursor = "pointer";
-  tr.onclick = () => showTechnicianWorkloadModal(r.technicianId, r.name);
-
+  
   tr.innerHTML = `
     <td>${r.name || ""}</td>
     <td class="teamLoadSkillsCell">
@@ -2781,6 +3840,118 @@ tr.onclick = () => {
 
   tb.appendChild(tr);
 });
+}
+
+function showCreateUserModal() {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="formGrid">
+      <div class="field">
+        <label>Name</label>
+        <input id="newUserName" placeholder="Full name" />
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input id="newUserEmail" placeholder="Email address" />
+      </div>
+      <div class="field">
+        <label>Role</label>
+        <select id="newUserRole">
+          <option value="SUPERVISOR">SUPERVISOR</option>
+          <option value="MANAGER">MANAGER</option>
+          <option value="ADMIN">ADMIN</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="newUserPassword" type="password" placeholder="Password" />
+      </div>
+    </div>
+  `;
+
+  const btnCancel = smallBtn("Cancel", "secondary");
+  btnCancel.onclick = closeModal;
+
+  const btnSave = smallBtn("Create", "primary");
+  btnSave.onclick = async () => {
+    try {
+      const payload = {
+        name: body.querySelector("#newUserName").value.trim(),
+        email: body.querySelector("#newUserEmail").value.trim(),
+        role: body.querySelector("#newUserRole").value.trim(),
+        password: body.querySelector("#newUserPassword").value.trim(),
+      };
+
+      await API.createUser(payload);
+      closeModal();
+      await renderUsers();
+    } catch (e) {
+      alert(e.message || "Failed to create user");
+    }
+  };
+
+  openModal({
+    title: "Create User",
+    bodyNode: body,
+    footerNodes: [btnCancel, btnSave],
+  });
+}
+
+function showEditUserModal(user) {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="formGrid">
+      <div class="field">
+        <label>Name</label>
+        <input id="editUserName" value="${escapeHtml(user?.name || "")}" />
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input id="editUserEmail" value="${escapeHtml(user?.email || "")}" />
+      </div>
+      <div class="field">
+        <label>Role</label>
+        <select id="editUserRole">
+          <option value="SUPERVISOR" ${user?.role === "SUPERVISOR" ? "selected" : ""}>SUPERVISOR</option>
+          <option value="MANAGER" ${user?.role === "MANAGER" ? "selected" : ""}>MANAGER</option>
+          <option value="ADMIN" ${user?.role === "ADMIN" ? "selected" : ""}>ADMIN</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>New Password</label>
+        <input id="editUserPassword" type="password" placeholder="Leave blank to keep unchanged" />
+      </div>
+    </div>
+  `;
+
+  const btnCancel = smallBtn("Cancel", "secondary");
+  btnCancel.onclick = closeModal;
+
+  const btnSave = smallBtn("Save", "primary");
+  btnSave.onclick = async () => {
+    try {
+      const payload = {
+        name: body.querySelector("#editUserName").value.trim(),
+        email: body.querySelector("#editUserEmail").value.trim(),
+        role: body.querySelector("#editUserRole").value.trim(),
+      };
+
+      const newPassword = body.querySelector("#editUserPassword").value.trim();
+      if (newPassword) payload.password = newPassword;
+
+      await API.updateUser(user.id, payload);
+      closeModal();
+      await renderUsers();
+    } catch (e) {
+      alert(e.message || "Failed to update user");
+    }
+  };
+
+  openModal({
+    title: "Edit User",
+    bodyNode: body,
+    footerNodes: [btnCancel, btnSave],
+  });
 }
 
 async function showTechnicianWorkloadModal(technicianId, technicianName) {
@@ -2940,7 +4111,13 @@ async function showJobSuggestionModal(jobId) {
 }
 
 async function showAddLiftToProjectModal(projectId) {
+  if (!hasPermission("lifts.create")) {
+    alert("You do not have permission to add lifts.");
+    return;
+  }
+
   const body = document.createElement("div");
+
   body.innerHTML = `
     <div class="formGrid">
       <div class="field">
@@ -3004,10 +4181,10 @@ async function showAddLiftToProjectModal(projectId) {
       };
 
       const r = await fetch(`/api/projects/${projectId}/lifts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+  method: "POST",
+  headers: getOfficeAuthHeaders(),
+  body: JSON.stringify(payload),
+});
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || "Add lift failed");
 
@@ -3037,17 +4214,18 @@ async function showCreateJobModalForProjectLift(projectLiftId, liftCodeLabel, pr
     <div class="formGrid">
       <div class="field" style="grid-column:1/-1">
         <label>Lift</label>
-        <input value="${liftCodeLabel}" disabled />
+        <input value="${escapeHtml(liftCodeLabel || "")}" disabled />
       </div>
 
       <div class="field">
         <label>Lead Technician</label>
         <select id="jobLeadTech"></select>
+        <div id="techWarning" class="warnText" style="font-size:12px;margin-top:4px;"></div>
       </div>
 
       <div class="field">
         <label>Job Type</label>
-        <input id="jobRoleLabel" value="${fixedRole}" disabled />
+        <input id="jobRoleLabel" value="${escapeHtml(fixedRole)}" disabled />
       </div>
 
       <div class="field">
@@ -3066,7 +4244,7 @@ async function showCreateJobModalForProjectLift(projectLiftId, liftCodeLabel, pr
 
       <div class="field" style="grid-column:1/-1">
         <div class="muted" style="font-size:12px">
-          Due date is suggested from milestones (or AMC next service date), but you can still change it.
+          Due date is suggested from milestones, but you can still change it.
           A new job is created with one Lead. Add more Support technicians later using <b>Manage Team</b>.
         </div>
       </div>
@@ -3074,6 +4252,7 @@ async function showCreateJobModalForProjectLift(projectLiftId, liftCodeLabel, pr
   `;
 
   const techSelect = body.querySelector("#jobLeadTech");
+  const techWarningEl = body.querySelector("#techWarning");
   const dueInput = body.querySelector("#jobDue");
   const dueHint = body.querySelector("#jobDueHint");
 
@@ -3081,7 +4260,10 @@ async function showCreateJobModalForProjectLift(projectLiftId, liftCodeLabel, pr
     techSelect.innerHTML = "";
 
     const requiredSkill = getRequiredSkillForJob(fixedRole);
-    const filteredTechs = (techs || []).filter((t) => technicianHasSkill(t, requiredSkill));
+
+    const filteredTechs = (techs || []).filter((t) =>
+      technicianHasSkill(t, requiredSkill)
+    );
 
     if (!filteredTechs.length) {
       const opt = document.createElement("option");
@@ -3094,21 +4276,54 @@ async function showCreateJobModalForProjectLift(projectLiftId, liftCodeLabel, pr
     filteredTechs.forEach((t) => {
       const opt = document.createElement("option");
       opt.value = t.id;
-      opt.textContent = `${t.name}${t.skills ? ` (${parseSkills(t.skills).join(", ")})` : ""}`;
+
+      const skills = t.skills ? ` (${parseSkills(t.skills).join(", ")})` : "";
+      const availability = String(t.availability_status || "AVAILABLE").toUpperCase();
+
+      const statusLabel = availability !== "AVAILABLE"
+        ? ` — ${availability} ⚠`
+        : "";
+
+      opt.textContent = `${t.name || ""}${skills}${statusLabel}`;
       techSelect.appendChild(opt);
     });
   }
 
+  function updateTechnicianWarning() {
+    const selected = (techs || []).find(
+      (t) => String(t.id) === String(techSelect.value)
+    );
+
+    if (!selected) {
+      techWarningEl.textContent = "";
+      return;
+    }
+
+    const availability = String(selected.availability_status || "AVAILABLE").toUpperCase();
+
+    if (availability !== "AVAILABLE") {
+      techWarningEl.textContent =
+        `⚠ Selected technician is currently ${availability}. Assignment is allowed for ${fixedRole}, but please review availability.`;
+    } else {
+      techWarningEl.textContent = "";
+    }
+  }
+
   function refreshDueDateSuggestion() {
     const suggestion = getSuggestedDueDateForJob(lift, fixedRole);
+
     if (!dueInput.dataset.userEdited || !dueInput.value) {
       dueInput.value = suggestion || "";
     }
+
     updateDueDateGuidance(dueHint, lift, fixedRole, dueInput.value);
   }
 
   populateTechnicianOptions();
+  updateTechnicianWarning();
   refreshDueDateSuggestion();
+
+  techSelect.onchange = updateTechnicianWarning;
 
   dueInput.addEventListener("input", () => {
     dueInput.dataset.userEdited = "1";
@@ -3124,11 +4339,11 @@ async function showCreateJobModalForProjectLift(projectLiftId, liftCodeLabel, pr
       if (!techSelect.value) throw new Error("Please select a lead technician");
 
       await API.assignTechToProjectLift(projectLiftId, {
-        technicianId: techSelect.value,
-        leadTechnicianId: techSelect.value,
+        technicianId: Number(techSelect.value),
+        leadTechnicianId: Number(techSelect.value),
         role: fixedRole,
-        dueDate: dueInput.value,
-        notes: body.querySelector("#jobNotes").value,
+        dueDate: dueInput.value || null,
+        notes: body.querySelector("#jobNotes")?.value || "",
       });
 
       closeModal();
@@ -3146,51 +4361,26 @@ async function showCreateJobModalForProjectLift(projectLiftId, liftCodeLabel, pr
 }
 
 async function renderLifts() {
-  const root = setViewMode(false);
+  const root = setViewMode(true);
+
+  if (!hasPermission("lifts.view")) {
+    setTitle("Access Denied");
+    setToolbar([]);
+    root.innerHTML = `<div class="card"><div class="muted">You do not have access to Lifts.</div></div>`;
+    return;
+  }
 
   setTitle("Lifts");
 
+  const toolbar = [];
+
   const btnRefresh = smallBtn("Refresh", "secondary");
   btnRefresh.onclick = () => renderLifts();
-  setToolbar([btnRefresh]);
+  toolbar.push(btnRefresh);
+
+  setToolbar(toolbar);
 
   root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
-
-  const rows = await API.listLifts();
-
-  root.innerHTML = `
-    <div class="card">
-      <div class="label">Lifts</div>
-      <div class="hr"></div>
-    </div>
-  `;
-
-  const card = root.querySelector(".card");
-
-  const wrap = document.createElement("div");
-  wrap.className = "tableContainer";
-  wrap.style.maxHeight = "420px";
-  wrap.style.overflow = "auto";
-
-  wrap.innerHTML = `
-    <table class="liftsTable">
-      <thead>
-        <tr>
-          <th class="col-lift-code">Lift Code</th>
-          <th class="col-customer">Customer</th>
-          <th class="col-lift-location">Lift Location</th>
-          <th class="col-warranty">Warranty Status</th>
-          <th class="col-amc">AMC Status</th>
-          <th class="col-days">Days Remaining</th>
-        </tr>
-      </thead>
-      <tbody id="lBody"></tbody>
-    </table>
-  `;
-
-  card.appendChild(wrap);
-
-  const tb = wrap.querySelector("#lBody");
 
   function normalizeWarrantyStatus(v) {
     const s = String(v || "").toUpperCase();
@@ -3208,70 +4398,155 @@ async function renderLifts() {
     return "NO AMC";
   }
 
-  (rows || []).forEach((l) => {
-    const tr = document.createElement("tr");
-
-    const daysRemaining =
-      String(l.warrantyStatus || "").toUpperCase() === "WARRANTY ACTIVE"
-        ? (l.warrantyDaysRemaining ?? "")
-        : (
-            ["AMC ACTIVE", "AMC EXPIRING SOON"].includes(String(l.amcStatus || "").toUpperCase())
-              ? (l.daysToExpiry ?? "")
-              : ""
-          );
-
-    tr.innerHTML = `
-      <td class="col-lift-code"><span class="monoCode">${l.liftCode || ""}</span></td>
-      <td class="col-customer">${l.customerName || ""}</td>
-      <td class="col-lift-location">${l.liftPosition || l.location || ""}</td>
-      <td class="col-warranty"></td>
-      <td class="col-amc"></td>
-      <td class="col-days">${daysRemaining}</td>
-    `;
-
-    tr.children[3].appendChild(badge(normalizeWarrantyStatus(l.warrantyStatus)));
-    tr.children[4].appendChild(badge(normalizeAmcStatus(l.amcStatus)));
-
-    tb.appendChild(tr);
-  });
-
-  if (!rows || !rows.length) {
-    tb.innerHTML = `
-      <tr>
-        <td colspan="6" class="muted text-center">No lifts found.</td>
-      </tr>
-    `;
-  }
-}
-
-async function renderJobs() {
-  const root = setViewMode(false);
-
-  setTitle("Jobs");
-
-  const btnCreate = smallBtn("+ Create Job", "primary");
-  btnCreate.onclick = () => showCreateJobModal();
-
-  const btnRefresh = smallBtn("Refresh", "secondary");
-  btnRefresh.onclick = () => renderJobs();
-
-  setToolbar([btnCreate, btnRefresh]);
-
-  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
-
   try {
-    const allRows = await API.getJobs();
-    const rows = (allRows || []).filter((a) => isProjectJobRole(a.role));
+    const rows = await API.listLifts();
 
     root.innerHTML = `
       <div class="card">
-        <div class="label">Project Jobs</div>
-        <div class="muted">Install and Test jobs only</div>
+        <div class="label">Lifts</div>
         <div class="hr"></div>
       </div>
     `;
 
     const card = root.querySelector(".card");
+
+    const wrap = document.createElement("div");
+    wrap.className = "tableContainer";
+    wrap.style.maxHeight = "420px";
+    wrap.style.overflow = "auto";
+
+    wrap.innerHTML = `
+      <table class="liftsTable">
+        <thead>
+          <tr>
+            <th class="col-lift-code">Lift Code</th>
+            <th class="col-customer">Customer</th>
+            <th class="col-lift-location">Lift Location</th>
+            <th class="col-warranty">Warranty Status</th>
+            <th class="col-amc">AMC Status</th>
+            <th class="col-days">Days Remaining</th>
+          </tr>
+        </thead>
+        <tbody id="lBody"></tbody>
+      </table>
+    `;
+
+    card.appendChild(wrap);
+
+    const tb = wrap.querySelector("#lBody");
+
+    if (!rows || !rows.length) {
+      tb.innerHTML = `
+        <tr>
+          <td colspan="6" class="muted text-center">No lifts found.</td>
+        </tr>
+      `;
+      return;
+    }
+
+    (rows || []).forEach((l) => {
+      const tr = document.createElement("tr");
+
+      const warrantyStatus = normalizeWarrantyStatus(l.warrantyStatus);
+      const amcStatus = normalizeAmcStatus(l.amcStatus);
+
+      const daysRemaining =
+        warrantyStatus === "WARRANTY ACTIVE"
+          ? (l.warrantyDaysRemaining ?? "")
+          : (
+              ["AMC ACTIVE", "AMC EXPIRING SOON"].includes(amcStatus)
+                ? (l.daysToExpiry ?? "")
+                : ""
+            );
+
+      tr.innerHTML = `
+        <td class="col-lift-code"><span class="monoCode">${escapeHtml(l.liftCode || "")}</span></td>
+        <td class="col-customer">${escapeHtml(l.customerName || "")}</td>
+        <td class="col-lift-location">${escapeHtml(l.liftPosition || l.location || "")}</td>
+        <td class="col-warranty"></td>
+        <td class="col-amc"></td>
+        <td class="col-days">${escapeHtml(String(daysRemaining ?? ""))}</td>
+      `;
+
+      tr.children[3].appendChild(badge(warrantyStatus));
+      tr.children[4].appendChild(badge(amcStatus));
+
+      tb.appendChild(tr);
+    });
+  } catch (e) {
+    root.innerHTML = `
+      <div class="card">
+        <div class="muted" style="text-align:center;padding:20px;">
+          ${escapeHtml(e.message || "Failed to load lifts")}
+        </div>
+      </div>
+    `;
+  }
+}
+
+async function renderJobs() {
+  const root = setViewMode(true);
+
+  if (!hasPermission("jobs.view")) {
+    setTitle("Access Denied");
+    setToolbar([]);
+    root.innerHTML = `<div class="card"><div class="muted">You do not have access to Jobs.</div></div>`;
+    return;
+  }
+
+  setTitle("Jobs");
+
+  const toolbar = [];
+ 
+  const btnRefresh = smallBtn("Refresh", "secondary");
+  btnRefresh.onclick = () => renderJobs();
+  toolbar.push(btnRefresh);
+
+  setToolbar(toolbar);
+
+  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
+
+  try {
+    const view = projectJobsView;
+
+    const data = await API.getJobs(view);
+    const allRows = Array.isArray(data?.rows) ? data.rows : [];
+    const rows = allRows.filter((a) => isProjectJobRole(a.role));
+
+    root.innerHTML = `
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+          <div>
+            <div class="label">Project Jobs</div>
+            <div class="muted">Install and Test jobs only</div>
+            <div class="muted" style="margin-top:4px;">Showing: ${escapeHtml(String(view || "").toUpperCase())}</div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="muted" style="font-weight:600;">Show</span>
+            <select id="projectJobsViewFilter" style="height:34px; border-radius:8px; padding:0 8px;">
+              <option value="open">Open Jobs</option>
+              <option value="pending">Pending Approval</option>
+              <option value="completed">Completed</option>
+              <option value="all">All Records</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hr"></div>
+      </div>
+    `;
+
+    const card = root.querySelector(".card");
+
+    const filter = root.querySelector("#projectJobsViewFilter");
+    if (filter) {
+      filter.value = projectJobsView;
+      filter.onchange = () => {
+        projectJobsView = filter.value;
+        renderJobs();
+      };
+    }
 
     const wrap = makeScrollableTableWrap(`
       <table>
@@ -3300,7 +4575,7 @@ async function renderJobs() {
     if (!rows || rows.length === 0) {
       tb.innerHTML = `
         <tr>
-          <td colspan="10" class="muted">No project jobs found. Click <b>+ Create Job</b>.</td>
+          <td colspan="10" class="muted">No project jobs found.</td>
         </tr>
       `;
       return;
@@ -3324,8 +4599,8 @@ async function renderJobs() {
         else checklistBadgeText = "CHECKLIST NOT STARTED";
       }
 
-      const leadName = getLeadName(a);
-      const supportNames = getSupportNames(a);
+      const leadName = String(getLeadName(a) || "");
+      const supportNames = Array.isArray(getSupportNames(a)) ? getSupportNames(a) : [];
       const supportCount = supportNames.length;
 
       const sup = String(a.supervisorStatus || "PENDING").toUpperCase();
@@ -3333,59 +4608,62 @@ async function renderJobs() {
       if (sup === "APPROVED") supText = "🟢 Approved";
       if (sup === "REJECTED") supText = "🔴 Rejected";
 
+      const rejectedRemarksHtml =
+        sup === "REJECTED" && a.supervisorRemarks
+          ? `<div class="muted" style="margin-top:6px; color:#b42318; font-size:12px;">${escapeHtml(a.supervisorRemarks)}</div>`
+          : "";
+
       const tr = document.createElement("tr");
 
       tr.innerHTML = `
         <td class="col-job-code">
-          <span class="monoCode">A-${a.id}</span>
+          <span class="monoCode">A-${escapeHtml(String(a.id || ""))}</span>
         </td>
 
         <td class="col-project">
-          ${a.project?.projectName || ""}
+          ${escapeHtml(a.project?.projectName || "")}
         </td>
 
         <td class="col-lift">
-          <span class="monoCode">${a.lift?.liftCode || ""}</span>
+          <span class="monoCode">${escapeHtml(a.lift?.liftCode || "")}</span>
         </td>
 
         <td class="col-type">
-          ${a.role || ""}
+          ${escapeHtml(a.role || "")}
         </td>
 
         <td>
-          <div><b>Lead:</b> ${leadName}</div>
-          <div class="muted">${supportCount} support${supportCount === 1 ? "" : "s"}</div>
-          ${supportCount ? `<div class="muted">${supportNames.join(", ")}</div>` : ""}
+          <div><b>Lead:</b> ${escapeHtml(leadName)}</div>
+          <div class="muted">${escapeHtml(String(supportCount))} support${supportCount === 1 ? "" : "s"}</div>
+          ${supportCount ? `<div class="muted">${escapeHtml(supportNames.join(", "))}</div>` : ""}
         </td>
 
         <td>
-          <div>${checklistText}</div>
-          <div class="muted">${checklistPercent}</div>
+          <div>${escapeHtml(checklistText)}</div>
+          <div class="muted">${escapeHtml(checklistPercent)}</div>
           <div class="checklistOfficeBadgeWrap"></div>
         </td>
 
-        <td class="col-due">${a.dueDate || ""}</td>
+        <td class="col-due">${escapeHtml(a.dueDate || "")}</td>
 
         <td></td>
 
         <td>
           <div class="supervisorStatusWrap"></div>
-          ${
-            sup === "REJECTED" && a.supervisorRemarks
-              ? `<div class="muted" style="margin-top:6px; color:#b42318; font-size:12px;">${a.supervisorRemarks}</div>`
-              : ""
-          }
+          ${rejectedRemarksHtml}
         </td>
 
         <td></td>
       `;
 
-      tr.children[5].querySelector(".checklistOfficeBadgeWrap")
+      tr.children[5]
+        .querySelector(".checklistOfficeBadgeWrap")
         .appendChild(badge(checklistBadgeText));
 
       tr.children[7].appendChild(badge(statusText));
 
-      tr.children[8].querySelector(".supervisorStatusWrap")
+      tr.children[8]
+        .querySelector(".supervisorStatusWrap")
         .appendChild(badge(supText));
 
       const cell = tr.children[9];
@@ -3403,6 +4681,7 @@ async function renderJobs() {
       }
 
       if (
+        hasPermission("service.approve") &&
         String(a.status || "").toUpperCase() === "DONE" &&
         String(a.supervisorStatus || "PENDING").toUpperCase() === "PENDING"
       ) {
@@ -3412,7 +4691,8 @@ async function renderJobs() {
         b1.onclick = async () => {
           try {
             const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
-              method: "PUT"
+              method: "PUT",
+              headers: getOfficeAuthHeaders({}),
             });
 
             const j = await r.json().catch(() => ({}));
@@ -3437,8 +4717,8 @@ async function renderJobs() {
 
             const r = await fetch(`/api/supervisor/assignments/${a.id}/reject`, {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ remarks })
+              headers: getOfficeAuthHeaders({ "Content-Type": "application/json" }),
+              body: JSON.stringify({ remarks }),
             });
 
             const j = await r.json().catch(() => ({}));
@@ -3451,39 +4731,73 @@ async function renderJobs() {
           }
         };
 
-        cell.appendChild(b2);
+                cell.appendChild(b2);
+      }
+
+      // DELETE BUTTON
+      if (hasPermission("jobs.delete")) {
+        const bDel = smallBtn("Delete", "danger");
+        if (cell.children.length) bDel.style.marginLeft = "8px";
+
+        bDel.onclick = async () => {
+          if (!confirm(`Delete Job A-${a.id}? This cannot be undone.`)) return;
+
+          try {
+            await API.deleteJob(a.id);
+
+            showToast("Job deleted successfully");
+            await renderJobs();
+          } catch (e) {
+            alert(e.message || "Failed to delete job");
+          }
+        };
+
+        cell.appendChild(bDel);
       }
 
       tb.appendChild(tr);
     });
-
   } catch (e) {
     root.innerHTML = `
       <div class="card">
         <div class="label">Jobs failed to load</div>
         <div class="hr"></div>
-        <div class="muted">${String(e.message || e)}</div>
+        <div class="muted">${escapeHtml(String(e.message || e))}</div>
       </div>
     `;
   }
 }
 
 async function renderAMC() {
-  const root = setViewMode(false);
+  const root = setViewMode(true);
+
+  if (!hasPermission("amc.view")) {
+    setTitle("Access Denied");
+    setToolbar([]);
+    root.innerHTML = `<div class="card"><div class="muted">You do not have access to AMC.</div></div>`;
+    return;
+  }
+
   setTitle("AMC");
 
-  const btnCreate = smallBtn("+ Create AMC", "primary");
-  btnCreate.onclick = () => showCreateAmcSelectionModal();
+  const toolbar = [];
+
+  if (hasPermission("amc.create")) {
+    const btnCreate = smallBtn("+ Create AMC", "primary");
+    btnCreate.onclick = () => showCreateAmcSelectionModal();
+    toolbar.push(btnCreate);
+  }
 
   const btnRefresh = smallBtn("Refresh", "secondary");
   btnRefresh.onclick = () => renderAMC();
+  toolbar.push(btnRefresh);
 
-  setToolbar([btnCreate, btnRefresh]);
+  setToolbar(toolbar);
 
   root.innerHTML = `<div class="card"><div class="label">Loading AMC...</div></div>`;
 
   try {
-    const data = await API.getServiceDashboard(); // 🔥 IMPORTANT
+    const data = await API.getServiceDashboard();
     const rows = Array.isArray(data?.rows) ? data.rows : [];
 
     const amcRows = rows.filter(
@@ -3509,25 +4823,30 @@ async function renderAMC() {
                       <th>Start</th>
                       <th>End</th>
                       <th>Next Service</th>
+		      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${amcRows
-                      .map(
-                        (r) => `
+                    ${amcRows.map((r) => `
                       <tr>
-                        <td><b>${r.liftCode || ""}</b></td>
-                        <td>${[r.customerName, r.building]
-                          .filter(Boolean)
-                          .join(" - ")}</td>
-                        <td>${r.amcStatus || ""}</td>
-                        <td>${r.amcStartDate || "—"}</td>
-                        <td>${r.amcEndDate || "—"}</td>
-                        <td>${r.amcNextServiceDue || "—"}</td>
-                      </tr>
-                    `
-                      )
-                      .join("")}
+  <td><b>${escapeHtml(r.liftCode || "")}</b></td>
+  <td>${escapeHtml([r.customerName, r.building].filter(Boolean).join(" - ") || "—")}</td>
+  <td>${escapeHtml(r.amcStatus || "")}</td>
+  <td>${escapeHtml(r.amcStartDate || "—")}</td>
+  <td>${escapeHtml(r.amcEndDate || "—")}</td>
+  <td>${escapeHtml(r.amcNextServiceDue || "—")}</td>
+
+  <td>
+    ${
+  hasPermission("amc.delete")
+    ? `<button class="btn danger" data-action="delete-amc" data-amc-id="${r.amcId || ""}">
+        Delete
+      </button>`
+    : ""
+}
+  </td>
+</tr>
+                    `).join("")}
                   </tbody>
                 </table>
               </div>
@@ -3535,25 +4854,55 @@ async function renderAMC() {
         }
       </div>
     `;
+root.querySelectorAll('[data-action="delete-amc"]').forEach((btn) => {
+  btn.onclick = async () => {
+    const id = btn.getAttribute("data-amc-id");
+
+    if (!id) {
+      alert("AMC ID missing");
+      return;
+    }
+
+    if (!confirm("Delete this AMC contract?\n\nAll AMC service jobs must be deleted first.")) return;
+
+    try {
+      await API.deleteAmc(id);
+
+      showToast("AMC deleted successfully");
+      await renderAMC();
+    } catch (e) {
+      alert(e.message || "Failed to delete AMC");
+    }
+  };
+});
+
   } catch (e) {
     console.error(e);
     root.innerHTML = `
       <div class="card">
         <div class="label">AMC failed</div>
         <div class="hr"></div>
-        <div class="muted">${e.message || e}</div>
+        <div class="muted">${escapeHtml(e.message || String(e))}</div>
       </div>
     `;
   }
 }
 
 async function showCreateAmcSelectionModal() {
+  if (!hasPermission("amc.create")) {
+    alert("You do not have permission to create AMC.");
+    return;
+  }
+
   try {
     const projects = await API.listProjects();
     const eligibleLifts = [];
 
     for (const p of (projects || [])) {
-      const r = await fetch(`/api/projects/${p.id}`);
+      const r = await fetch(`/api/projects/${p.id}`, {
+        headers: getOfficeAuthHeaders({}),
+      });
+
       const pj = await r.json().catch(() => ({}));
       if (!r.ok) continue;
 
@@ -3712,7 +5061,9 @@ async function renderMyJobs() {
     }
 
     rows.forEach((a) => {
-      const statusText = String(a.status || "").replaceAll("_", " ");
+      const statusText = String(a.status || "UNKNOWN")
+  .replaceAll("_", " ")
+  .toUpperCase();
 
       const checklist = a.checklistSummary || null;
 
@@ -3832,18 +5183,45 @@ async function renderServiceJobs() {
   root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
 
   try {
-    const allRows = await API.getJobs();
-    const rows = (allRows || []).filter((a) => isServiceJobRole(a.role));
+    const view = serviceJobsView;
+
+    const data = await API.getJobs(view);
+    const allRows = Array.isArray(data?.rows) ? data.rows : [];
+    const rows = allRows.filter((a) => isServiceJobRole(a.role));
 
     root.innerHTML = `
       <div class="card">
-        <div class="label">Service Jobs</div>
-        <div class="muted">Warranty Service and AMC Service jobs</div>
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+          <div>
+            <div class="label">Service Jobs</div>
+            <div class="muted">Warranty Service and AMC Service jobs</div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="muted" style="font-weight:600;">Show</span>
+            <select id="serviceJobsViewFilter" style="height:34px; border-radius:8px; padding:0 8px;">
+              <option value="open">Open Jobs</option>
+              <option value="pending">Pending Approval</option>
+              <option value="completed">Completed</option>
+              <option value="all">All Records</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="muted" style="margin-top:6px;">Showing: ${view.toUpperCase()}</div>
         <div class="hr"></div>
       </div>
     `;
 
     const card = root.querySelector(".card");
+    const filter = root.querySelector("#serviceJobsViewFilter");
+    if (filter) {
+      filter.value = serviceJobsView;
+      filter.onchange = () => {
+        serviceJobsView = filter.value;
+        renderServiceJobs();
+      };
+    }
 
     const wrap = makeScrollableTableWrap(`
       <table>
@@ -3999,47 +5377,68 @@ async function renderServiceJobs() {
         if (cell.children.length) b1.style.marginLeft = "8px";
 
         b1.onclick = async () => {
-          try {
-            const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
-              method: "PUT"
-            });
+  try {
+    if (b1.disabled) return;
 
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(j?.error || "Approve failed");
+    b1.disabled = true;
+    b1.textContent = "Approving...";
 
-            alert("Service job approved successfully.");
-            await renderServiceDashboard();
-          } catch (e) {
-            alert(e.message || String(e));
-          }
-        };
+    const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
+      method: "PUT",
+      headers: getOfficeAuthHeaders({}),
+    });
 
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || "Approve failed");
+
+    alert("Job approved successfully.");
+    await renderJobs();
+
+  } catch (e) {
+    b1.disabled = false;
+    b1.textContent = "Approve";
+    alert(e.message || "Failed to approve job");
+  }
+};
         cell.appendChild(b1);
 
         const b2 = smallBtn("Reject", "secondary");
         if (cell.children.length) b2.style.marginLeft = "8px";
 
         b2.onclick = async () => {
-          try {
-            const remarks = prompt("Reason for rejection?");
-            if (remarks === null) return;
+  try {
+    if (b2.disabled) return;
 
-            const r = await fetch(`/api/supervisor/assignments/${a.id}/reject`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ remarks })
-            });
+    const remarks = prompt("Reason for rejection?");
+    if (remarks === null) return;
 
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(j?.error || "Reject failed");
+    const cleanRemarks = String(remarks).trim();
+    if (!cleanRemarks) {
+      alert("Rejection reason is required.");
+      return;
+    }
 
-            alert("Service job returned to In Progress with supervisor remarks.");
-            await render(currentViewFromHash());
-          } catch (e) {
-            alert(e.message || String(e));
-          }
-        };
+    b2.disabled = true;
+    b2.textContent = "Rejecting...";
 
+    const r = await fetch(`/api/supervisor/assignments/${a.id}/reject`, {
+      method: "PUT",
+      headers: getOfficeAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ remarks: cleanRemarks }),
+    });
+
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || "Reject failed");
+
+    alert("Service job returned to In Progress with supervisor remarks.");
+    await renderJobs();
+
+  } catch (e) {
+    b2.disabled = false;
+    b2.textContent = "Reject";
+    alert(e.message || "Failed to reject job");
+  }
+};
         cell.appendChild(b2);
       }
 
@@ -4056,89 +5455,586 @@ async function renderServiceJobs() {
     `;
   }
 }
-async function renderTechnicians() {
-  const root = setViewMode(false);
 
-  setTitle("Technicians");
+async function renderBreakdownCalls() {
+  const root = setViewMode(true);
 
-  const btnCreate = smallBtn("+ Add Technician", "primary");
-  btnCreate.onclick = () => showCreateTechnicianModal();
-
-  const btnRefresh = smallBtn("Refresh", "secondary");
-  btnRefresh.onclick = () => renderTechnicians();
-
-  setToolbar([btnCreate, btnRefresh]);
-
-  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
-
-  const rows = await API.listTechnicians();
+  setTitle("Breakdown Calls");
+  setToolbar([]);
 
   root.innerHTML = `
-    <div class="card">
-      <div class="label">Technicians</div>
-      <div class="hr"></div>
+  <div class="card">
+    <h3>Create Breakdown Call</h3>
+
+    <div class="field">
+      <label>Lift</label>
+      <select id="bdLiftSelect">
+        <option value="">Loading lifts...</option>
+      </select>
     </div>
-  `;
 
-  const card = root.querySelector(".card");
-  const wrap = makeScrollableTableWrap(`
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Phone</th>
-          <th>Email</th>
-          <th>Skills</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="tBody"></tbody>
-    </table>
-  `, "420px");
+    <div class="field" style="margin-top:12px;">
+      <label>Complaint Type</label>
+      <select id="bdComplaintType">
+        <option value="">Select complaint</option>
+        <option value="PASSENGER TRAPPED">Passenger Trapped</option>
+        <option value="LIFT NOT MOVING">Lift Not Moving</option>
+        <option value="DOOR ISSUE">Door Issue</option>
+        <option value="NO POWER">No Power</option>
+        <option value="ABNORMAL NOISE">Abnormal Noise</option>
+        <option value="LEVELING ISSUE">Leveling Issue</option>
+        <option value="BUTTON NOT WORKING">Button Not Working</option>
+        <option value="DISPLAY ISSUE">Display Issue</option>
+        <option value="OTHER">Other</option>
+      </select>
+    </div>
 
-  card.appendChild(wrap);
+    <div class="field" style="margin-top:12px;">
+  <label>Priority</label>
+  <select id="bdPriority">
+    <option value="NORMAL">Normal</option>
+    <option value="URGENT">Urgent</option>
+    <option value="CRITICAL">Critical</option>
+  </select>
+</div>
 
-  const tb = wrap.querySelector("#tBody");
+<div style="margin-top:16px;">
+  <button id="bdSubmitBtn" class="btn primary">Create Breakdown</button>
+</div>
 
-  if (!rows || rows.length === 0) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="5" class="muted">No technicians found. Click <b>+ Add Technician</b>.</td>`;
-    tb.appendChild(tr);
+<div id="bdResult" style="margin-top:14px;"></div>
+</div>
+
+<div class="card" style="margin-top:24px;">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+  <h3>Active Breakdown Jobs</h3>
+
+  <div style="display:flex; gap:10px;">
+    <select id="bdFilter">
+      <option value="open" selected>Open</option>
+      <option value="completed">Completed</option>
+      <option value="all">All</option>
+    </select>
+
+    <button id="bdRefreshBtn" class="btn btnSmall">Refresh</button>
+  </div>
+</div>
+  <div id="bdListWrap">
+    <div id="bdList">Loading...</div>
+  </div>
+</div>
+`;
+
+  await loadBreakdownLiftOptions();
+  await loadBreakdownList();
+
+  document.getElementById("bdSubmitBtn").onclick = submitBreakdown;
+
+document.getElementById("bdRefreshBtn").onclick = loadBreakdownList;
+
+document.getElementById("bdFilter").onchange = (e) => {
+  breakdownFilter = e.target.value;
+  loadBreakdownList();
+};
+}
+
+async function loadBreakdownLiftOptions() {
+  const sel = document.getElementById("bdLiftSelect");
+
+  try {
+    const r = await fetch("/api/lifts");
+    const lifts = await r.json();
+
+    const handedOver = (Array.isArray(lifts) ? lifts : []).filter(l =>
+      l.handover_actual_date || l.handoverActualDate
+    );
+
+    if (!handedOver.length) {
+      sel.innerHTML = `<option value="">No handed-over lifts found</option>`;
+      return;
+    }
+
+    sel.innerHTML = handedOver.map(l => {
+      const projectLiftId = l.projectLiftId || l.project_lift_id || l.id;
+      const liftCode = l.lift_code || l.liftCode || "";
+      const projectName = l.project_name || l.projectName || "";
+      return `<option value="${projectLiftId}">${liftCode} — ${projectName}</option>`;
+    }).join("");
+  } catch (err) {
+    sel.innerHTML = `<option value="">Failed to load lifts</option>`;
+  }
+}
+
+async function submitBreakdown() {
+  const projectLiftId = Number(document.getElementById("bdLiftSelect").value);
+  const complaintType = document.getElementById("bdComplaintType").value;
+  const notes = document.getElementById("bdNotes")?.value.trim() || "";
+  const priority = document.getElementById("bdPriority").value;
+  const resultBox = document.getElementById("bdResult");
+
+  if (!projectLiftId) {
+    resultBox.innerHTML = `<div class="muted">Select a lift.</div>`;
     return;
   }
 
-  rows.forEach((t) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${t.name || ""}</td>
-      <td>${t.phone || ""}</td>
-      <td>${t.email || ""}</td>
-      <td>${(t.skills || "").split(",").filter(Boolean).join(", ")}</td>
-      <td></td>
+  if (!complaintType) {
+    resultBox.innerHTML = `<div class="muted">Select complaint type.</div>`;
+    return;
+  }
+
+  const complaint = notes
+    ? `${complaintType} - ${notes}`
+    : complaintType;
+
+  try {
+    const r = await fetch("/api/breakdown-calls", {
+      method: "POST",
+      headers: getOfficeAuthHeaders(),
+      body: JSON.stringify({ projectLiftId, complaint, priority }),
+    });
+
+    const text = await r.text();
+
+let data = {};
+try {
+  data = text ? JSON.parse(text) : {};
+} catch {
+  data = { error: text || "Server returned non-JSON response" };
+}
+
+if (!r.ok) {
+  if (r.status === 403) {
+    throw new Error("You do not have permission to create breakdown calls.");
+  }
+  throw new Error(data.error || "Failed to create breakdown");
+}
+
+    resultBox.innerHTML = `
+      <div class="card" style="background:#f8fff8;">
+        <b>Breakdown Created</b><br/>
+        Job #${data.jobId}<br/>
+        Lead: ${data.pair?.lead || "-"}<br/>
+        Support: ${data.pair?.support || "-"}
+      </div>
     `;
 
-    const btnEdit = smallBtn("Edit", "secondary");
-    btnEdit.onclick = () => showEditTechnicianModal(t);
+    document.getElementById("bdComplaintType").value = "";
+const notesEl = document.getElementById("bdNotes");
+if (notesEl) notesEl.value = "";
 
-    tr.children[4].appendChild(btnEdit);
-    tb.appendChild(tr);
-  });
+    await loadBreakdownList();
+  } catch (err) {
+    resultBox.innerHTML = `<div class="muted">${err.message}</div>`;
+  }
+}
+
+async function loadBreakdownList() {
+  const wrap = document.getElementById("bdList");
+  if (!wrap) return;
+
+  try {
+    const r = await fetch("/api/breakdown-calls", {
+  headers: getOfficeAuthHeaders(),
+});
+    const rows = await r.json();
+
+    if (!Array.isArray(rows) || !rows.length) {
+      wrap.innerHTML = `<div class="muted">No breakdown jobs found.</div>`;
+      return;
+    }
+
+    let filtered = rows;
+
+    if (breakdownFilter === "open") {
+      filtered = rows.filter(j =>
+        ["ASSIGNED", "IN_PROGRESS"].includes(String(j.status || "").toUpperCase())
+      );
+    } else if (breakdownFilter === "completed") {
+      filtered = rows.filter(j =>
+        String(j.status || "").toUpperCase() === "DONE"
+      );
+    }
+
+    if (!filtered.length) {
+      wrap.innerHTML = `<div class="muted">No ${breakdownFilter} breakdown jobs found.</div>`;
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Job ID</th>
+            <th>Lift</th>
+            <th>Project</th>
+            <th>Complaint</th>
+            <th>Priority</th>
+            <th>Status</th>
+            <th>Lead</th>
+            <th>Support</th>
+	    <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.map(r => `
+  <tr ${r.escalated ? 'style="background:#fff1f2;"' : ''}>
+    <td>${escapeHtml(String(r.id || ""))}</td>
+    <td>${escapeHtml(r.liftCode || "")}</td>
+    <td>${escapeHtml(r.project || "")}</td>
+    <td>${escapeHtml(r.complaint || "")}</td>
+    <td>${escapeHtml(r.priority || "")}</td>
+    <td>
+      ${escapeHtml(r.status || "")}
+      ${
+        r.escalated
+          ? `<span class="badge bDanger" style="margin-left:6px;">ESCALATED</span>`
+          : ''
+      }
+    </td>
+    <td>${escapeHtml(r.lead || "")}</td>
+    <td>${escapeHtml(r.support || "")}</td>
+    <td>
+      ${hasPermission("breakdowns.delete")
+        ? `<button class="btn btnSmall danger" onclick="deleteBreakdownCall(${Number(r.id)})">Delete</button>`
+        : ""}
+    </td>
+  </tr>
+`).join("")}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    wrap.innerHTML = `<div class="muted">Failed to load breakdown jobs</div>`;
+  }
+}
+
+async function deleteBreakdownCall(id) {
+  if (!confirm("Delete this breakdown call?")) return;
+
+  try {
+    const r = await fetch(`/api/breakdown-calls/${id}`, {
+      method: "DELETE",
+      headers: getOfficeAuthHeaders(),
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      throw new Error(data.error || "Failed to delete breakdown call");
+    }
+
+    await loadBreakdownList();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function renderTechnicians() {
+  const root = setViewMode(true);
+
+  if (!hasPermission("technicians.view")) {
+    setTitle("Access Denied");
+    setToolbar([]);
+    root.innerHTML = `<div class="card"><div class="muted">You do not have access to Technicians.</div></div>`;
+    return;
+  }
+
+  setTitle("Technicians");
+
+  const toolbarNodes = [];
+
+  if (hasPermission("technicians.create")) {
+    const btnCreate = smallBtn("+ Add Technician", "primary");
+    btnCreate.onclick = () => showCreateTechnicianModal();
+    toolbarNodes.push(btnCreate);
+  }
+
+  const btnRefresh = smallBtn("Refresh", "secondary");
+  btnRefresh.onclick = () => renderTechnicians();
+  toolbarNodes.push(btnRefresh);
+
+  setToolbar(toolbarNodes);
+
+  root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
+
+  try {
+    const rows = await API.listTechnicians();
+
+    root.innerHTML = `
+      <div class="card">
+        <div class="label">Technicians</div>
+        <div class="hr"></div>
+      </div>
+    `;
+
+    const card = root.querySelector(".card");
+    const wrap = makeScrollableTableWrap(`
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Skills</th>
+            <th>Availability</th>
+            <th style="width:160px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tBody"></tbody>
+      </table>
+    `, "420px");
+
+    card.appendChild(wrap);
+
+    const tb = wrap.querySelector("#tBody");
+
+    if (!rows || rows.length === 0) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td colspan="6" class="muted" style="text-align:center;padding:20px;">
+          No technicians found.
+        </td>
+      `;
+      tb.appendChild(tr);
+      return;
+    }
+
+    rows.forEach((t) => {
+      const tr = document.createElement("tr");
+
+      const skills = String(t.skills || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(", ");
+
+      const availability = String(t.availability_status || "AVAILABLE").toUpperCase();
+
+      tr.innerHTML = `
+        <td>${escapeHtml(t.name || "")}</td>
+        <td>${escapeHtml(t.phone || "")}</td>
+        <td>${escapeHtml(t.email || "—")}</td>
+        <td>${escapeHtml(skills || "—")}</td>
+        <td>${escapeHtml(availability)}</td>
+        <td>
+          <div style="display:flex;gap:6px;flex-direction:column;">
+            <button class="btn secondary btnEditTech">Edit</button>
+            <button class="btn secondary btnLeaveTech">Leave</button>
+          </div>
+        </td>
+      `;
+
+      const btnEdit = tr.querySelector(".btnEditTech");
+      const btnLeave = tr.querySelector(".btnLeaveTech");
+
+      if (btnEdit) {
+        if (!hasPermission("technicians.edit")) {
+          btnEdit.style.display = "none";
+        } else {
+          btnEdit.onclick = () => showEditTechnicianModal(t);
+        }
+      }
+
+      if (btnLeave) {
+        if (!hasPermission("technicians.edit")) {
+          btnLeave.style.display = "none";
+        } else {
+          btnLeave.onclick = () => showTechnicianLeaveModal(t);
+        }
+      }
+
+      tb.appendChild(tr);
+    });
+  } catch (e) {
+    root.innerHTML = `
+      <div class="card">
+        <div class="muted" style="text-align:center;padding:20px;">
+          ${escapeHtml(e.message || "Failed to load technicians")}
+        </div>
+      </div>
+    `;
+  }
+}
+
+async function showTechnicianLeaveModal(technician) {
+  try {
+    const leaves = await API.listTechnicianLeaves(technician.id);
+
+    const old = document.getElementById("leaveModalBack");
+    if (old) old.remove();
+
+    const back = document.createElement("div");
+    back.id = "leaveModalBack";
+    back.style.position = "fixed";
+    back.style.inset = "0";
+    back.style.background = "rgba(15,23,42,0.45)";
+    back.style.zIndex = "9999";
+    back.style.display = "flex";
+    back.style.alignItems = "center";
+    back.style.justifyContent = "center";
+    back.style.padding = "18px";
+
+    const rowsHtml = leaves.length
+      ? leaves.map((l) => `
+          <tr>
+            <td>${escapeHtml(l.from_date || "")}</td>
+            <td>${escapeHtml(l.to_date || "")}</td>
+            <td>${escapeHtml(l.status || "")}</td>
+            <td>${escapeHtml(l.reason || "—")}</td>
+            <td>
+              ${
+                String(l.status || "").toUpperCase() === "APPROVED"
+                  ? `<button class="btn secondary btnCancelLeave" data-id="${l.id}">Cancel</button>`
+                  : "—"
+              }
+            </td>
+          </tr>
+        `).join("")
+      : `
+        <tr>
+          <td colspan="5" class="muted" style="text-align:center;padding:14px;">
+            No leave records found.
+          </td>
+        </tr>
+      `;
+
+    back.innerHTML = `
+      <div class="card" style="width:min(780px,96vw);max-height:90vh;overflow:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <div>
+            <div class="label">Leave Records</div>
+            <h3 style="margin:4px 0 0;">${escapeHtml(technician.name || "")}</h3>
+          </div>
+          <button class="btn secondary" id="btnCloseLeaveModal">Close</button>
+        </div>
+
+        <div class="hr"></div>
+
+        <div style="overflow:auto;max-height:260px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>From</th>
+                <th>To</th>
+                <th>Status</th>
+                <th>Reason</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="label">Add Leave</div>
+
+        <div class="formGrid">
+          <label>
+            From Date
+            <input id="leaveFromDate" type="date" />
+          </label>
+
+          <label>
+            To Date
+            <input id="leaveToDate" type="date" />
+          </label>
+        </div>
+
+        <label>
+          Reason
+          <textarea id="leaveReason" rows="3" placeholder="Reason for leave"></textarea>
+        </label>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+          <button class="btn primary" id="btnSaveLeave">Save Leave</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(back);
+
+    const close = () => back.remove();
+
+    document.getElementById("btnCloseLeaveModal").onclick = close;
+
+    back.onclick = (e) => {
+      if (e.target === back) close();
+    };
+
+    document.getElementById("btnSaveLeave").onclick = async () => {
+      const from_date = document.getElementById("leaveFromDate")?.value || "";
+      const to_date = document.getElementById("leaveToDate")?.value || "";
+      const reason = document.getElementById("leaveReason")?.value || "";
+
+      if (!from_date || !to_date) {
+        alert("From Date and To Date are required.");
+        return;
+      }
+
+      await API.createTechnicianLeave(technician.id, {
+        from_date,
+        to_date,
+        reason,
+      });
+
+      close();
+      await renderTechnicians();
+      await showTechnicianLeaveModal(technician);
+    };
+
+    back.querySelectorAll(".btnCancelLeave").forEach((btn) => {
+      btn.onclick = async () => {
+        const leaveId = Number(btn.getAttribute("data-id"));
+        if (!confirm("Cancel this leave record?")) return;
+
+        await API.cancelTechnicianLeave(leaveId);
+
+        close();
+        await renderTechnicians();
+        await showTechnicianLeaveModal(technician);
+      };
+    });
+  } catch (e) {
+    alert(e.message || "Failed to open leave records");
+  }
 }
 
 function renderReports() {
-  const root = setViewMode(false);
+  const root = setViewMode(true);
+
+  if (!hasPermission("reports.view")) {
+    setTitle("Access Denied");
+    setToolbar([]);
+    root.innerHTML = `<div class="card"><div class="muted">You do not have access to Reports.</div></div>`;
+    return;
+  }
 
   setTitle("Reports");
-  setToolbar([]);
+
+  const toolbarNodes = [];
+
+  if (hasPermission("reports.export")) {
+    const btnExport = smallBtn("Export", "secondary");
+    btnExport.onclick = () => {
+      alert("Export coming soon");
+    };
+    toolbarNodes.push(btnExport);
+  }
+
+  setToolbar(toolbarNodes);
 
   root.innerHTML = `
     <div class="card">
       <div class="label">Reports</div>
       <div class="hr"></div>
-      <div class="muted">Next: AMC expiry list, overdue services, job ageing, technician productivity.</div>
+      <div class="muted">
+        Next: AMC expiry list, overdue services, job ageing, technician productivity.
+      </div>
     </div>
   `;
 }
+
 function checklistSummaryText(summary) {
   if (!summary) return 'Checklist not loaded';
   return `${summary.doneRequired || 0}/${summary.totalRequired || 0} required complete (${summary.percent || 0}%)`;
@@ -4173,10 +6069,7 @@ function goToService() {
   renderServiceDashboard();
 }
 
-function checklistSummaryText(summary) {
-  if (!summary) return 'No checklist';
-  return `${summary.doneRequired || 0}/${summary.totalRequired || 0} required complete (${summary.percent || 0}%)`;
-}
+
 
 async function showSmartReassignModal(jobId) {
   try {
@@ -4250,9 +6143,9 @@ async function showSmartReassignModal(jobId) {
 async function showOfficeChecklistModal(jobId, roleLabel = 'JOB') {
   try {
     const [data, reportData] = await Promise.all([
-      API.getTechChecklist(jobId),
+      API.getChecklist(jobId),
       isServiceRole(roleLabel)
-        ? API.getTechServiceReport(jobId)
+        ? API.getServiceReport(jobId)
         : Promise.resolve({ report: null, parts: [] }),
     ]);
 
@@ -4260,23 +6153,23 @@ async function showOfficeChecklistModal(jobId, roleLabel = 'JOB') {
     body.innerHTML = `
       <div class="checklistModalTop">
         <div class="checklistSummaryRow">
-  <div><b>${roleLabel}</b> checklist</div>
-  <div class="muted">${checklistSummaryText(data.summary)}</div>
-</div>
-
-${
-  String(data.status || '').toUpperCase() === 'DONE' &&
-  String(data.supervisorStatus || '').toUpperCase() === 'APPROVED'
-    ? `
-      <div style="border:1px solid #bfdbfe; background:#eff6ff; border-radius:10px; padding:12px; margin:10px 0;">
-        <div style="font-weight:700; color:#1d4ed8;">Approved & Locked</div>
-        <div class="muted" style="margin-top:6px;">
-          This job has been approved by supervisor. No further changes are allowed.
+          <div><b>${roleLabel}</b> checklist</div>
+          <div class="muted">${checklistSummaryText(data.summary)}</div>
         </div>
-      </div>
-    `
-    : ''
-}
+
+        ${
+          String(data.status || '').toUpperCase() === 'DONE' &&
+          String(data.supervisorStatus || '').toUpperCase() === 'APPROVED'
+            ? `
+              <div style="border:1px solid #bfdbfe; background:#eff6ff; border-radius:10px; padding:12px; margin:10px 0;">
+                <div style="font-weight:700; color:#1d4ed8;">Approved & Locked</div>
+                <div class="muted" style="margin-top:6px;">
+                  This job has been approved by supervisor. No further changes are allowed.
+                </div>
+              </div>
+            `
+            : ''
+        }
 
         ${
           String(data.supervisorStatus || '').toUpperCase() === 'REJECTED' &&
@@ -4461,20 +6354,11 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
         ` : ''}
 
         <div class="checklistSummaryRow">
-          <div class="muted" style="margin:6px 0 10px 0;">
-            ${isLocked
-              ? '<b>Checklist locked</b> — supervisor approved this job'
-              : isLead
-                ? '<b>You are LEAD</b> — you can complete checklist'
-                : '<b>You are SUPPORT</b> — view only (notes allowed)'}
-          </div>
-
-          <div><b>${escapeHtml(roleLabel)}</b> checklist</div>
-
-          <div id="checklistSummaryText" class="muted">
-            ${checklistSummaryText(data.summary)}
-          </div>
-        </div>
+  <div><b>${escapeHtml(roleLabel)}</b> checklist</div>
+  <div id="checklistSummaryText" class="muted">
+    ${checklistSummaryText(data.summary)}
+  </div>
+</div>
 
         <div id="checklistItemsWrap" class="checklistItemsWrap"></div>
 
@@ -4496,38 +6380,44 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
               <div style="font-weight:700; margin-bottom:10px;">Service Report</div>
 
               <div class="formGrid">
-                <div class="field" style="grid-column:1/-1">
-                  <label>Overall Condition</label>
-                  <textarea id="srOverallCondition" ${isLocked ? 'disabled' : ''} placeholder="Overall lift condition">${escapeHtml(reportData?.report?.overallCondition || '')}</textarea>
-                </div>
+  <div class="field">
+    <label>Overall Condition</label>
+    <select id="srOverallCondition" ${isLocked ? 'disabled' : ''}>
+      <option value="">Select condition</option>
+      <option value="Good" ${reportData?.report?.overallCondition === 'Good' ? 'selected' : ''}>Good</option>
+      <option value="Minor Issues" ${reportData?.report?.overallCondition === 'Minor Issues' ? 'selected' : ''}>Minor Issues</option>
+      <option value="Needs Attention" ${reportData?.report?.overallCondition === 'Needs Attention' ? 'selected' : ''}>Needs Attention</option>
+      <option value="Critical" ${reportData?.report?.overallCondition === 'Critical' ? 'selected' : ''}>Critical</option>
+    </select>
+  </div>
 
-                <div class="field" style="grid-column:1/-1">
-                  <label>Faults Observed</label>
-                  <textarea id="srFaultsObserved" ${isLocked ? 'disabled' : ''} placeholder="Faults observed">${escapeHtml(reportData?.report?.faultsObserved || '')}</textarea>
-                </div>
+  <div class="field" style="grid-column:1/-1">
+    <label>Faults Observed</label>
+    <textarea id="srFaultsObserved" ${isLocked ? 'disabled' : ''} placeholder="Short fault description">${escapeHtml(reportData?.report?.faultsObserved || '')}</textarea>
+  </div>
 
-                <div class="field" style="grid-column:1/-1">
-                  <label>Action Taken</label>
-                  <textarea id="srActionTaken" ${isLocked ? 'disabled' : ''} placeholder="Action taken">${escapeHtml(reportData?.report?.actionTaken || '')}</textarea>
-                </div>
+  <div class="field" style="grid-column:1/-1">
+    <label>Action Taken</label>
+    <textarea id="srActionTaken" ${isLocked ? 'disabled' : ''} placeholder="Work carried out">${escapeHtml(reportData?.report?.actionTaken || '')}</textarea>
+  </div>
 
-                <div class="field" style="grid-column:1/-1">
-                  <label>Recommendations</label>
-                  <textarea id="srRecommendations" ${isLocked ? 'disabled' : ''} placeholder="Recommendations">${escapeHtml(reportData?.report?.recommendations || '')}</textarea>
-                </div>
+  <div class="field">
+    <label>Follow-up Required</label>
+    <div style="padding-top:10px;">
+      <input type="checkbox" id="srFollowUpRequired" ${isLocked ? 'disabled' : ''} ${reportData?.report?.followUpRequired ? 'checked' : ''} />
+    </div>
+  </div>
 
-                <div class="field">
-                  <label>Follow-up Required</label>
-                  <div style="padding-top:10px;">
-                    <input type="checkbox" id="srFollowUpRequired" ${isLocked ? 'disabled' : ''} ${reportData?.report?.followUpRequired ? 'checked' : ''} />
-                  </div>
-                </div>
+  <div class="field" id="srRecommendationsWrap" style="grid-column:1/-1; ${reportData?.report?.followUpRequired ? '' : 'display:none;'}">
+    <label>Recommendations</label>
+    <textarea id="srRecommendations" ${isLocked ? 'disabled' : ''} placeholder="Required only if follow-up is needed">${escapeHtml(reportData?.report?.recommendations || '')}</textarea>
+  </div>
 
-                <div class="field" style="grid-column:1/-1">
-                  <label>Technician Remarks</label>
-                  <textarea id="srTechnicianRemarks" ${isLocked ? 'disabled' : ''} placeholder="Technician remarks">${escapeHtml(reportData?.report?.technicianRemarks || '')}</textarea>
-                </div>
-              </div>
+  <div class="field" style="grid-column:1/-1">
+    <label>Technician Remarks</label>
+    <textarea id="srTechnicianRemarks" ${isLocked ? 'disabled' : ''} placeholder="Optional remarks">${escapeHtml(reportData?.report?.technicianRemarks || '')}</textarea>
+  </div>
+</div>
 
               ${isLocked ? '' : `
                 <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
@@ -4592,188 +6482,283 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
       if (remarks) remarks.value = r.technicianRemarks || '';
 
       renderServiceParts(parts);
+wireFollowUpToggle();
 
       if (typeof renderTechDashboard === 'function') {
         await renderTechDashboard();
       }
     }
 
-    function renderItems(items) {
-      itemsWrap.innerHTML = '';
+function wireFollowUpToggle() {
+  const followUpEl = body.querySelector('#srFollowUpRequired');
+  const recommendationsWrapEl = body.querySelector('#srRecommendationsWrap');
 
-      if (!items.length) {
-        itemsWrap.innerHTML = `<div class="muted">No checklist items found.</div>`;
-        return;
+  if (!followUpEl || !recommendationsWrapEl) return;
+
+  const syncRecommendationsVisibility = () => {
+    recommendationsWrapEl.style.display = followUpEl.checked ? '' : 'none';
+  };
+
+  syncRecommendationsVisibility();
+  followUpEl.addEventListener('change', syncRecommendationsVisibility);
+}
+
+function renderNotes(notes) {
+  notesWrap.innerHTML = '';
+
+  if (!notes.length) {
+    notesWrap.innerHTML = `<div class="muted">No notes added</div>`;
+    return;
+  }
+
+  notes.forEach(n => {
+    const div = document.createElement('div');
+    div.className = 'listRow';
+
+    div.innerHTML = `
+      <div>
+        <div>${escapeHtml(n.noteText || n.text || '')}</div>
+        <div class="muted" style="font-size:12px;">
+          ${n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}
+        </div>
+      </div>
+    `;
+
+    notesWrap.appendChild(div);
+  });
+}
+
+function renderServiceParts(parts) {
+  const partsWrap = body.querySelector('#servicePartsWrap');
+  if (!partsWrap) return;
+
+  partsWrap.innerHTML = '';
+
+  if (!parts.length) {
+    partsWrap.innerHTML = `<div class="muted">No parts added yet.</div>`;
+    return;
+  }
+
+  parts.forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'partItem';
+
+    row.innerHTML = `
+      <div class="field">
+        <label>Part / Material</label>
+        <input type="text" value="${escapeHtml(p.itemName || '')}" placeholder="Part name" ${isLocked ? 'disabled' : ''} />
+      </div>
+
+      <div class="field">
+        <label>Qty</label>
+        <input type="number" min="0.01" step="0.01" value="${p.qty ?? 1}" placeholder="Qty" ${isLocked ? 'disabled' : ''} />
+      </div>
+
+      <div class="field">
+        <label>Remarks</label>
+        <input type="text" value="${escapeHtml(p.remarks || '')}" placeholder="Remarks" ${isLocked ? 'disabled' : ''} />
+      </div>
+
+      ${
+        isLocked
+          ? ''
+          : `
+            <div class="actions">
+              <button type="button" class="btn btnSmall">Save Part</button>
+              <button type="button" class="btn btnSmall">Delete</button>
+            </div>
+          `
       }
+    `;
 
-      items.forEach((item) => {
-        const row = document.createElement('div');
-        row.className = 'listRow';
-        row.style.alignItems = 'flex-start';
-        row.style.gap = '12px';
+    if (!isLocked) {
+      const inputs = row.querySelectorAll('input');
+      const [nameEl, qtyEl, remarksEl] = inputs;
+      const buttons = row.querySelectorAll('button');
+      const [saveBtn, deleteBtn] = buttons;
 
-        const canEdit = isLead && !isLocked;
-        const isBoolean = String(item.itemType || '').toUpperCase() === 'BOOLEAN';
-        const isText = String(item.itemType || '').toUpperCase() === 'TEXT';
-        const isNumber = String(item.itemType || '').toUpperCase() === 'NUMBER';
+      saveBtn.onclick = async () => {
+        try {
+          await API.updateTechServicePart(p.id, {
+            itemName: nameEl.value,
+            qty: qtyEl.value,
+            remarks: remarksEl.value,
+          });
+          await refreshServiceReportSection();
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      };
 
-        let editorHtml = '';
+      deleteBtn.onclick = async () => {
+        try {
+          if (!confirm('Delete this part?')) return;
+          await API.deleteTechServicePart(p.id);
+          await refreshServiceReportSection();
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      };
+    }
+
+    partsWrap.appendChild(row);
+  });
+}
+    function renderItems(items) {
+  itemsWrap.innerHTML = '';
+
+  if (!items.length) {
+    itemsWrap.innerHTML = `<div class="muted">No checklist items found.</div>`;
+    return;
+  }
+
+  items.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'checklistCard';
+
+    const canEdit = isLead && !isLocked;
+    const type = String(item.itemType || 'BOOLEAN').toUpperCase();
+    const isBoolean = type === 'BOOLEAN';
+    const isText = type === 'TEXT';
+    const isNumber = type === 'NUMBER';
+
+    const statusText = isBoolean
+      ? (item.isDone ? 'Done' : 'Pending')
+      : (item.isDone ? 'Filled' : 'Pending');
+
+    let controlHtml = '';
+
+    if (isBoolean) {
+      controlHtml = `
+        <label class="checkBooleanRow">
+          <input
+            type="checkbox"
+            class="checkInputBool"
+            ${item.isDone ? 'checked' : ''}
+            ${canEdit ? '' : 'disabled'}
+          />
+          <span class="checkBooleanText">
+            ${item.isDone ? 'Marked done' : 'Tap to mark done'}
+          </span>
+        </label>
+      `;
+    } else if (isText) {
+      controlHtml = `
+        <textarea
+          class="checkInputText"
+          ${canEdit ? '' : 'disabled'}
+          placeholder="Optional note / observation"
+          rows="3"
+        >${escapeHtml(item.textValue || '')}</textarea>
+      `;
+    } else if (isNumber) {
+      controlHtml = `
+        <input
+          type="number"
+          class="checkInputNumber"
+          ${canEdit ? '' : 'disabled'}
+          value="${item.numberValue ?? ''}"
+          placeholder="Enter value"
+        />
+      `;
+    } else {
+      controlHtml = `
+        <input
+          type="text"
+          class="checkInputText"
+          ${canEdit ? '' : 'disabled'}
+          value="${escapeHtml(item.textValue || '')}"
+          placeholder="Enter value"
+        />
+      `;
+    }
+
+    card.innerHTML = `
+      <div class="checkTopRow">
+        <div class="checkTitleWrap">
+          <div class="checkTitle">
+            <span class="checkIndex">${item.sortOrder || (index + 1)}.</span>
+            <span class="checkTitleText">${escapeHtml(item.itemText)}</span>
+            ${item.isRequired ? '<span class="checkReq">*</span>' : ''}
+          </div>
+          <div class="checkMeta">
+            ${item.isRequired ? 'Required' : 'Optional'} · ${statusText}
+          </div>
+        </div>
+        <div class="checkSaveState muted" data-role="saveState"></div>
+      </div>
+
+      <div class="checkControlWrap">
+        ${controlHtml}
+      </div>
+    `;
+
+    const saveStateEl = card.querySelector('[data-role="saveState"]');
+    const inputEl = card.querySelector('.checkInputBool, .checkInputText, .checkInputNumber');
+
+    async function saveItem() {
+      if (!canEdit || !inputEl) return;
+
+      try {
+        saveStateEl.textContent = 'Saving...';
+
+        const payload = {};
 
         if (isBoolean) {
-          editorHtml = `
-            <label style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" ${item.isDone ? 'checked' : ''} ${canEdit ? '' : 'disabled'} />
-              <span>${item.isDone ? 'Done' : 'Pending'}</span>
-            </label>
-          `;
+          payload.isDone = !!inputEl.checked;
         } else if (isText) {
-          editorHtml = `
-            <textarea ${canEdit ? '' : 'disabled'} placeholder="Enter response">${escapeHtml(item.textValue || '')}</textarea>
-          `;
+          const val = String(inputEl.value || '').trim();
+          payload.textValue = inputEl.value;
+          payload.isDone = !!val;
         } else if (isNumber) {
-          editorHtml = `
-            <input type="number" ${canEdit ? '' : 'disabled'} value="${item.numberValue ?? ''}" placeholder="Enter value" />
-          `;
+          const raw = String(inputEl.value || '').trim();
+          payload.numberValue = raw === '' ? null : Number(raw);
+          payload.isDone = raw !== '';
         } else {
-          editorHtml = `
-            <input type="text" ${canEdit ? '' : 'disabled'} value="${escapeHtml(item.textValue || '')}" placeholder="Enter value" />
-          `;
+          const val = String(inputEl.value || '').trim();
+          payload.textValue = inputEl.value;
+          payload.isDone = !!val;
         }
 
-        row.innerHTML = `
-          <div style="flex:1;">
-            <div style="font-weight:600;">
-              ${escapeHtml(item.itemText)}
-              ${item.isRequired ? '<span style="color:#b42318">*</span>' : ''}
-            </div>
-            <div class="muted" style="font-size:12px; margin-top:4px;">
-              ${escapeHtml(item.itemType || 'BOOLEAN')}
-            </div>
-            <div class="checklistEditor" style="margin-top:8px;">${editorHtml}</div>
-          </div>
-          ${canEdit ? `<div><button type="button" class="btn secondary btn-sm">Save</button></div>` : ''}
-        `;
+        await API.updateTechChecklistItem(jobId, item.id, payload);
 
-        if (canEdit) {
-          const saveBtn = row.querySelector('button');
-          const inputEl = row.querySelector('.checklistEditor input, .checklistEditor textarea');
+        saveStateEl.textContent = 'Saved';
 
-          saveBtn.onclick = async () => {
-            try {
-              const payload = {};
-
-              if (isBoolean) {
-                payload.isDone = !!inputEl.checked;
-              } else if (isText) {
-                payload.textValue = inputEl.value;
-                payload.isDone = !!String(inputEl.value || '').trim();
-              } else if (isNumber) {
-                payload.numberValue = inputEl.value === '' ? null : Number(inputEl.value);
-                payload.isDone = inputEl.value !== '';
-              } else {
-                payload.textValue = inputEl.value;
-                payload.isDone = !!String(inputEl.value || '').trim();
-              }
-
-              await API.updateTechChecklistItem(jobId, item.id, payload);
-              await refreshChecklistModal();
-            } catch (e) {
-              alert(e.message || String(e));
-            }
-          };
+        const metaEl = card.querySelector('.checkMeta');
+        if (metaEl) {
+          const newStatus = payload.isDone
+            ? (isBoolean ? 'Done' : 'Filled')
+            : 'Pending';
+          metaEl.textContent = `${item.isRequired ? 'Required' : 'Optional'} · ${newStatus}`;
         }
 
-        itemsWrap.appendChild(row);
-      });
-    }
-
-    function renderNotes(notes) {
-      notesWrap.innerHTML = '';
-
-      if (!notes.length) {
-        notesWrap.innerHTML = `<div class="muted">No notes yet.</div>`;
-        return;
-      }
-
-      notes.forEach((n) => {
-        const div = document.createElement('div');
-        div.className = 'listRow';
-        div.style.display = 'block';
-        div.innerHTML = `
-          <div style="font-weight:600;">${escapeHtml(n.technician?.name || 'Technician')}</div>
-          <div class="muted" style="font-size:12px; margin:3px 0 6px 0;">${escapeHtml(n.createdAt || '')}</div>
-          <div>${escapeHtml(n.noteText || '')}</div>
-        `;
-        notesWrap.appendChild(div);
-      });
-    }
-
-    function renderServiceParts(parts) {
-      const partsWrap = body.querySelector('#servicePartsWrap');
-      if (!partsWrap) return;
-
-      partsWrap.innerHTML = '';
-
-      if (!parts.length) {
-        partsWrap.innerHTML = `<div class="muted">No parts added yet.</div>`;
-        return;
-      }
-
-      parts.forEach((p) => {
-        const row = document.createElement('div');
-        row.className = 'listRow';
-        row.style.display = 'grid';
-        row.style.gridTemplateColumns = '2fr 90px 2fr auto';
-        row.style.gap = '8px';
-        row.style.alignItems = 'start';
-
-        row.innerHTML = `
-          <input type="text" value="${escapeHtml(p.itemName || '')}" placeholder="Part name" ${isLocked ? 'disabled' : ''} />
-          <input type="number" min="0.01" step="0.01" value="${p.qty ?? 1}" placeholder="Qty" ${isLocked ? 'disabled' : ''} />
-          <input type="text" value="${escapeHtml(p.remarks || '')}" placeholder="Remarks" ${isLocked ? 'disabled' : ''} />
-          ${
-            isLocked
-              ? `<div></div>`
-              : `
-                <div style="display:flex; gap:6px;">
-                  <button type="button" class="btn secondary btn-sm">Save</button>
-                  <button type="button" class="btn secondary btn-sm">Delete</button>
-                </div>
-              `
+        if (isBoolean) {
+          const boolText = card.querySelector('.checkBooleanText');
+          if (boolText) {
+            boolText.textContent = payload.isDone ? 'Marked done' : 'Tap to mark done';
           }
-        `;
-
-        if (!isLocked) {
-          const [nameEl, qtyEl, remarksEl] = row.querySelectorAll('input');
-          const [saveBtn, deleteBtn] = row.querySelectorAll('button');
-
-          saveBtn.onclick = async () => {
-            try {
-              await API.updateTechServicePart(p.id, {
-                itemName: nameEl.value,
-                qty: qtyEl.value,
-                remarks: remarksEl.value,
-              });
-              await refreshServiceReportSection();
-            } catch (e) {
-              alert(e.message || String(e));
-            }
-          };
-
-          deleteBtn.onclick = async () => {
-            try {
-              if (!confirm('Delete this part?')) return;
-              await API.deleteTechServicePart(p.id);
-              await refreshServiceReportSection();
-            } catch (e) {
-              alert(e.message || String(e));
-            }
-          };
         }
 
-        partsWrap.appendChild(row);
-      });
+        setTimeout(() => {
+          if (saveStateEl.textContent === 'Saved') saveStateEl.textContent = '';
+        }, 1200);
+      } catch (e) {
+        saveStateEl.textContent = 'Not saved';
+        alert(e.message || String(e));
+      }
     }
+
+    if (inputEl && canEdit) {
+      if (isBoolean) {
+        inputEl.addEventListener('change', saveItem);
+      } else {
+        inputEl.addEventListener('blur', saveItem);
+      }
+    }
+
+    itemsWrap.appendChild(card);
+  });
+}
 
     renderItems(currentChecklist.items || []);
     renderNotes(currentChecklist.notes || []);
@@ -4804,6 +6789,8 @@ async function showTechChecklistModal(jobId, roleLabel = 'JOB') {
       bodyNode: body,
       footerNodes,
     });
+
+wireFollowUpToggle();
 
     if (isServiceRole(roleLabel) && !isLocked) {
       const saveReportBtn = body.querySelector('#btnSaveServiceReport');
@@ -5690,18 +7677,46 @@ root.querySelectorAll("[data-action='create-amc']").forEach((btn) => {
 }
 
 async function renderServiceJobsTable(root) {
-  const allRows = await API.getJobs();
-  const rows = (allRows || []).filter((a) => isServiceJobRole(a.role));
+  const view = serviceJobsView;
+
+  const data = await API.getJobs(view);
+  const allRows = Array.isArray(data?.rows) ? data.rows : [];
+  const rows = allRows.filter((a) => isServiceJobRole(a.role));
 
   const section = document.createElement("div");
   section.className = "card";
   section.style.marginTop = "16px";
 
   section.innerHTML = `
-    <div class="label">Service Jobs</div>
-    <div class="muted">Warranty Service and AMC Service jobs</div>
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+      <div>
+        <div class="label">Service Jobs</div>
+        <div class="muted">Warranty Service and AMC Service jobs</div>
+        <div class="muted" style="margin-top:4px;">Showing: ${view.toUpperCase()}</div>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="muted" style="font-weight:600;">Show</span>
+        <select id="serviceJobsViewFilter" style="height:34px; border-radius:8px; padding:0 8px;">
+          <option value="open">Open Jobs</option>
+          <option value="pending">Pending Approval</option>
+          <option value="completed">Completed</option>
+          <option value="all">All Records</option>
+        </select>
+      </div>
+    </div>
+
     <div class="hr"></div>
   `;
+
+  const filter = section.querySelector("#serviceJobsViewFilter");
+  if (filter) {
+    filter.value = serviceJobsView;
+    filter.onchange = () => {
+      serviceJobsView = filter.value;
+      renderServiceDashboard();
+    };
+  }
 
   const wrap = makeScrollableTableWrap(`
     <table>
@@ -5791,17 +7806,17 @@ async function renderServiceJobsTable(root) {
       <td></td>
     `;
 
-if (window.__focusAssignmentId && Number(a.id) === Number(window.__focusAssignmentId)) {
-  tr.style.border = "2px solid #3b82f6";
-  tr.style.background = "#eef6ff";
+    if (window.__focusAssignmentId && Number(a.id) === Number(window.__focusAssignmentId)) {
+      tr.style.border = "2px solid #3b82f6";
+      tr.style.background = "#eef6ff";
 
-  setTimeout(() => {
-    section.scrollIntoView({ behavior: "smooth", block: "start" });
-    tr.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, 120);
+      setTimeout(() => {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+        tr.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 120);
 
-  window.__focusAssignmentId = null;
-}
+      window.__focusAssignmentId = null;
+    }
 
     tr.children[5].querySelector(".checklistOfficeBadgeWrap").appendChild(
       badge(checklistBadgeText)
@@ -5824,18 +7839,17 @@ if (window.__focusAssignmentId && Number(a.id) === Number(window.__focusAssignme
     };
     cell.appendChild(b0);
 
-const bManage = smallBtn("Manage Team", "secondary");
-if (cell.children.length) bManage.style.marginLeft = "8px";
+    const bManage = smallBtn("Manage Team", "secondary");
+    if (cell.children.length) bManage.style.marginLeft = "8px";
+    bManage.onclick = async () => {
+      try {
+        await showManageTeamModal(a.id, a.role || "JOB");
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    };
+    cell.appendChild(bManage);
 
-bManage.onclick = async () => {
-  try {
-    await showManageTeamModal(a.id, a.role || "JOB");
-  } catch (e) {
-    alert(e.message || String(e));
-  }
-};
-
-cell.appendChild(bManage);
     if (
       String(a.status || "").toUpperCase() === "DONE" &&
       String(a.supervisorStatus || "PENDING").toUpperCase() === "PENDING"
@@ -6167,28 +8181,139 @@ async function render(view) {
   state.view = view;
   setActiveNav(view);
 
+  const role = normalizeRole(getActiveRole());
+
+  if (state.techToken) {
+    if (view !== "tech" && view !== "service") {
+      const root = document.getElementById("viewRoot");
+      setTitle("Access Denied");
+      setToolbar([]);
+      if (root) {
+        root.innerHTML = `
+          <div class="card">
+            <div class="muted">You do not have permission to access this section.</div>
+          </div>
+        `;
+      }
+      return;
+    }
+  }
+
+  if (state.userToken) {
+    const perm = getViewPermission(view);
+
+    if (perm && !hasPermission(perm)) {
+      const root = document.getElementById("viewRoot");
+      setTitle("Access Denied");
+      setToolbar([]);
+      if (root) {
+        root.innerHTML = `
+          <div class="card">
+            <div class="muted">You do not have permission to access this section.</div>
+          </div>
+        `;
+      }
+      return;
+    }
+  }
+
   if (view === 'dashboard') return renderDashboard();
   if (view === 'projects') return renderProjects();
   if (view === 'lifts') return renderLifts();
   if (view === 'jobs') return renderJobs();
+  if (view === 'breakdowns') return renderBreakdownCalls(); // ✅ ADD
   if (view === 'technicians') return renderTechnicians();
-  if (view === 'reports') return renderReports();
+  if (view === 'reports') return renderReportsView();
   if (view === 'service') return renderServiceDashboard();
   if (view === 'tech') return renderTechDashboard();
-  if (view === 'amc') return renderAMC();   // ADD THIS
+  if (view === 'amc') return renderAMC();
+  if (view === 'users') return renderUsers();
 
   return renderDashboard();
 }
 
+function getViewFromHash() {
+  const hash = (location.hash || '#dashboard').replace('#', '').toLowerCase();
+  return hash || 'dashboard';
+}
+
+async function bootApp() {
+  const sidebar = document.querySelector(".side");
+
+  if (!state.techToken && !state.userToken) {
+    if (sidebar) sidebar.style.display = "none";
+    renderOpeningLogin();
+    return;
+  }
+
+  try {
+    if (state.userToken) {
+      const me = await API.userMe();
+      state.user = me.user || null;
+      localStorage.setItem(LS_USER, JSON.stringify(state.user));
+
+      state.techToken = null;
+      state.tech = null;
+      localStorage.removeItem(LS_TOKEN);
+      localStorage.removeItem(LS_TECH);
+
+      if (sidebar) sidebar.style.display = "";
+      renderSideActions();
+      await render(currentViewFromHash());
+      return;
+    }
+
+    if (state.techToken) {
+      const me = await API.techMe();
+      state.tech = me.technician || null;
+      localStorage.setItem(LS_TECH, JSON.stringify(state.tech));
+
+      state.userToken = null;
+      state.user = null;
+      localStorage.removeItem(LS_USER_TOKEN);
+      localStorage.removeItem(LS_USER);
+
+      if (sidebar) sidebar.style.display = "";
+      renderSideActions();
+      await render(currentViewFromHash());
+      return;
+    }
+
+    if (sidebar) sidebar.style.display = "none";
+    renderOpeningLogin();
+  } catch (e) {
+    clearSession();
+    if (sidebar) sidebar.style.display = "none";
+    renderOpeningLogin();
+  }
+}
+
 function currentViewFromHash() {
   const h = (location.hash || '#dashboard').replace('#', '').trim();
-  const allowed = ['dashboard', 'projects', 'lifts', 'jobs', 'technicians', 'reports', 'service', 'tech', 'amc'];
+  const allowed = [
+    'dashboard',
+    'projects',
+    'lifts',
+    'jobs',
+    'breakdowns', // ✅ ADD THIS
+    'technicians',
+    'reports',
+    'service',
+    'tech',
+    'amc',
+    'users'
+  ];
   return allowed.includes(h) ? h : 'dashboard';
 }
 
 document.querySelectorAll('#nav a').forEach((a) => {
   a.addEventListener('click', async (e) => {
     e.preventDefault();
+
+    if (!state.techToken && !state.userToken) {
+      renderOpeningLogin();
+      return;
+    }
 
     const targetView = a.dataset.view;
     const currentView = currentViewFromHash();
@@ -6202,8 +8327,146 @@ document.querySelectorAll('#nav a').forEach((a) => {
   });
 });
 
-window.addEventListener('hashchange', () => render(currentViewFromHash()));
+window.addEventListener('hashchange', async () => {
+  if (!state.techToken && !state.userToken) {
+  renderOpeningLogin();
+  return;
+}
+
+  await render(currentViewFromHash());
+});
 
 // init
-renderSideActions();
-render(currentViewFromHash());
+bootApp();
+
+function openReport(type) {
+  const base = window.location.origin;
+
+  const routes = {
+    'service-due': '/api/reports/service-due/view',
+    'amc-active': '/api/reports/amc-active/view',
+    'amc-expiring': '/api/reports/amc-expiring/view',
+    'service-timeliness': '/api/reports/service-timeliness/view',
+    'technician-performance': '/api/reports/technician-performance/view',
+    'project-status': '/api/reports/project-status/view',
+    'job-status': '/api/reports/job-status/view',
+    'install-test-incentive': '/api/reports/install-test-incentive/view',
+  };
+
+  const url = base + (routes[type] || '/');
+
+  window.open(url, '_blank');
+}
+
+async function renderReportsView() {
+  const title = document.getElementById("pageTitle");
+  const toolbar = document.getElementById("toolbar");
+  const root = document.getElementById("viewRoot");
+
+  if (title) title.textContent = "Reports";
+  if (toolbar) toolbar.innerHTML = "";
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="sectionTitle">Reports</div>
+      <div class="muted" style="margin-top:6px;">Loading live counts...</div>
+    </div>
+  `;
+
+  let summary = null;
+
+  try {
+    const res = await fetch('/api/reports/summary');
+    summary = await res.json();
+  } catch (err) {
+    console.error('Failed to load report summary', err);
+  }
+
+  const s = summary || {
+    serviceDue: { overdue: 0, dueToday: 0, upcoming: 0 },
+    amcActive: { active: 0, pendingVisits: 0, overdue: 0, dueSoon: 0 },
+    amcExpiring: { within7Days: 0, within30Days: 0 },
+    serviceTimeliness: { totalCompleted: 0, onTime: 0, delayed: 0, onTimePercent: '0.0' },
+    technicianPerformance: { totalTechnicians: 0, avgOnTimePercent: '0.0' },
+    projectStatus: { totalProjects: 0, openProjects: 0 },
+  };
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="sectionTitle">Reports</div>
+
+      <div class="reportGrid">
+
+        <button class="reportCard" data-report="service-due">
+          <div class="reportCardTitle">Service Due Report</div>
+          <div class="reportCardText">Overdue, due today and upcoming service jobs.</div>
+          <div class="reportStats">
+            <span class="statChip danger">Overdue: ${Number(s.serviceDue.overdue || 0)}</span>
+            <span class="statChip warning">Due Today: ${Number(s.serviceDue.dueToday || 0)}</span>
+            <span class="statChip neutral">Upcoming: ${Number(s.serviceDue.upcoming || 0)}</span>
+          </div>
+        </button>
+
+        <button class="reportCard" data-report="amc-active">
+          <div class="reportCardTitle">AMC Active Report</div>
+          <div class="reportCardText">All active AMC contracts and service tracking.</div>
+          <div class="reportStats">
+            <span class="statChip primary">Active: ${Number(s.amcActive.active || 0)}</span>
+            <span class="statChip success">Pending Visits: ${Number(s.amcActive.pendingVisits || 0)}</span>
+            <span class="statChip warning">Due Soon: ${Number(s.amcActive.dueSoon || 0)}</span>
+          </div>
+        </button>
+
+        <button class="reportCard" data-report="amc-expiring">
+          <div class="reportCardTitle">AMC Expiring Soon</div>
+          <div class="reportCardText">Contracts nearing expiry for renewal follow-up.</div>
+          <div class="reportStats">
+            <span class="statChip danger">7 Days: ${Number(s.amcExpiring.within7Days || 0)}</span>
+            <span class="statChip warning">30 Days: ${Number(s.amcExpiring.within30Days || 0)}</span>
+          </div>
+        </button>
+
+        <button class="reportCard" data-report="service-timeliness">
+          <div class="reportCardTitle">Service Timeliness</div>
+          <div class="reportCardText">On-time vs delayed service performance.</div>
+          <div class="reportStats">
+            <span class="statChip success">On-Time %: ${String(s.serviceTimeliness.onTimePercent || '0.0')}%</span>
+            <span class="statChip danger">Delayed: ${Number(s.serviceTimeliness.delayed || 0)}</span>
+            <span class="statChip neutral">Completed: ${Number(s.serviceTimeliness.totalCompleted || 0)}</span>
+          </div>
+        </button>
+
+        <button class="reportCard" data-report="technician-performance">
+          <div class="reportCardTitle">Technician Performance</div>
+          <div class="reportCardText">Workload, completion and delay metrics.</div>
+          <div class="reportStats">
+            <span class="statChip primary">Technicians: ${Number(s.technicianPerformance.totalTechnicians || 0)}</span>
+            <span class="statChip success">Avg On-Time %: ${String(s.technicianPerformance.avgOnTimePercent || '0.0')}%</span>
+          </div>
+        </button>
+
+<button class="reportCard" data-report="project-status">
+  <div class="reportCardTitle">Project Status Report</div>
+  <div class="reportCardText">Project-wise lift progress, warranty and AMC position.</div>
+</button>
+
+<button class="reportCard" data-report="job-status">
+  <div class="reportCardTitle">Job Status Report</div>
+  <div class="reportCardText">Assignment pipeline by role, technician, due date and status.</div>
+</button>
+
+<button class="reportCard" data-report="install-test-incentive">
+  <div class="reportCardTitle">Install/Test Incentive Report</div>
+  <div class="reportCardText">Install and test jobs by technician, including lead/support role and period filter.</div>
+</button>
+
+      </div>
+    </div>
+  `;
+
+  root.querySelectorAll("[data-report]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openReport(btn.dataset.report);
+    });
+  });
+}

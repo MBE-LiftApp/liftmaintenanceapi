@@ -13,7 +13,10 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   TechnicianSession.associate = (models) => {
-    TechnicianSession.belongsTo(models.Technician, { foreignKey: 'technician_id' });
+    TechnicianSession.belongsTo(models.Technician, {
+      foreignKey: 'technician_id',
+      as: 'technician',
+    });
   };
 
   return TechnicianSession;
