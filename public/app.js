@@ -1165,14 +1165,20 @@ async reassignJob(jobId, technicianId) {
 },
 
 async getChecklist(jobId) {
-  const r = await fetch(`/api/assignments/${jobId}/checklist`);
+  const r = await fetch(`/api/assignments/${jobId}/checklist`, {
+    headers: getOfficeAuthHeaders(),
+  });
+
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error || 'Failed to load checklist');
   return j;
 },
 
 async getServiceReport(jobId) {
-  const r = await fetch(`/api/assignments/${jobId}/service-report`);
+  const r = await fetch(`/api/assignments/${jobId}/service-report`, {
+    headers: getOfficeAuthHeaders(),
+  });
+
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error || 'Failed to load service report');
   return j;

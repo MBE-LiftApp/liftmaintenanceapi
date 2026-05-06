@@ -1,5 +1,13 @@
 require('dotenv').config();
 
+const DEBUG_ESCALATION = String(process.env.DEBUG_ESCALATION || '').toLowerCase() === 'true';
+const DEBUG_BREAKDOWN = String(process.env.DEBUG_BREAKDOWN || '').toLowerCase() === 'true';
+const DEBUG_AUTH = String(process.env.DEBUG_AUTH || '').toLowerCase() === 'true';
+
+function debugLog(flag, ...args) {
+  if (flag) console.log(...args);
+}
+
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
@@ -55,7 +63,7 @@ function startBreakdownEscalationChecker() {
         ],
       });
 
-      console.log('ESCALATION CHECK:', {
+      debugLog(DEBUG_ESCALATION, 'ESCALATION CHECK:', {
         threshold,
         found: pendingAssignments.length,
       });
@@ -66,7 +74,7 @@ function startBreakdownEscalationChecker() {
           escalated_at: new Date(),
         });
 
-        console.log(
+        console.warn(
           `🚨 Escalated breakdown job ${assignment.job_id} (tech ${assignment.technician_id})`
         );
       }
@@ -7891,6 +7899,30 @@ app.delete('/api/amc/:id', async (req, res) => {
   }
 });
 
+function getLoggedInTechId(req) {
+  return Number(
+    req.tech?.id ||
+    req.technician?.id ||
+    req.user?.id
+  );
+}
+
+function assertTechOwnsAssignment(req, assignment) {
+  const techId = getLoggedInTechId(req);
+  const assignmentTechId = Number(
+    assignment.technician_id ||
+    assignment.technicianId
+  );
+
+  return Number.isFinite(techId) && techId === assignmentTechId;
+}
+
+function assertAssignmentStarted(assignment) {
+  return ['IN_PROGRESS', 'DONE'].includes(
+    String(assignment.status || '').toUpperCase()
+  );
+}
+
 async function ensureServiceReportForAssignment(assignment) {
   if (!assignment?.id) return null;
 
@@ -7985,7 +8017,6 @@ app.get('/api/tech/assignments/:id/service-report', authTech, async (req, res) =
 app.get(
   '/api/tech/assignments/:id/service-report',
   authTech,
-  requirePermission('reports.view_own'),
   async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -8045,7 +8076,6 @@ app.get(
 app.post(
   '/api/tech/assignments/:id/service-report/parts',
   authTech,
-  requirePermission('reports.update_own'),
   async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -8091,7 +8121,6 @@ app.post(
 app.put(
   '/api/tech/assignments/:id/service-report',
   authTech,
-  requirePermission('reports.update_own'),
   async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -8147,7 +8176,6 @@ app.put(
 app.put(
   '/api/tech/service-parts/:id',
   authTech,
-  requirePermission('reports.update_own'),
   async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -12498,7 +12526,7 @@ const activeAmcContracts = allAmcCandidates.filter((c) => {
   return type === 'AMC' && status === 'ACTIVE';
 });
 
-console.log('ALL AMC CANDIDATES RAW', allAmcCandidates.map((c) => ({
+debugLog(DEBUG_BREAKDOWN, 'ALL AMC CANDIDATES RAW', allAmcCandidates.map((c) => ({
   id: c.id,
   liftId: c.liftId,
   lift_id: c.lift_id,
@@ -12517,8 +12545,7 @@ const amcByProjectLiftId = new Map(
 );
 
 // 🔥 DEBUG LOG
-console.log(
-  'SERVICE DASHBOARD AMC CONTRACTS',
+debugLog(DEBUG_BREAKDOWN, 'SERVICE DASHBOARD AMC CONTRACTS',
   activeAmcContracts.map((c) => ({
     id: c.id,
     liftId: c.liftId || c.lift_id,
@@ -12562,7 +12589,7 @@ const amcInfo = buildAmcInfo(
 );
 
 // 🔥 DEBUG (UPDATED)
-console.log('AMC DEBUG', {
+debugLog(DEBUG_BREAKDOWN, 'AMC DEBUG', {
   projectLiftId: pl.id,
   lift: pl.lift_code || pl.liftId,
   contract,
