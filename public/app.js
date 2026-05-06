@@ -706,6 +706,20 @@ function dueBadgeClass(status) {
   return 'badge';
 }
 
+function renderTechResponseBadge(status) {
+  const s = String(status || "PENDING").toUpperCase();
+
+  if (s === "ACKNOWLEDGED") {
+    return `<span class="badge bSuccess" style="margin-left:6px;">ACKNOWLEDGED</span>`;
+  }
+
+  if (s === "PENDING") {
+    return `<span class="badge bWarn" style="margin-left:6px;">PENDING</span>`;
+  }
+
+  return `<span class="badge" style="margin-left:6px;">${escapeHtml(s)}</span>`;
+}
+
 function showModalShell(title, bodyNode) {
   const overlay = document.createElement('div');
   overlay.className = 'modalOverlay';
@@ -1397,6 +1411,18 @@ updateJobTeam(jobId, payload) {
   }).then(async (r) => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j?.error || "Failed to update team");
+    return j;
+  });
+},
+
+updateBreakdownTeam(jobId, payload) {
+  return fetch(`/api/breakdown-calls/${jobId}/team`, {
+    method: "PUT",
+    headers: getOfficeAuthHeaders(),
+    body: JSON.stringify(payload),
+  }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || "Failed to reassign breakdown team");
     return j;
   });
 },
@@ -5456,93 +5482,15 @@ async function renderServiceJobs() {
   }
 }
 
-async function renderBreakdownCalls() {
-  const root = setViewMode(true);
-
-  setTitle("Breakdown Calls");
-  setToolbar([]);
-
-  root.innerHTML = `
-  <div class="card">
-    <h3>Create Breakdown Call</h3>
-
-    <div class="field">
-      <label>Lift</label>
-      <select id="bdLiftSelect">
-        <option value="">Loading lifts...</option>
-      </select>
-    </div>
-
-    <div class="field" style="margin-top:12px;">
-      <label>Complaint Type</label>
-      <select id="bdComplaintType">
-        <option value="">Select complaint</option>
-        <option value="PASSENGER TRAPPED">Passenger Trapped</option>
-        <option value="LIFT NOT MOVING">Lift Not Moving</option>
-        <option value="DOOR ISSUE">Door Issue</option>
-        <option value="NO POWER">No Power</option>
-        <option value="ABNORMAL NOISE">Abnormal Noise</option>
-        <option value="LEVELING ISSUE">Leveling Issue</option>
-        <option value="BUTTON NOT WORKING">Button Not Working</option>
-        <option value="DISPLAY ISSUE">Display Issue</option>
-        <option value="OTHER">Other</option>
-      </select>
-    </div>
-
-    <div class="field" style="margin-top:12px;">
-  <label>Priority</label>
-  <select id="bdPriority">
-    <option value="NORMAL">Normal</option>
-    <option value="URGENT">Urgent</option>
-    <option value="CRITICAL">Critical</option>
-  </select>
-</div>
-
-<div style="margin-top:16px;">
-  <button id="bdSubmitBtn" class="btn primary">Create Breakdown</button>
-</div>
-
-<div id="bdResult" style="margin-top:14px;"></div>
-</div>
-
-<div class="card" style="margin-top:24px;">
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-  <h3>Active Breakdown Jobs</h3>
-
-  <div style="display:flex; gap:10px;">
-    <select id="bdFilter">
-      <option value="open" selected>Open</option>
-      <option value="completed">Completed</option>
-      <option value="all">All</option>
-    </select>
-
-    <button id="bdRefreshBtn" class="btn btnSmall">Refresh</button>
-  </div>
-</div>
-  <div id="bdListWrap">
-    <div id="bdList">Loading...</div>
-  </div>
-</div>
-`;
-
-  await loadBreakdownLiftOptions();
-  await loadBreakdownList();
-
-  document.getElementById("bdSubmitBtn").onclick = submitBreakdown;
-
-document.getElementById("bdRefreshBtn").onclick = loadBreakdownList;
-
-document.getElementById("bdFilter").onchange = (e) => {
-  breakdownFilter = e.target.value;
-  loadBreakdownList();
-};
-}
-
 async function loadBreakdownLiftOptions() {
   const sel = document.getElementById("bdLiftSelect");
+  if (!sel) return;
 
   try {
-    const r = await fetch("/api/lifts");
+    const r = await fetch("/api/lifts", {
+      headers: getOfficeAuthHeaders(),
+    });
+
     const lifts = await r.json();
 
     const handedOver = (Array.isArray(lifts) ? lifts : []).filter(l =>
@@ -5558,10 +5506,340 @@ async function loadBreakdownLiftOptions() {
       const projectLiftId = l.projectLiftId || l.project_lift_id || l.id;
       const liftCode = l.lift_code || l.liftCode || "";
       const projectName = l.project_name || l.projectName || "";
-      return `<option value="${projectLiftId}">${liftCode} — ${projectName}</option>`;
+
+      return `<option value="${projectLiftId}">
+        ${escapeHtml(liftCode)} — ${escapeHtml(projectName)}
+      </option>`;
     }).join("");
   } catch (err) {
+    console.error("loadBreakdownLiftOptions error:", err);
     sel.innerHTML = `<option value="">Failed to load lifts</option>`;
+  }
+}
+
+async function renderBreakdownCalls() {
+  const root = setViewMode(true);
+
+  setTitle("Breakdown Calls");
+  setToolbar([]);
+
+  root.innerHTML = `
+    <div class="card">
+      <h3>Create Breakdown Call</h3>
+
+      <div class="field">
+        <label>Lift</label>
+        <select id="bdLiftSelect">
+          <option value="">Loading lifts...</option>
+        </select>
+      </div>
+
+      <div class="field" style="margin-top:12px;">
+        <label>Complaint Type</label>
+        <select id="bdComplaintType">
+          <option value="">Select complaint</option>
+          <option value="PASSENGER TRAPPED">Passenger Trapped</option>
+          <option value="LIFT NOT MOVING">Lift Not Moving</option>
+          <option value="DOOR ISSUE">Door Issue</option>
+          <option value="NO POWER">No Power</option>
+          <option value="ABNORMAL NOISE">Abnormal Noise</option>
+          <option value="LEVELING ISSUE">Leveling Issue</option>
+          <option value="BUTTON NOT WORKING">Button Not Working</option>
+          <option value="DISPLAY ISSUE">Display Issue</option>
+          <option value="OTHER">Other</option>
+        </select>
+      </div>
+
+      <div class="field" style="margin-top:12px;">
+        <label>Priority</label>
+        <select id="bdPriority">
+          <option value="NORMAL">Normal</option>
+          <option value="URGENT">Urgent</option>
+          <option value="CRITICAL">Critical</option>
+        </select>
+      </div>
+
+      <div style="margin-top:16px;">
+        <button id="bdSubmitBtn" class="btn primary">Create Breakdown</button>
+      </div>
+
+      <div id="bdResult" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="card" style="margin-top:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3>Active Breakdown Jobs</h3>
+
+        <div style="display:flex; gap:10px;">
+          <select id="bdFilter">
+            <option value="open" selected>Open</option>
+            <option value="completed">Completed</option>
+            <option value="all">All</option>
+          </select>
+
+          <button id="bdRefreshBtn" class="btn btnSmall">Refresh</button>
+        </div>
+      </div>
+
+      <div id="bdListWrap">
+        <div id="bdList">Loading...</div>
+      </div>
+    </div>
+  `;
+
+  await loadBreakdownLiftOptions();
+  await loadBreakdownList();
+
+  document.getElementById("bdSubmitBtn").onclick = submitBreakdown;
+  document.getElementById("bdRefreshBtn").onclick = loadBreakdownList;
+
+  document.getElementById("bdFilter").onchange = (e) => {
+    breakdownFilter = e.target.value;
+    loadBreakdownList();
+  };
+}
+
+function renderTechResponseBadge(status) {
+  const s = String(status || "PENDING").toUpperCase();
+
+  if (s === "ACKNOWLEDGED") {
+    return `<span class="badge bSuccess" style="margin-left:6px;">ACKNOWLEDGED</span>`;
+  }
+
+  if (s === "PENDING") {
+    return `<span class="badge bWarn" style="margin-left:6px;">PENDING</span>`;
+  }
+
+  return `<span class="badge" style="margin-left:6px;">${escapeHtml(s)}</span>`;
+}
+
+async function loadBreakdownList() {
+  const wrap = document.getElementById("bdList");
+  if (!wrap) return;
+
+  try {
+    const r = await fetch("/api/breakdown-calls", {
+      headers: getOfficeAuthHeaders(),
+    });
+
+    const rows = await r.json();
+
+    if (!Array.isArray(rows) || !rows.length) {
+      wrap.innerHTML = `<div class="muted">No breakdown jobs found.</div>`;
+      return;
+    }
+
+    let filtered = rows;
+
+    if (breakdownFilter === "open") {
+      filtered = rows.filter(j =>
+        ["ASSIGNED", "IN_PROGRESS"].includes(String(j.status || "").toUpperCase())
+      );
+    } else if (breakdownFilter === "completed") {
+      filtered = rows.filter(j =>
+        String(j.status || "").toUpperCase() === "DONE"
+      );
+    }
+
+    if (!filtered.length) {
+      wrap.innerHTML = `<div class="muted">No ${breakdownFilter} breakdown jobs found.</div>`;
+      return;
+    }
+
+    const badge = (text, cls = "") =>
+      `<span class="badge ${cls}" style="white-space:nowrap;">${escapeHtml(text)}</span>`;
+
+    const responseText = (status) => {
+      const s = String(status || "PENDING").toUpperCase();
+      return s === "ACKNOWLEDGED"
+        ? badge("✓ Ack", "bSuccess")
+        : badge("Pending", "bWarn");
+    };
+
+    const callGuide = (label) =>
+      `<div style="margin-top:4px; font-size:11px; font-weight:700; color:#9a3412;">
+        Office guide: ${escapeHtml(label)}
+      </div>`;
+
+    wrap.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="table" style="min-width:1100px;">
+          <thead>
+            <tr>
+              <th style="width:70px;">Job</th>
+              <th style="width:170px;">Lift / Project</th>
+              <th>Complaint</th>
+              <th style="width:150px;">Status</th>
+              <th style="width:210px;">Lead</th>
+              <th style="width:210px;">Support</th>
+              <th style="width:160px;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(r => `
+              <tr ${r.escalated ? 'style="background:#fff7f7;"' : ""}>
+                <td><b>#${escapeHtml(String(r.id || ""))}</b></td>
+
+                <td>
+                  <b>${escapeHtml(r.liftCode || "")}</b><br/>
+                  <span class="muted">${escapeHtml(r.project || "")}</span>
+                </td>
+
+                <td>
+                  <b>${escapeHtml(r.complaint || "")}</b><br/>
+                  ${badge(r.priority || "NORMAL")}
+                </td>
+
+                <td>
+                  ${badge(r.status || "ASSIGNED")}
+                  ${r.escalated ? badge("ESCALATED", "bDanger") : ""}
+                </td>
+
+                <td>
+                  <b>${escapeHtml(r.lead || "-")}</b><br/>
+                  ${responseText(r.leadResponseStatus)}
+                  ${r.escalated ? callGuide("Call Lead") : ""}
+                </td>
+
+                <td>
+                  <b>${escapeHtml(r.support || "-")}</b><br/>
+                  ${responseText(r.supportResponseStatus)}
+                  ${r.escalated ? callGuide("Call Support") : ""}
+                </td>
+
+                <td>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    ${hasPermission("breakdowns.assign") &&
+  String(r.status || "").toUpperCase() === "ASSIGNED"
+    ? `<button class="btn btnSmall" onclick="openBreakdownReassignModal(${Number(r.id)})">Reassign</button>`
+    : ""}
+
+                    ${hasPermission("breakdowns.delete")
+                      ? `<button class="btn btnSmall danger" onclick="deleteBreakdownCall(${Number(r.id)})">Delete</button>`
+                      : ""}
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    console.error("loadBreakdownList error:", err);
+    wrap.innerHTML = `<div class="muted">Failed to load breakdown jobs</div>`;
+  }
+}
+
+async function openBreakdownReassignModal(jobId) {
+  try {
+    const technicians = await API.listTechnicians();
+
+    const serviceTechs = (Array.isArray(technicians) ? technicians : []).filter((t) => {
+      const active = t.isActive !== false && t.is_active !== false;
+      const skills = String(t.skills || t.role || "").toUpperCase();
+
+      return active && (
+        skills.includes("SERVICE") ||
+        skills.includes("AMC") ||
+        skills.includes("BREAKDOWN") ||
+        String(t.role || "").toUpperCase().includes("TECHNICIAN")
+      );
+    });
+
+    if (serviceTechs.length < 2) {
+      alert("At least two active technicians are required.");
+      return;
+    }
+
+    const options = serviceTechs.map(t => `
+      <option value="${Number(t.id)}">
+        ${escapeHtml(t.name || "Technician")} ${t.phone ? `(${escapeHtml(t.phone)})` : ""}
+      </option>
+    `).join("");
+
+    const old = document.getElementById("breakdownReassignModal");
+    if (old) old.remove();
+
+    document.body.insertAdjacentHTML("beforeend", `
+      <div id="breakdownReassignModal" style="
+        position:fixed;
+        inset:0;
+        background:rgba(15,23,42,.45);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        z-index:9999;
+      ">
+        <div class="card" style="
+          width:min(520px, 92vw);
+          background:white;
+          padding:22px;
+          border-radius:16px;
+          box-shadow:0 20px 60px rgba(0,0,0,.25);
+        ">
+          <h3 style="margin-top:0;">Reassign Breakdown Team</h3>
+
+          <div class="field">
+            <label>Lead Technician</label>
+            <select id="bdReassignLead">
+              <option value="">Select lead</option>
+              ${options}
+            </select>
+          </div>
+
+          <div class="field" style="margin-top:12px;">
+            <label>Support Technician</label>
+            <select id="bdReassignSupport">
+              <option value="">Select support</option>
+              ${options}
+            </select>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px;">
+            <button class="btn btnSmall" onclick="closeBreakdownReassignModal()">Cancel</button>
+            <button class="btn btnSmall primary" onclick="submitBreakdownReassign(${Number(jobId)})">Save Team</button>
+          </div>
+        </div>
+      </div>
+    `);
+  } catch (err) {
+    console.error("openBreakdownReassignModal error:", err);
+    alert(err.message || "Failed to open reassignment window");
+  }
+}
+
+function closeBreakdownReassignModal() {
+  const modal = document.getElementById("breakdownReassignModal");
+  if (modal) modal.remove();
+}
+
+async function submitBreakdownReassign(jobId) {
+  const leadTechnicianId = Number(document.getElementById("bdReassignLead")?.value || 0);
+  const supportTechnicianId = Number(document.getElementById("bdReassignSupport")?.value || 0);
+
+  if (!leadTechnicianId || !supportTechnicianId) {
+    alert("Please select both lead and support technician.");
+    return;
+  }
+
+  if (leadTechnicianId === supportTechnicianId) {
+    alert("Lead and support technician cannot be the same.");
+    return;
+  }
+
+  try {
+    await API.updateBreakdownTeam(jobId, {
+      leadTechnicianId,
+      supportTechnicianId,
+    });
+
+    closeBreakdownReassignModal();
+    await loadBreakdownList();
+    alert("Breakdown team reassigned successfully.");
+  } catch (err) {
+    console.error("submitBreakdownReassign error:", err);
+    alert(err.message || "Failed to reassign breakdown team");
   }
 }
 
@@ -5610,13 +5888,10 @@ if (!r.ok) {
 }
 
     resultBox.innerHTML = `
-      <div class="card" style="background:#f8fff8;">
-        <b>Breakdown Created</b><br/>
-        Job #${data.jobId}<br/>
-        Lead: ${data.pair?.lead || "-"}<br/>
-        Support: ${data.pair?.support || "-"}
-      </div>
-    `;
+  <div class="muted" style="margin-top:8px;">
+    Breakdown job #${data.jobId || ""} created successfully.
+  </div>
+`;
 
     document.getElementById("bdComplaintType").value = "";
 const notesEl = document.getElementById("bdNotes");
@@ -5625,86 +5900,6 @@ if (notesEl) notesEl.value = "";
     await loadBreakdownList();
   } catch (err) {
     resultBox.innerHTML = `<div class="muted">${err.message}</div>`;
-  }
-}
-
-async function loadBreakdownList() {
-  const wrap = document.getElementById("bdList");
-  if (!wrap) return;
-
-  try {
-    const r = await fetch("/api/breakdown-calls", {
-  headers: getOfficeAuthHeaders(),
-});
-    const rows = await r.json();
-
-    if (!Array.isArray(rows) || !rows.length) {
-      wrap.innerHTML = `<div class="muted">No breakdown jobs found.</div>`;
-      return;
-    }
-
-    let filtered = rows;
-
-    if (breakdownFilter === "open") {
-      filtered = rows.filter(j =>
-        ["ASSIGNED", "IN_PROGRESS"].includes(String(j.status || "").toUpperCase())
-      );
-    } else if (breakdownFilter === "completed") {
-      filtered = rows.filter(j =>
-        String(j.status || "").toUpperCase() === "DONE"
-      );
-    }
-
-    if (!filtered.length) {
-      wrap.innerHTML = `<div class="muted">No ${breakdownFilter} breakdown jobs found.</div>`;
-      return;
-    }
-
-    wrap.innerHTML = `
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Job ID</th>
-            <th>Lift</th>
-            <th>Project</th>
-            <th>Complaint</th>
-            <th>Priority</th>
-            <th>Status</th>
-            <th>Lead</th>
-            <th>Support</th>
-	    <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${filtered.map(r => `
-  <tr ${r.escalated ? 'style="background:#fff1f2;"' : ''}>
-    <td>${escapeHtml(String(r.id || ""))}</td>
-    <td>${escapeHtml(r.liftCode || "")}</td>
-    <td>${escapeHtml(r.project || "")}</td>
-    <td>${escapeHtml(r.complaint || "")}</td>
-    <td>${escapeHtml(r.priority || "")}</td>
-    <td>
-      ${escapeHtml(r.status || "")}
-      ${
-        r.escalated
-          ? `<span class="badge bDanger" style="margin-left:6px;">ESCALATED</span>`
-          : ''
-      }
-    </td>
-    <td>${escapeHtml(r.lead || "")}</td>
-    <td>${escapeHtml(r.support || "")}</td>
-    <td>
-      ${hasPermission("breakdowns.delete")
-        ? `<button class="btn btnSmall danger" onclick="deleteBreakdownCall(${Number(r.id)})">Delete</button>`
-        : ""}
-    </td>
-  </tr>
-`).join("")}
-        </tbody>
-      </table>
-    `;
-  } catch (err) {
-    wrap.innerHTML = `<div class="muted">Failed to load breakdown jobs</div>`;
   }
 }
 

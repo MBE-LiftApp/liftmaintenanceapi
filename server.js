@@ -148,7 +148,7 @@ const ROLE_DEFAULT_PERMISSIONS = {
     "breakdowns.close": true,
     "breakdowns.escalate": true,
     "breakdowns.delete": false,
-
+    
     "technicians.view": true,
     "technicians.create": true,
     "technicians.edit": true,
@@ -285,7 +285,7 @@ async function ensureDefaultPermissions() {
     { code: 'breakdowns.edit', label: 'Edit Breakdown Calls', module: 'Breakdown Calls' },
     { code: 'breakdowns.close', label: 'Close Breakdown Calls', module: 'Breakdown Calls' },
     { code: 'breakdowns.escalate', label: 'Escalate Breakdown Calls', module: 'Breakdown Calls' },
-    { code: 'breakdowns.delete', label: 'Delete Breakdown Calls', module: 'Breakdown Calls' },
+    { code: 'breakdowns.delete', label: 'Delete Breakdown Calls', module: 'Breakdown Calls' },    
   ];
 
   for (const p of permissions) {
@@ -9782,8 +9782,13 @@ app.get(
         ? j.JobAssignment
         : [];
 
-      const lead = team.find(t => t.assignment_role === 'LEAD');
-      const support = team.find(t => t.assignment_role === 'SUPPORT');
+      const lead = team.find(t =>
+  String(t.assignment_role || t.assignmentRole || '').toUpperCase() === 'LEAD'
+);
+
+const support = team.find(t =>
+  String(t.assignment_role || t.assignmentRole || '').toUpperCase() === 'SUPPORT'
+);
 
       return {
   id: j.id,
@@ -9796,15 +9801,15 @@ app.get(
   lead: lead?.Technician?.name || '',
   support: support?.Technician?.name || '',
 
-  leadResponseStatus: lead?.technician_response_status || '',
-  supportResponseStatus: support?.technician_response_status || '',
+  leadResponseStatus: lead?.technician_response_status || 'PENDING',
+supportResponseStatus: support?.technician_response_status || 'PENDING',
 
-  leadEscalationStatus: lead?.escalation_status || '',
-  supportEscalationStatus: support?.escalation_status || '',
+leadEscalationStatus: lead?.escalation_status || 'NONE',
+supportEscalationStatus: support?.escalation_status || 'NONE',
 
   escalated:
-    lead?.escalation_status === 'ESCALATED' ||
-    support?.escalation_status === 'ESCALATED',
+  String(lead?.escalation_status || '').toUpperCase() === 'ESCALATED' ||
+  String(support?.escalation_status || '').toUpperCase() === 'ESCALATED',
 };
     });
 
@@ -10035,6 +10040,100 @@ app.post('/api/tech/job-assignments/:id/acknowledge', authTech, async (req, res)
   } catch (err) {
     console.error('Failed to acknowledge breakdown job:', err);
     res.status(500).json({ error: 'Failed to acknowledge breakdown job' });
+  }
+});
+
+app.put('/api/breakdown-calls/:id/team', authUser, requirePermission('breakdowns.assign'), async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    const { leadTechnicianId, supportTechnicianId } = req.body || {};
+
+    if (!leadTechnicianId || !supportTechnicianId) {
+      return res.status(400).json({ error: 'Lead and support technician are required' });
+    }
+
+    if (Number(leadTechnicianId) === Number(supportTechnicianId)) {
+      return res.status(400).json({ error: 'Lead and support cannot be the same technician' });
+    }
+
+    const job = await Job.findByPk(jobId);
+    if (!job || job.job_type !== 'BREAKDOWN') {
+      return res.status(404).json({ error: 'Breakdown job not found' });
+    }
+
+    const status = String(job.status || '').toUpperCase();
+
+if (status !== 'ASSIGNED') {
+  return res.status(400).json({
+    error: 'Only assigned breakdown jobs can be reassigned',
+  });
+}
+
+    const lead = await Technician.findByPk(leadTechnicianId);
+    const support = await Technician.findByPk(supportTechnicianId);
+
+    if (!lead || !support) {
+      return res.status(400).json({ error: 'Invalid technician selection' });
+    }
+
+    if (!technicianCanDoService(lead) || !technicianCanDoService(support)) {
+      return res.status(400).json({ error: 'Both technicians must be service-capable' });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const leaveCheck = await TechnicianLeave.findAll({
+      where: {
+        technician_id: { [Op.in]: [Number(leadTechnicianId), Number(supportTechnicianId)] },
+        status: 'APPROVED',
+        from_date: { [Op.lte]: today },
+        to_date: { [Op.gte]: today },
+      },
+    });
+
+    if (leaveCheck.length) {
+      return res.status(400).json({ error: 'One or more selected technicians are on leave' });
+    }
+
+    await JobAssignment.destroy({
+      where: { job_id: job.id },
+    });
+
+    const assignedAt = new Date();
+
+    await JobAssignment.create({
+      job_id: job.id,
+      technician_id: Number(leadTechnicianId),
+      assignment_role: 'LEAD',
+      assigned_at: assignedAt,
+      technician_response_status: 'PENDING',
+      escalation_status: 'NONE',
+    });
+
+    await JobAssignment.create({
+      job_id: job.id,
+      technician_id: Number(supportTechnicianId),
+      assignment_role: 'SUPPORT',
+      assigned_at: assignedAt,
+      technician_response_status: 'PENDING',
+      escalation_status: 'NONE',
+    });
+
+    await job.update({
+      status: 'ASSIGNED',
+      assigned_at: assignedAt,
+    });
+
+    res.json({
+      ok: true,
+      message: 'Breakdown team reassigned successfully',
+      jobId: job.id,
+      leadTechnicianId: Number(leadTechnicianId),
+      supportTechnicianId: Number(supportTechnicianId),
+    });
+  } catch (err) {
+    console.error('PUT /api/breakdown-calls/:id/team error:', err);
+    res.status(500).json({ error: err.message || 'Failed to reassign breakdown team' });
   }
 });
 
