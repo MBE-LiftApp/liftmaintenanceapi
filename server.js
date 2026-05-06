@@ -8886,7 +8886,7 @@ app.get('/api/projects', async (req, res) => {
   try {
     const projects = await Project.findAll({
       include: [
-        { model: Customer, attributes: ['id', 'name'] },
+        { model: Customer, attributes: ['id', 'name', 'phone'] },
         { model: Site, attributes: ['id', 'name'] },
         { model: ProjectLift, attributes: ['id'] },
       ],
@@ -8898,7 +8898,13 @@ app.get('/api/projects', async (req, res) => {
       projectCode: p.project_code || '',
       projectName: p.project_name,
       status: p.status,
-      customer: p.Customer ? { id: p.Customer.id, name: p.Customer.name } : null,
+      customer: p.Customer
+        ? {
+            id: p.Customer.id,
+            name: p.Customer.name,
+            phone: p.Customer.phone || '',
+          }
+        : null,
       site: p.Site ? { id: p.Site.id, name: p.Site.name } : null,
       liftCount: Array.isArray(p.ProjectLifts) ? p.ProjectLifts.length : 0,
       notes: p.notes || '',
@@ -8918,6 +8924,7 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
 
     const projectName = String(body.projectName || body.project_name || '').trim();
     const customerName = String(body.customerName || body.customer_name || '').trim();
+    const customerPhone = String(body.customerPhone || body.customer_phone || body.phone || '').trim();
     const siteName = String(body.building || body.site_name || body.siteName || '').trim();
     const notes = body.notes != null ? String(body.notes).trim() : null;
 
@@ -8930,9 +8937,10 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
     }
 
     let customer = null;
+
     const [customerRows] = await sequelize.query(
       `
-      SELECT id, name
+      SELECT id, name, phone
       FROM customers
       WHERE name = :name
       LIMIT 1
@@ -8947,16 +8955,37 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
     if (!customer) {
       const [insertedCustomerRows] = await sequelize.query(
         `
-        INSERT INTO customers (name)
-        VALUES (:name)
-        RETURNING id, name
+        INSERT INTO customers (name, phone)
+        VALUES (:name, :phone)
+        RETURNING id, name, phone
         `,
         {
-          replacements: { name: customerName },
+          replacements: {
+            name: customerName,
+            phone: customerPhone || null,
+          },
         }
       );
 
       customer = insertedCustomerRows[0] || null;
+    } else if (customerPhone && !customer.phone) {
+      const [updatedCustomerRows] = await sequelize.query(
+        `
+        UPDATE customers
+        SET phone = :phone,
+            updated_at = NOW()
+        WHERE id = :id
+        RETURNING id, name, phone
+        `,
+        {
+          replacements: {
+            id: customer.id,
+            phone: customerPhone,
+          },
+        }
+      );
+
+      customer = updatedCustomerRows[0] || customer;
     }
 
     if (!customer || !customer.id) {
@@ -8964,6 +8993,7 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
     }
 
     let site = null;
+
     if (siteName) {
       const [siteRows] = await sequelize.query(
         `
@@ -9034,6 +9064,7 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
       customer: {
         id: customer.id,
         name: customer.name,
+        phone: customer.phone || '',
       },
       site: site
         ? {
@@ -9057,7 +9088,7 @@ app.get('/api/projects/:projectId', async (req, res) => {
 
     const project = await Project.findByPk(projectId, {
       include: [
-        { model: Customer, attributes: ['id', 'name'] },
+        { model: Customer, attributes: ['id', 'name', 'phone'] },
         { model: Site, attributes: ['id', 'name', 'gps_lat', 'gps_lng'] },
         {
           model: ProjectLift,
@@ -9254,6 +9285,7 @@ const amcByProjectLiftId = new Map(
   ? {
       id: project.Customer.id,
       name: project.Customer.name,
+      phone: project.Customer.phone || '',
     }
   : null,
       site: project.Site

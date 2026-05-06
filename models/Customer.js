@@ -4,6 +4,9 @@ module.exports = (sequelize, DataTypes) => {
     {
       id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
       name: { type: DataTypes.TEXT, allowNull: false },
+      phone: { type: DataTypes.TEXT, allowNull: true },
+      email: { type: DataTypes.TEXT, allowNull: true },
+      address: { type: DataTypes.TEXT, allowNull: true },
       createdAt: { type: DataTypes.DATE, allowNull: true, field: 'created_at' },
       updatedAt: { type: DataTypes.DATE, allowNull: true, field: 'updated_at' },
     },

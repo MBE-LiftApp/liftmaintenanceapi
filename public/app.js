@@ -3499,7 +3499,13 @@ function renderProjectDetails() {
       <div class="formGrid">
         <div class="field"><label>Project Name</label><div><b>${pj.projectName || ""}</b></div></div>
         <div class="field"><label>Status</label><div id="projectStatusCell"></div></div>
-        <div class="field"><label>Customer</label><div>${pj.customer?.name || "—"}</div></div>
+        <div class="field">
+  <label>Customer</label>
+  <div>${pj.customer?.name || "—"}</div>
+  <div class="muted" style="margin-top:4px;">
+    Phone: ${pj.customer?.phone || "—"}
+  </div>
+</div>
         <div class="field"><label>Site</label><div>${pj.site?.name || "—"}</div></div>
         <div class="field" style="grid-column:1/-1"><label>Notes</label><div class="muted">${pj.notes || "—"}</div></div>
       </div>
@@ -7246,8 +7252,10 @@ if (isLead && a.status === "IN_PROGRESS") {
 // ---------- Create Project modal ----------
 function showCreateProjectModal() {
   const body = document.createElement("div");
+
   body.innerHTML = `
     <div class="formGrid">
+
       <div class="field" style="grid-column:1/-1">
         <label>Project Name</label>
         <input id="projectName" placeholder="ABC Tower" />
@@ -7259,6 +7267,11 @@ function showCreateProjectModal() {
       </div>
 
       <div class="field">
+        <label>Customer Phone</label>
+        <input id="customerPhone" placeholder="+975..." />
+      </div>
+
+      <div class="field" style="grid-column:1/-1">
         <label>Building (Site)</label>
         <input id="building" placeholder="Building / Site name" />
       </div>
@@ -7267,6 +7280,7 @@ function showCreateProjectModal() {
         <label>Notes</label>
         <textarea id="notes" placeholder="Notes..."></textarea>
       </div>
+
     </div>
   `;
 
@@ -7274,19 +7288,23 @@ function showCreateProjectModal() {
   btnCancel.onclick = closeModal;
 
   const btnSave = smallBtn("Save Project", "primary");
+
   btnSave.onclick = async () => {
     try {
       const payload = {
-  projectName: body.querySelector("#projectName").value.trim(),
-  customerName: body.querySelector("#customerName").value.trim(),
-  building: body.querySelector("#building").value.trim(),
-  notes: body.querySelector("#notes").value || "",
-};
+        projectName: body.querySelector("#projectName").value.trim(),
+        customerName: body.querySelector("#customerName").value.trim(),
+        customerPhone: body.querySelector("#customerPhone").value.trim(),
+        building: body.querySelector("#building").value.trim(),
+        notes: body.querySelector("#notes").value || "",
+      };
 
-await API.createProject(payload);
+      await API.createProject(payload);
 
       closeModal();
+
       await renderProjects();
+
     } catch (e) {
       alert(e.message || String(e));
     }
