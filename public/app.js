@@ -69,11 +69,22 @@ function clearSession() {
 const state = {
   view: "dashboard",
 
-// office session
-  userToken: localStorage.getItem(LS_USER_TOKEN) || null,
+  // office session
+  userToken:
+    localStorage.getItem(LS_USER_TOKEN) ||
+    sessionStorage.getItem(LS_USER_TOKEN) ||
+    null,
+
   user: (() => {
-    try { return JSON.parse(localStorage.getItem(LS_USER) || "null"); }
-    catch { return null; }
+    try {
+      return JSON.parse(
+        localStorage.getItem(LS_USER) ||
+        sessionStorage.getItem(LS_USER) ||
+        "null"
+      );
+    } catch {
+      return null;
+    }
   })(),
 
   // technician session
@@ -2398,90 +2409,183 @@ function renderOpeningLogin() {
 
   setTitle("Login");
   setToolbar([]);
-
   setSidebarVisible(false);
 
-  document.querySelectorAll('#nav a').forEach(a => a.classList.remove('active'));
+  document.querySelectorAll("#nav a").forEach(a => a.classList.remove("active"));
 
   root.innerHTML = `
-    <div class="card" style="max-width:460px;margin:60px auto;">
-      <div class="label" style="font-size:22px;">Lift Management Login</div>
-      <div class="hr"></div>
+    <div class="office-login-page">
+      <div class="office-login-overlay"></div>
 
-      <div id="loginForm"></div>
-      <div id="loginMsg" class="muted" style="margin-top:12px;"></div>
-    </div>
-  `;
+      <div class="office-login-brand">
+        <div class="brand-kicker">Modern</div>
+        <div class="brand-title">Building Services</div>
+        <div class="brand-line"></div>
 
-  const formWrap = document.getElementById("loginForm");
-  const msg = document.getElementById("loginMsg");
+        <h1>Lift Management System</h1>
+        <p>Smart maintenance. Safer buildings. Better service.</p>
 
-  // ✅ Only Office login now
-  formWrap.innerHTML = `
-    <div class="field">
-      <label>Email</label>
-      <input id="loginEmail" placeholder="admin@liftapp.com" />
-    </div>
+        <div class="brand-features">
+          <div>
+            <span>⚙</span>
+            <div>
+              <b>Breakdown Management</b>
+              <small>Raise, assign & resolve faster</small>
+            </div>
+          </div>
 
-    <div class="field" style="margin-top:12px;">
-      <label>Password</label>
-      <input id="loginPassword" type="password" placeholder="Password" />
-    </div>
+          <div>
+            <span>👷</span>
+            <div>
+              <b>Technician Tracking</b>
+              <small>Real-time technician status</small>
+            </div>
+          </div>
 
-    <div style="margin-top:16px;display:flex;gap:8px;">
-      <button id="btnOfficeLogin" class="btn primary">Login</button>
+          <div>
+            <span>🛡</span>
+            <div>
+              <b>AMC & Warranty</b>
+              <small>Track contracts and expiries</small>
+            </div>
+          </div>
+
+          <div>
+            <span>📊</span>
+            <div>
+              <b>Reports & Insights</b>
+              <small>Data-driven maintenance</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="office-login-card-wrap">
+        <div class="office-login-card">
+          <div class="login-logo-mark">MBS</div>
+
+          <h2>Modern Building Services</h2>
+          <div class="login-subtitle">Lift Management System</div>
+
+          <div class="login-form-title">Office Login</div>
+
+          <div class="login-field">
+            <label>Email Address</label>
+            <input id="loginEmail" type="email" placeholder="admin@liftapp.com" autocomplete="username" />
+          </div>
+
+          <div class="login-field">
+            <label>Password</label>
+            <div class="password-wrap">
+              <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" />
+              <button id="togglePasswordBtn" type="button">Show</button>
+            </div>
+          </div>
+
+<div class="remember-row">
+  <label class="remember-check">
+    <input id="rememberMe" type="checkbox" checked />
+    <span>Remember Me</span>
+  </label>
+</div>
+          <button id="btnOfficeLogin" class="office-login-btn" type="button">
+            Sign In
+          </button>
+
+          <div id="loginMsg" class="login-message"></div>
+        </div>
+
+        <div class="login-footer">
+          © 2026 Modern Building Services<br />
+          <span>Office Management Portal</span>
+        </div>
+      </div>
     </div>
   `;
 
   const emailInput = document.getElementById("loginEmail");
   const passwordInput = document.getElementById("loginPassword");
   const btn = document.getElementById("btnOfficeLogin");
+  const msg = document.getElementById("loginMsg");
+  const toggleBtn = document.getElementById("togglePasswordBtn");
+  const rememberMe = document.getElementById("rememberMe");
+
+  toggleBtn.onclick = () => {
+    const showPassword = passwordInput.type === "password";
+    passwordInput.type = showPassword ? "text" : "password";
+    toggleBtn.textContent = showPassword ? "Hide" : "Show";
+  };
 
   async function submitOfficeLogin() {
     try {
       const email = String(emailInput?.value || "").trim();
       const password = String(passwordInput?.value || "").trim();
 
+      msg.className = "login-message";
+
       if (!email) {
         msg.textContent = "Email is required";
+        msg.classList.add("error");
         return;
       }
 
       if (!password) {
         msg.textContent = "Password is required";
+        msg.classList.add("error");
         return;
       }
 
-      msg.textContent = "Signing in...";
+      btn.disabled = true;
+      btn.textContent = "Signing in...";
+      msg.textContent = "";
 
       const res = await API.userLogin(email, password);
 
       state.userToken = res.token;
       state.user = res.user;
 
-      localStorage.setItem(LS_USER_TOKEN, res.token);
-      localStorage.setItem(LS_USER, JSON.stringify(res.user));
+      const storage = rememberMe?.checked ? localStorage : sessionStorage;
 
-      // 🔥 IMPORTANT: clear technician session
+localStorage.removeItem(LS_USER_TOKEN);
+localStorage.removeItem(LS_USER);
+sessionStorage.removeItem(LS_USER_TOKEN);
+sessionStorage.removeItem(LS_USER);
+
+storage.setItem(LS_USER_TOKEN, res.token);
+storage.setItem(LS_USER, JSON.stringify(res.user));
+
+      // Important: clear technician session because this is office login only
       state.techToken = null;
       state.tech = null;
       localStorage.removeItem(LS_TOKEN);
       localStorage.removeItem(LS_TECH);
 
       msg.textContent = "";
+
       setViewMode(true);
       setSidebarVisible(true);
       renderSideActions();
+
       location.hash = "dashboard";
       await render(currentViewFromHash());
     } catch (e) {
       msg.textContent = e.message || "Login failed";
+      msg.className = "login-message error";
+
+      btn.disabled = false;
+      btn.textContent = "Sign In";
     }
   }
 
   btn.onclick = submitOfficeLogin;
-  emailInput?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitOfficeLogin(); });
-  passwordInput?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitOfficeLogin(); });
+
+  emailInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitOfficeLogin();
+  });
+
+  passwordInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitOfficeLogin();
+  });
 }
 
 async function renderDashboard() {
