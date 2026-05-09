@@ -50,6 +50,18 @@ function setSession(token, technician) {
   localStorage.setItem(LS_TECH, JSON.stringify(state.tech || null));
 }
 
+function logout() {
+  clearSession();
+
+  location.hash = "";
+
+  setViewMode(false);
+  setSidebarVisible(false);
+  setToolbar([]);
+
+  renderOpeningLogin();
+}
+
 function clearSession() {
   state.userToken = null;
   state.user = null;
@@ -60,8 +72,13 @@ function clearSession() {
 
   localStorage.removeItem(LS_USER_TOKEN);
   localStorage.removeItem(LS_USER);
+  sessionStorage.removeItem(LS_USER_TOKEN);
+  sessionStorage.removeItem(LS_USER);
+
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_TECH);
+  sessionStorage.removeItem(LS_TOKEN);
+  sessionStorage.removeItem(LS_TECH);
 
   setSidebarVisible(false);
 }
@@ -1930,45 +1947,16 @@ function techLogout() {
 }
 
 function showUserLoginModal() {
-  const wrap = document.createElement('div');
+  closeModal?.();
 
-  wrap.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      <input id="loginEmail" placeholder="Email" />
-      <input id="loginPassword" type="password" placeholder="Password" />
-    </div>
-  `;
+  clearSession();
 
-  const btn = document.createElement('button');
-  btn.className = 'btn';
-  btn.textContent = 'Login';
+  setViewMode(false);
+  setSidebarVisible(false);
 
-  btn.onclick = async () => {
-    try {
-      const email = document.getElementById('loginEmail').value;
-      const password = document.getElementById('loginPassword').value;
+  location.hash = "";
 
-      const data = await API.userLogin(email, password);
-
-      state.userToken = data.token;
-      state.user = data.user;
-
-      localStorage.setItem(LS_USER_TOKEN, data.token);
-      localStorage.setItem(LS_USER, JSON.stringify(data.user));
-
-      closeModal();
-      renderSideActions();
-      render('dashboard');
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  openModal({
-    title: 'Office Login',
-    bodyNode: wrap,
-    footerNodes: [btn],
-  });
+  renderOpeningLogin();
 }
 
 function showTechLoginModal() {
@@ -8573,12 +8561,19 @@ async function bootApp() {
     if (state.userToken) {
       const me = await API.userMe();
       state.user = me.user || null;
-      localStorage.setItem(LS_USER, JSON.stringify(state.user));
+
+      const userStorage = localStorage.getItem(LS_USER_TOKEN)
+        ? localStorage
+        : sessionStorage;
+
+      userStorage.setItem(LS_USER, JSON.stringify(state.user));
 
       state.techToken = null;
       state.tech = null;
       localStorage.removeItem(LS_TOKEN);
       localStorage.removeItem(LS_TECH);
+      sessionStorage.removeItem(LS_TOKEN);
+      sessionStorage.removeItem(LS_TECH);
 
       if (sidebar) sidebar.style.display = "";
       renderSideActions();
@@ -8589,12 +8584,15 @@ async function bootApp() {
     if (state.techToken) {
       const me = await API.techMe();
       state.tech = me.technician || null;
+
       localStorage.setItem(LS_TECH, JSON.stringify(state.tech));
 
       state.userToken = null;
       state.user = null;
       localStorage.removeItem(LS_USER_TOKEN);
       localStorage.removeItem(LS_USER);
+      sessionStorage.removeItem(LS_USER_TOKEN);
+      sessionStorage.removeItem(LS_USER);
 
       if (sidebar) sidebar.style.display = "";
       renderSideActions();
