@@ -1461,6 +1461,16 @@ updateBreakdownTeam(jobId, payload) {
   });
 },
 
+getLiftQrImage(liftId) {
+  return fetch(`/api/lifts/${liftId}/qr-image`, {
+    headers: getOfficeAuthHeaders(),
+  }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Failed to load QR code");
+    return j;
+  });
+},
+
 async getTechnicianJobs(id) {
   const r = await fetch(`/api/technicians/${id}/jobs`);
   const j = await r.json().catch(() => ([]));
@@ -4555,6 +4565,7 @@ async function renderLifts() {
             <th class="col-warranty">Warranty Status</th>
             <th class="col-amc">AMC Status</th>
             <th class="col-days">Days Remaining</th>
+            <th class="col-actions">Actions</th>
           </tr>
         </thead>
         <tbody id="lBody"></tbody>
@@ -4568,7 +4579,7 @@ async function renderLifts() {
     if (!rows || !rows.length) {
       tb.innerHTML = `
         <tr>
-          <td colspan="6" class="muted text-center">No lifts found.</td>
+          <td colspan="7" class="muted text-center">No lifts found.</td>
         </tr>
       `;
       return;
@@ -4596,10 +4607,18 @@ async function renderLifts() {
         <td class="col-warranty"></td>
         <td class="col-amc"></td>
         <td class="col-days">${escapeHtml(String(daysRemaining ?? ""))}</td>
+	<td class="col-actions"></td>
       `;
 
       tr.children[3].appendChild(badge(warrantyStatus));
       tr.children[4].appendChild(badge(amcStatus));
+
+const actionsCell = tr.children[6];
+
+const btnQr = smallBtn("QR Code", "secondary");
+btnQr.onclick = () => showLiftQrModal(l.id);
+
+actionsCell.appendChild(btnQr);
 
       tb.appendChild(tr);
     });
@@ -6025,6 +6044,66 @@ async function deleteBreakdownCall(id) {
     await loadBreakdownList();
   } catch (err) {
     alert(err.message);
+  }
+}
+
+async function showLiftQrModal(liftId) {
+  try {
+    const data = await API.getLiftQrImage(liftId);
+
+    const wrap = document.createElement("div");
+
+    wrap.innerHTML = `
+      <div style="text-align:center;">
+        <div style="font-size:18px;font-weight:800;margin-bottom:4px;">
+          ${data.liftCode || "Lift QR Code"}
+        </div>
+
+        <div class="muted" style="margin-bottom:16px;">
+          Scan to report breakdown
+        </div>
+
+        <div style="
+          display:inline-block;
+          padding:18px;
+          background:white;
+          border:1px solid #e5e7eb;
+          border-radius:18px;
+          box-shadow:0 12px 30px rgba(0,0,0,0.12);
+        ">
+          <img src="${data.qrImage}" style="width:260px;height:260px;" />
+        </div>
+
+        <div style="margin-top:14px;font-size:12px;word-break:break-all;" class="muted">
+          ${data.qrUrl}
+        </div>
+      </div>
+    `;
+
+    const btnOpen = document.createElement("button");
+    btnOpen.className = "btn secondary";
+    btnOpen.textContent = "Open Link";
+    btnOpen.onclick = () => window.open(data.qrUrl, "_blank");
+
+    const btnDownload = document.createElement("button");
+    btnDownload.className = "btn primary";
+    btnDownload.textContent = "Download QR";
+    btnDownload.onclick = () => {
+      const a = document.createElement("a");
+      a.href = data.qrImage;
+      a.download = `${data.liftCode || "lift"}-qr.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+
+    openModal({
+      title: "Lift QR Code",
+      bodyNode: wrap,
+      footerNodes: [btnOpen, btnDownload],
+    });
+  } catch (e) {
+    alert(e.message || "Failed to load QR code");
   }
 }
 

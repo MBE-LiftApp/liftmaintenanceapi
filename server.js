@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const bcrypt = require("bcryptjs");
 const jwt = require('jsonwebtoken');
 const { Op, DataTypes } = require('sequelize');
+const QRCode = require("qrcode");
 
 const {
   sequelize,
@@ -758,6 +759,26 @@ app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
 // --------------------
 // Helpers
 // --------------------
+
+function generateQrToken() {
+  return crypto.randomBytes(12).toString("hex");
+}
+
+function getPublicBaseUrl(req) {
+  return (
+    process.env.PUBLIC_BASE_URL ||
+    `${req.protocol}://${req.get("host")}`
+  ).replace(/\/$/, "");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 function startOfDay(d) {
   if (!d) return null;
@@ -2104,6 +2125,37 @@ async function ensureBreakdownJobPartsTable() {
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
+  `);
+}
+
+async function ensureQrBreakdownSchema() {
+  await sequelize.query(`
+    ALTER TABLE "Lifts"
+    ADD COLUMN IF NOT EXISTS qr_token VARCHAR(100) UNIQUE;
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE "Lifts"
+    ADD COLUMN IF NOT EXISTS qr_enabled BOOLEAN DEFAULT TRUE;
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS reported_by_name VARCHAR(120);
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS reported_by_phone VARCHAR(30);
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS reported_via VARCHAR(30);
+  `);
+
+  await sequelize.query(`
+    CREATE INDEX IF NOT EXISTS idx_lifts_qr_token ON "Lifts"(qr_token);
   `);
 }
 
@@ -9517,6 +9569,485 @@ app.get('/api/auth/me', authUser, async (req, res) => {
   });
 });
 
+app.post("/api/lifts/:id/qr-token", authUser, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const [rows] = await sequelize.query(
+      `SELECT id, "liftCode", qr_token, qr_enabled
+       FROM "Lifts"
+       WHERE id = :id
+       LIMIT 1`,
+      { replacements: { id } }
+    );
+
+    const lift = rows[0];
+    if (!lift) return res.status(404).json({ error: "Lift not found" });
+
+    let qrToken = lift.qr_token;
+
+    if (!qrToken) {
+      qrToken = generateQrToken();
+
+      await sequelize.query(
+        `UPDATE "Lifts"
+         SET qr_token = :qrToken,
+             qr_enabled = TRUE
+         WHERE id = :id`,
+        { replacements: { qrToken, id } }
+      );
+    }
+
+    // verify saved
+    const [verifyRows] = await sequelize.query(
+      `SELECT id, "liftCode", qr_token, qr_enabled
+       FROM "Lifts"
+       WHERE id = :id
+       LIMIT 1`,
+      { replacements: { id } }
+    );
+
+    const savedLift = verifyRows[0];
+
+    const qrUrl = `${req.protocol}://${req.get("host")}/qr/${savedLift.qr_token}`;
+
+    res.json({
+      success: true,
+      liftId: savedLift.id,
+      liftCode: savedLift.liftCode,
+      qrToken: savedLift.qr_token,
+      qrUrl,
+    });
+  } catch (err) {
+    console.error("QR TOKEN ERROR:", err);
+    res.status(500).json({ error: "Failed to create QR token" });
+  }
+});
+
+app.post("/api/lifts/:id/qr-token", authUser, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const [rows] = await sequelize.query(
+      `SELECT id, "liftCode", qr_token, qr_enabled
+       FROM "Lifts"
+       WHERE id = :id
+       LIMIT 1`,
+      { replacements: { id } }
+    );
+
+    const lift = rows[0];
+    if (!lift) return res.status(404).json({ error: "Lift not found" });
+
+    let qrToken = lift.qr_token;
+
+    if (!qrToken) {
+      qrToken = generateQrToken();
+
+      await sequelize.query(
+        `UPDATE "Lifts"
+         SET qr_token = :qrToken,
+             qr_enabled = TRUE
+         WHERE id = :id`,
+        { replacements: { qrToken, id } }
+      );
+    }
+
+    const qrUrl = `${getPublicBaseUrl(req)}/qr/${qrToken}`;
+
+    res.json({
+      success: true,
+      liftId: lift.id,
+      liftCode: lift.liftCode,
+      qrToken,
+      qrUrl,
+    });
+  } catch (err) {
+    console.error("QR TOKEN ERROR:", err);
+    res.status(500).json({ error: "Failed to create QR token" });
+  }
+});
+
+app.get("/qr/:token", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+
+const [rows] = await sequelize.query(
+  `SELECT id, "liftCode", qr_token, qr_enabled
+   FROM "Lifts"
+   WHERE qr_token = :token
+     AND qr_enabled = TRUE
+   LIMIT 1`,
+  { replacements: { token } }
+);
+
+const lift = rows[0];
+
+console.log("QR LOOKUP:", { token, found: !!lift, lift });
+
+if (!lift) {
+  return res.status(404).send(`
+    <h2>Invalid QR Code</h2>
+    <p>This QR code is not active.</p>
+  `);
+}
+
+const liftCode = lift.liftCode || `Lift #${lift.id}`;
+
+    res.send(`
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Report Breakdown</title>
+  <style>
+    body {
+      margin:0;
+      font-family: Arial, sans-serif;
+      background:#0f172a;
+      color:#111827;
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+    }
+    .card {
+      width:100%;
+      max-width:460px;
+      background:#fff;
+      border-radius:22px;
+      padding:26px;
+      box-shadow:0 20px 60px rgba(0,0,0,.35);
+    }
+    .logo {
+      width:62px;
+      height:62px;
+      border-radius:18px;
+      background:#2563eb;
+      color:#fff;
+      display:grid;
+      place-items:center;
+      font-weight:900;
+      margin:0 auto 14px;
+    }
+    h2 {
+      text-align:center;
+      margin:0;
+    }
+    .sub {
+      text-align:center;
+      color:#64748b;
+      margin:8px 0 22px;
+      font-size:14px;
+    }
+    .liftbox {
+      background:#eff6ff;
+      border:1px solid #bfdbfe;
+      color:#1e40af;
+      border-radius:14px;
+      padding:14px;
+      margin-bottom:18px;
+      text-align:center;
+      font-weight:700;
+    }
+    label {
+      display:block;
+      font-size:13px;
+      font-weight:700;
+      color:#475569;
+      margin:14px 0 7px;
+    }
+    input, select, textarea {
+      width:100%;
+      box-sizing:border-box;
+      border:1px solid #cbd5e1;
+      border-radius:12px;
+      padding:13px;
+      font-size:15px;
+      outline:none;
+    }
+    textarea {
+      min-height:90px;
+      resize:vertical;
+    }
+    button {
+      width:100%;
+      margin-top:20px;
+      border:0;
+      border-radius:14px;
+      padding:15px;
+      background:#2563eb;
+      color:white;
+      font-size:16px;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .msg {
+      margin-top:14px;
+      font-size:14px;
+      text-align:center;
+      font-weight:700;
+    }
+    .error { color:#b91c1c; }
+    .success { color:#15803d; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">MBS</div>
+    <h2>Report Lift Breakdown</h2>
+    <div class="sub">Modern Building Services</div>
+
+    <div class="liftbox">
+      Lift: ${escapeHtml(liftCode)}
+    </div>
+
+    <label>Your Name <span style="color:#94a3b8;">(optional)</span></label>
+    <input id="name" placeholder="Your name" />
+
+    <label>Phone Number <span style="color:#dc2626;">*</span></label>
+    <input id="phone" type="tel" placeholder="+975 17XXXXXX" />
+
+    <label>Complaint Type <span style="color:#dc2626;">*</span></label>
+    <select id="complaint">
+      <option value="">Select complaint</option>
+      <option>PASSENGER TRAPPED</option>
+      <option>LIFT NOT MOVING</option>
+      <option>DOOR ISSUE</option>
+      <option>NO POWER</option>
+      <option>ABNORMAL NOISE</option>
+      <option>LEVELING ISSUE</option>
+      <option>BUTTON NOT WORKING</option>
+      <option>DISPLAY ISSUE</option>
+      <option>OTHER</option>
+    </select>
+
+    <label>Additional Notes</label>
+    <textarea id="notes" placeholder="Describe the issue briefly"></textarea>
+
+    <button id="submitBtn">Submit Breakdown Report</button>
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <script>
+    const token = ${JSON.stringify(token)};
+
+    document.getElementById("submitBtn").onclick = async () => {
+      const btn = document.getElementById("submitBtn");
+      const msg = document.getElementById("msg");
+
+      const reportedByName = document.getElementById("name").value.trim();
+      const reportedByPhone = document.getElementById("phone").value.trim();
+      const complaint = document.getElementById("complaint").value.trim();
+      const notes = document.getElementById("notes").value.trim();
+
+      msg.className = "msg";
+      msg.textContent = "";
+
+      if (!reportedByPhone || reportedByPhone.replace(/\\D/g, "").length < 6) {
+        msg.textContent = "Please enter a valid phone number.";
+        msg.className = "msg error";
+        return;
+      }
+
+      if (!complaint) {
+        msg.textContent = "Please select complaint type.";
+        msg.className = "msg error";
+        return;
+      }
+
+      try {
+        btn.disabled = true;
+        btn.textContent = "Submitting...";
+
+        const res = await fetch("/api/public/breakdown-from-qr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            qrToken: token,
+            reportedByName,
+            reportedByPhone,
+            complaint,
+            notes
+          })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Failed to submit report");
+
+        msg.textContent = "Breakdown reported successfully. Our team has been notified.";
+        msg.className = "msg success";
+        btn.style.display = "none";
+      } catch (e) {
+        msg.textContent = e.message || "Failed to submit report.";
+        msg.className = "msg error";
+        btn.disabled = false;
+        btn.textContent = "Submit Breakdown Report";
+      }
+    };
+  </script>
+</body>
+</html>
+    `);
+  } catch (err) {
+    console.error("QR PAGE ERROR:", err);
+    res.status(500).send("Failed to load QR breakdown page");
+  }
+});
+
+app.post("/api/public/breakdown-from-qr", async (req, res) => {
+  try {
+    const qrToken = String(req.body.qrToken || "").trim();
+    const reportedByName = String(req.body.reportedByName || "").trim();
+    const reportedByPhone = String(req.body.reportedByPhone || "").trim();
+    const complaint = String(req.body.complaint || "").trim();
+    const notes = String(req.body.notes || "").trim();
+
+    if (!qrToken) {
+      return res.status(400).json({ error: "QR token missing" });
+    }
+
+    if (!reportedByPhone || reportedByPhone.replace(/\D/g, "").length < 6) {
+      return res.status(400).json({ error: "Valid phone number required" });
+    }
+
+    if (!complaint) {
+      return res.status(400).json({ error: "Complaint type is required" });
+    }
+
+    const [liftRows] = await sequelize.query(
+      `SELECT id, "liftCode", qr_token, qr_enabled
+       FROM "Lifts"
+       WHERE qr_token = :qrToken
+         AND qr_enabled = TRUE
+       LIMIT 1`,
+      { replacements: { qrToken } }
+    );
+
+    const lift = liftRows[0];
+
+    if (!lift) {
+      return res.status(404).json({ error: "Invalid QR code" });
+    }
+
+    const projectLiftId = Number(lift.id);
+
+    const existing = await Job.findOne({
+      where: {
+        project_lift_id: projectLiftId,
+        job_type: "BREAKDOWN",
+        status: {
+          [Op.in]: ["ASSIGNED", "IN_PROGRESS"],
+        },
+      },
+    });
+
+    if (existing) {
+      return res.status(409).json({
+        error: "An active breakdown job already exists for this lift",
+        jobId: existing.id,
+      });
+    }
+
+    const pair = await pickBestServicePair();
+
+    if (!pair) {
+      return res.status(400).json({
+        error: "No technician pair available",
+      });
+    }
+
+    const fullNotes = [
+      complaint,
+      notes ? `Notes: ${notes}` : "",
+      reportedByName ? `Reported by: ${reportedByName}` : "",
+      `Phone: ${reportedByPhone}`,
+      "Source: QR",
+    ].filter(Boolean).join("\n");
+
+    const job = await createBreakdownJobWithPair({
+      projectLiftId,
+      liftId: null,
+      priority: "HIGH",
+      notes: fullNotes,
+      pair,
+    });
+
+    await job.update({
+      reported_by_name: reportedByName || null,
+      reported_by_phone: reportedByPhone,
+      reported_via: "QR",
+    });
+
+    res.json({
+      success: true,
+      jobId: job.id,
+      liftCode: lift.liftCode,
+      pair: {
+        lead: pair.leadTechnician?.name || "",
+        support: pair.supportTechnician?.name || "",
+      },
+    });
+  } catch (err) {
+    console.error("QR BREAKDOWN ERROR:", err);
+    res.status(500).json({
+      error: err.message || "Failed to create breakdown report",
+    });
+  }
+});
+
+app.get("/api/lifts/:id/qr-image", authUser, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const [rows] = await sequelize.query(
+      `SELECT id, "liftCode", qr_token, qr_enabled
+       FROM "Lifts"
+       WHERE id = :id
+       LIMIT 1`,
+      { replacements: { id } }
+    );
+
+    const lift = rows[0];
+    if (!lift) return res.status(404).json({ error: "Lift not found" });
+
+    let qrToken = lift.qr_token;
+
+    if (!qrToken) {
+      qrToken = generateQrToken();
+
+      await sequelize.query(
+        `UPDATE "Lifts"
+         SET qr_token = :qrToken,
+             qr_enabled = TRUE
+         WHERE id = :id`,
+        { replacements: { qrToken, id } }
+      );
+    }
+
+    const qrUrl = `${getPublicBaseUrl(req)}/qr/${qrToken}`;
+
+    const qrImage = await QRCode.toDataURL(qrUrl, {
+      width: 500,
+      margin: 2,
+    });
+
+    res.json({
+      success: true,
+      liftId: id,
+      liftCode: lift.liftCode,
+      qrToken,
+      qrUrl,
+      qrImage,
+    });
+  } catch (err) {
+    console.error("QR IMAGE ERROR:", err);
+    res.status(500).json({ error: "Failed to generate QR image" });
+  }
+});
+
 app.put(
   '/api/project-lifts/:projectLiftId/milestones',
   authUser,
@@ -13658,6 +14189,9 @@ async function ensureBreakdownEscalationSchema() {
 
     await ensureSchema();
     console.log('✅ Schema checked');
+
+    await ensureQrBreakdownSchema();
+    console.log('✅ QR breakdown schema checked');
 
     await ensureBreakdownJobPartsTable();
     console.log('✅ Breakdown job parts table checked/created');
