@@ -9673,77 +9673,84 @@ const liftCode = lift.liftCode || `Lift #${lift.id}`;
       padding:20px;
     }
     .card {
-      width:100%;
-      max-width:460px;
-      background:#fff;
-      border-radius:22px;
-      padding:26px;
-      box-shadow:0 20px 60px rgba(0,0,0,.35);
-    }
-    .logo {
-      width:62px;
-      height:62px;
-      border-radius:18px;
-      background:#2563eb;
-      color:#fff;
-      display:grid;
-      place-items:center;
-      font-weight:900;
-      margin:0 auto 14px;
-    }
-    h2 {
-      text-align:center;
-      margin:0;
-    }
+  width:100%;
+  max-width:460px;
+  background:#fff;
+  border-radius:22px;
+  padding:20px;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);
+}
+
+.logo {
+  width:50px;
+  height:50px;
+  border-radius:15px;
+  background:#2563eb;
+  color:#fff;
+  display:grid;
+  place-items:center;
+  font-weight:900;
+  margin:0 auto 10px;
+}
+   h2 {
+  text-align:center;
+  margin:0 0 4px;
+  font-size:22px;
+  line-height:1.2;
+}
     .sub {
-      text-align:center;
-      color:#64748b;
-      margin:8px 0 22px;
-      font-size:14px;
-    }
+  text-align:center;
+  color:#64748b;
+  margin:6px 0 14px;
+  font-size:13px;
+}
     .liftbox{
   background:#f8fafc;
   border:1px solid #dbeafe;
-  border-radius:16px;
-  padding:18px 24px;
-  line-height:1.7;
+  border-radius:12px;
+  padding:10px 14px;
+  line-height:1.35;
   text-align:left;
-  margin-bottom:18px;
+  margin-bottom:12px;
   color:#1e293b;
   font-weight:600;
+  font-size:14px;
 }
     label {
-      display:block;
-      font-size:13px;
-      font-weight:700;
-      color:#475569;
-      margin:14px 0 7px;
-    }
-    input, select, textarea {
-      width:100%;
-      box-sizing:border-box;
-      border:1px solid #cbd5e1;
-      border-radius:12px;
-      padding:13px;
-      font-size:15px;
-      outline:none;
-    }
-    textarea {
-      min-height:90px;
-      resize:vertical;
-    }
-    button {
-      width:100%;
-      margin-top:20px;
-      border:0;
-      border-radius:14px;
-      padding:15px;
-      background:#2563eb;
-      color:white;
-      font-size:16px;
-      font-weight:800;
-      cursor:pointer;
-    }
+  display:block;
+  font-size:12px;
+  font-weight:700;
+  color:#475569;
+  margin:10px 0 5px;
+}
+
+input, select, textarea {
+  width:100%;
+  box-sizing:border-box;
+  border:1px solid #cbd5e1;
+  border-radius:11px;
+  padding:10px 12px;
+  font-size:14px;
+  outline:none;
+}
+
+textarea {
+  min-height:62px;
+  resize:vertical;
+}
+
+button {
+  width:100%;
+  margin-top:14px;
+  border:0;
+  border-radius:13px;
+  padding:13px;
+  background:#2563eb;
+  color:white;
+  font-size:15px;
+  font-weight:800;
+  cursor:pointer;
+}
     .msg {
       margin-top:14px;
       font-size:14px;
