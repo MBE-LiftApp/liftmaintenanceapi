@@ -10002,7 +10002,7 @@ app.post("/api/public/breakdown-from-qr", async (req, res) => {
     const projectLiftId = Number(lift.project_lift_id);
 const liftId = Number(lift.lift_id);
 
-const serviceZone = String(lift.service_zone || 'THIMPHU')
+const serviceZone = String(lift.service_zone || '')
   .trim()
   .toUpperCase();
 const emergency = isPassengerTrapped(complaint);
@@ -10101,15 +10101,15 @@ if (shouldAutoAssign) {
   priority: "HIGH",
   notes: fullNotes,
   pair,
-  serviceZone,
+  serviceZone: effectiveServiceZone,
   dispatchStatus,
 });
 
-    await job.update({
+await job.update({
   reported_by_name: reportedByName || null,
   reported_by_phone: reportedByPhone,
   reported_via: "QR",
-  service_zone: serviceZone,
+  service_zone: effectiveServiceZone,
   dispatch_status: dispatchStatus,
   expected_response_at: expectedResponseAt,
 });
@@ -10118,7 +10118,7 @@ if (shouldAutoAssign) {
   success: true,
   jobId: job.id,
   liftCode: lift.liftCode,
-  serviceZone,
+  serviceZone: effectiveServiceZone,
   dispatchStatus,
   expectedResponseAt,
   message: publicMessage,
