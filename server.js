@@ -9932,7 +9932,8 @@ button {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Failed to submit report");
 
-        msg.textContent = "Breakdown reported successfully. Our team has been notified.";
+        msg.textContent =
+  data.message || "Breakdown reported successfully.";
         msg.className = "msg success";
         btn.style.display = "none";
       } catch (e) {
@@ -10006,12 +10007,36 @@ const serviceZone = String(lift.service_zone || 'THIMPHU')
   .toUpperCase();
 const emergency = isPassengerTrapped(complaint);
 
+const isThimphu = serviceZone === "THIMPHU";
+const withinDispatchHours = isWithinThimphuDispatchHours();
+
 const shouldAutoAssign =
   emergency ||
-  (serviceZone === "THIMPHU" && isWithinThimphuDispatchHours());
+  isThimphu;
 
-const dispatchStatus = shouldAutoAssign ? "ASSIGNED" : "NEEDS_REVIEW";
-const expectedResponseAt = shouldAutoAssign ? null : getNextDayResponseAt();
+const dispatchStatus = shouldAutoAssign
+  ? withinDispatchHours || emergency
+    ? "ASSIGNED"
+    : "ASSIGNED_NEXT_DAY"
+  : "NEEDS_REVIEW";
+
+const expectedResponseAt =
+  shouldAutoAssign && !withinDispatchHours && !emergency
+    ? getNextDayResponseAt()
+    : null;
+
+let publicMessage = "Breakdown reported successfully.";
+
+if (dispatchStatus === "ASSIGNED") {
+  publicMessage =
+    "Breakdown reported successfully. Our technician team has been notified.";
+} else if (dispatchStatus === "ASSIGNED_NEXT_DAY") {
+  publicMessage =
+    "Breakdown reported successfully. Our technician team has been notified and will attend during the next working dispatch period.";
+} else if (dispatchStatus === "NEEDS_REVIEW") {
+  publicMessage =
+    "Breakdown reported successfully. Our office team will review and arrange technician dispatch shortly.";
+}
 
 const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
 
@@ -10095,6 +10120,8 @@ if (shouldAutoAssign) {
   liftCode: lift.liftCode,
   serviceZone,
   dispatchStatus,
+  expectedResponseAt,
+  message: publicMessage,
   pair: pair
     ? {
         lead: pair.leadTechnician?.name || "",
