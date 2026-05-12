@@ -6740,7 +6740,7 @@ async function showSmartReassignModal(jobId) {
 
     body.innerHTML = `
       <div style="margin-bottom:12px;">
-        <b>Reassign Job</b> (${data.role})
+        <b>${data.role === "ASSIGN" ? "Assign Job" : "Reassign Job"}</b>
       </div>
 
       ${
@@ -6775,7 +6775,7 @@ async function showSmartReassignModal(jobId) {
             await API.reassignJob(jobId, techId);
 
             closeModal();
-            alert("Reassigned successfully");
+            alert(data.role === "ASSIGN" ? "Assigned successfully" : "Reassigned successfully");
 
             // refresh dashboard
             loadServiceDashboard();
