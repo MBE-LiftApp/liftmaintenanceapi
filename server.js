@@ -10010,7 +10010,7 @@ const shouldAutoAssign =
   emergency ||
   (serviceZone === "THIMPHU" && isWithinThimphuDispatchHours());
 
-const dispatchStatus = shouldAutoAssign ? "ASSIGNED" : "PLANNING";
+const dispatchStatus = shouldAutoAssign ? "ASSIGNED" : "NEEDS_REVIEW";
 const expectedResponseAt = shouldAutoAssign ? null : getNextDayResponseAt();
 
 const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
