@@ -9964,9 +9964,9 @@ const recentSameReporter = await Job.findOne({
     job_type: "BREAKDOWN",
     reported_by_phone: reportedByPhone,
     reported_via: "QR",
-    createdAt: {
-      [Op.gte]: fifteenMinutesAgo,
-    },
+    created_at: {
+  [Op.gte]: fifteenMinutesAgo,
+},
   },
 });
 
