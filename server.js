@@ -9678,8 +9678,14 @@ app.get("/qr/:token", async (req, res) => {
     const token = String(req.params.token || "").trim();
 
 const [rows] = await sequelize.query(
-  `SELECT id, "liftCode", qr_token, qr_enabled
-   FROM "Lifts"
+  `SELECT
+  id,
+  "liftCode",
+  building,
+  location,
+  qr_token,
+  qr_enabled
+FROM "Lifts"
    WHERE qr_token = :token
      AND qr_enabled = TRUE
    LIMIT 1`,
@@ -9806,8 +9812,20 @@ const liftCode = lift.liftCode || `Lift #${lift.id}`;
     <div class="sub">Modern Building Services</div>
 
     <div class="liftbox">
-      Lift: ${escapeHtml(liftCode)}
-    </div>
+  <div><b>Lift:</b> ${escapeHtml(liftCode)}</div>
+
+  ${
+    lift.building
+      ? `<div><b>Building:</b> ${escapeHtml(lift.building)}</div>`
+      : ""
+  }
+
+  ${
+    lift.location
+      ? `<div><b>Location:</b> ${escapeHtml(lift.location)}</div>`
+      : ""
+  }
+</div>
 
     <label>Your Name <span style="color:#94a3b8;">(optional)</span></label>
     <input id="name" placeholder="Your name" />
