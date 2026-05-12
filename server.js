@@ -10043,6 +10043,56 @@ app.get("/api/lifts/:id/qr-image", authUser, async (req, res) => {
   }
 });
 
+app.get("/api/lifts/qr-images/all", authUser, async (req, res) => {
+  try {
+    const [rows] = await sequelize.query(`
+      SELECT id, "liftCode", qr_token, qr_enabled
+      FROM "Lifts"
+      ORDER BY "liftCode" ASC
+    `);
+
+    const items = [];
+
+    for (const lift of rows) {
+      let qrToken = lift.qr_token;
+
+      if (!qrToken) {
+        qrToken = generateQrToken();
+
+        await sequelize.query(
+          `UPDATE "Lifts"
+           SET qr_token = :qrToken,
+               qr_enabled = TRUE
+           WHERE id = :id`,
+          { replacements: { qrToken, id: lift.id } }
+        );
+      }
+
+      const qrUrl = `${getPublicBaseUrl(req)}/qr/${qrToken}`;
+
+      const qrImage = await QRCode.toDataURL(qrUrl, {
+        width: 320,
+        margin: 3,
+      });
+
+      items.push({
+        liftId: lift.id,
+        liftCode: lift.liftCode,
+        qrUrl,
+        qrImage,
+      });
+    }
+
+    res.json({
+      success: true,
+      items,
+    });
+  } catch (err) {
+    console.error("BULK QR ERROR:", err);
+    res.status(500).json({ error: "Failed to generate bulk QR stickers" });
+  }
+});
+
 app.put(
   '/api/project-lifts/:projectLiftId/milestones',
   authUser,

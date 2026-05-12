@@ -1471,6 +1471,16 @@ getLiftQrImage(liftId) {
   });
 },
 
+getAllLiftQrImages() {
+  return fetch("/api/lifts/qr-images/all", {
+    headers: getOfficeAuthHeaders(),
+  }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Failed to load QR stickers");
+    return j;
+  });
+},
+
 async getTechnicianJobs(id) {
   const r = await fetch(`/api/technicians/${id}/jobs`);
   const j = await r.json().catch(() => ([]));
@@ -2505,6 +2515,128 @@ function printLiftQrSticker(data) {
 
   w.document.close();
 }
+
+async function printAllLiftQrStickers() {
+  try {
+    const data = await API.getAllLiftQrImages();
+    const items = Array.isArray(data.items) ? data.items : [];
+
+    if (!items.length) {
+      alert("No lifts found.");
+      return;
+    }
+
+    const w = window.open("", "_blank", "width=900,height=700");
+
+    if (!w) {
+      alert("Popup blocked. Please allow popups to print QR stickers.");
+      return;
+    }
+
+    const stickersHtml = items.map((item) => `
+      <div class="sticker">
+        <div class="company">MODERN BUILDING SERVICES</div>
+        <div class="subtitle">Lift Breakdown Reporting</div>
+        <div class="lift">${escapeHtml(item.liftCode || "Lift")}</div>
+        <img src="${item.qrImage}" />
+        <div class="scan">Scan to Report Breakdown</div>
+      </div>
+    `).join("");
+
+    w.document.write(`
+      <!doctype html>
+      <html>
+      <head>
+        <title>Bulk QR Stickers</title>
+        <style>
+          body {
+            margin: 0;
+            padding: 18px;
+            font-family: Arial, sans-serif;
+            background: #fff;
+            color: #111827;
+          }
+
+          .sheet {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+          }
+
+          .sticker {
+            border: 2px solid #111827;
+            border-radius: 14px;
+            padding: 14px;
+            text-align: center;
+            page-break-inside: avoid;
+          }
+
+          .company {
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: 0.4px;
+          }
+
+          .subtitle {
+            font-size: 11px;
+            color: #4b5563;
+            margin: 4px 0 8px;
+          }
+
+          .lift {
+            font-size: 20px;
+            font-weight: 900;
+            margin-bottom: 8px;
+          }
+
+          img {
+            width: 170px;
+            height: 170px;
+            display: block;
+            margin: 0 auto;
+          }
+
+          .scan {
+            margin-top: 8px;
+            font-size: 13px;
+            font-weight: 800;
+          }
+
+          @media print {
+            body {
+              padding: 8mm;
+            }
+
+            .sheet {
+              gap: 8mm;
+            }
+
+            .sticker {
+              break-inside: avoid;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="sheet">
+          ${stickersHtml}
+        </div>
+
+        <script>
+          window.onload = function() {
+            window.print();
+          };
+        <\/script>
+      </body>
+      </html>
+    `);
+
+    w.document.close();
+  } catch (e) {
+    alert(e.message || "Failed to print QR stickers");
+  }
+}
+
 // ---------- Views ----------
 const sidebar = document.querySelector(".side");
 if (sidebar) sidebar.style.display = "none";
@@ -4621,11 +4753,15 @@ async function renderLifts() {
 
   const toolbar = [];
 
-  const btnRefresh = smallBtn("Refresh", "secondary");
-  btnRefresh.onclick = () => renderLifts();
-  toolbar.push(btnRefresh);
+const btnPrintAllQr = smallBtn("Print QR Stickers", "primary");
+btnPrintAllQr.onclick = () => printAllLiftQrStickers();
 
-  setToolbar(toolbar);
+const btnRefresh = smallBtn("Refresh", "secondary");
+btnRefresh.onclick = () => renderLifts();
+
+toolbar.push(btnPrintAllQr, btnRefresh);
+
+setToolbar(toolbar);
 
   root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
 
