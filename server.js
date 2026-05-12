@@ -9603,61 +9603,6 @@ app.post("/api/lifts/:id/qr-token", authUser, async (req, res) => {
       );
     }
 
-    // verify saved
-    const [verifyRows] = await sequelize.query(
-      `SELECT id, "liftCode", qr_token, qr_enabled
-       FROM "Lifts"
-       WHERE id = :id
-       LIMIT 1`,
-      { replacements: { id } }
-    );
-
-    const savedLift = verifyRows[0];
-
-    const qrUrl = `${req.protocol}://${req.get("host")}/qr/${savedLift.qr_token}`;
-
-    res.json({
-      success: true,
-      liftId: savedLift.id,
-      liftCode: savedLift.liftCode,
-      qrToken: savedLift.qr_token,
-      qrUrl,
-    });
-  } catch (err) {
-    console.error("QR TOKEN ERROR:", err);
-    res.status(500).json({ error: "Failed to create QR token" });
-  }
-});
-
-app.post("/api/lifts/:id/qr-token", authUser, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-
-    const [rows] = await sequelize.query(
-      `SELECT id, "liftCode", qr_token, qr_enabled
-       FROM "Lifts"
-       WHERE id = :id
-       LIMIT 1`,
-      { replacements: { id } }
-    );
-
-    const lift = rows[0];
-    if (!lift) return res.status(404).json({ error: "Lift not found" });
-
-    let qrToken = lift.qr_token;
-
-    if (!qrToken) {
-      qrToken = generateQrToken();
-
-      await sequelize.query(
-        `UPDATE "Lifts"
-         SET qr_token = :qrToken,
-             qr_enabled = TRUE
-         WHERE id = :id`,
-        { replacements: { qrToken, id } }
-      );
-    }
-
     const qrUrl = `${getPublicBaseUrl(req)}/qr/${qrToken}`;
 
     res.json({
@@ -9679,15 +9624,18 @@ app.get("/qr/:token", async (req, res) => {
 
 const [rows] = await sequelize.query(
   `SELECT
-  id,
-  "liftCode",
-  building,
-  location,
-  qr_token,
-  qr_enabled
-FROM "Lifts"
-   WHERE qr_token = :token
-     AND qr_enabled = TRUE
+     l.id,
+     l."liftCode",
+     l.building,
+     l.location,
+     l.qr_token,
+     l.qr_enabled,
+     p.project_name AS "projectName"
+   FROM "Lifts" l
+   LEFT JOIN project_lifts pl ON pl.lift_id = l.id
+   LEFT JOIN projects p ON p.id = pl.project_id
+   WHERE l.qr_token = :token
+     AND l.qr_enabled = TRUE
    LIMIT 1`,
   { replacements: { token } }
 );
@@ -9813,11 +9761,13 @@ const liftCode = lift.liftCode || `Lift #${lift.id}`;
     <div class="sub">Modern Building Services</div>
 
     <div class="liftbox">
+  <div><b>Project:</b> ${escapeHtml(lift.projectName || "—")}</div>
+
   <div><b>Lift:</b> ${escapeHtml(liftCode)}</div>
 
   ${
     lift.building
-      ? `<div><b>Building:</b> ${escapeHtml(lift.building)}</div>`
+      ? `<div><b>Site:</b> ${escapeHtml(lift.building)}</div>`
       : ""
   }
 
