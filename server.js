@@ -10101,7 +10101,7 @@ if (shouldAutoAssign) {
   priority: "HIGH",
   notes: fullNotes,
   pair,
-  serviceZone: effectiveServiceZone,
+  serviceZone: serviceZone,
   dispatchStatus,
 });
 
@@ -10109,7 +10109,7 @@ await job.update({
   reported_by_name: reportedByName || null,
   reported_by_phone: reportedByPhone,
   reported_via: "QR",
-  service_zone: effectiveServiceZone,
+  service_zone: serviceZone,
   dispatch_status: dispatchStatus,
   expected_response_at: expectedResponseAt,
 });
@@ -10118,7 +10118,7 @@ await job.update({
   success: true,
   jobId: job.id,
   liftCode: lift.liftCode,
-  serviceZone: effectiveServiceZone,
+  serviceZone: serviceZone,
   dispatchStatus,
   expectedResponseAt,
   message: publicMessage,
