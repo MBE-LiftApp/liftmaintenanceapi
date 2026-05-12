@@ -9,6 +9,7 @@ module.exports = (sequelize, DataTypes) => {
       site_id: { type: DataTypes.BIGINT, allowNull: true },
       status: { type: DataTypes.TEXT, allowNull: false, defaultValue: 'OPEN' },
       notes: { type: DataTypes.TEXT, allowNull: true },
+      service_zone: { type: DataTypes.STRING(50), allowNull: true },
       created_at: { type: DataTypes.DATE, allowNull: true },
       updated_at: { type: DataTypes.DATE, allowNull: true },
     },

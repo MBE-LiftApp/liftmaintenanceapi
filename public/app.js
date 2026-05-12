@@ -3826,6 +3826,7 @@ function renderProjectDetails() {
   const totalJobs = lifts.reduce((sum, l) => sum + (Array.isArray(l.assignments) ? l.assignments.length : 0), 0);
   const activeJobs = lifts.reduce((sum, l) => sum + (Array.isArray(l.assignments) ? l.assignments.filter(a => ["ASSIGNED", "IN_PROGRESS"].includes((a.status || "").toUpperCase())).length : 0), 0);
 
+console.log(pj);
   root.innerHTML = `
     <div class="grid" style="margin-bottom:14px">
       <div class="card"><div class="label">Project Code</div><div class="kpi" style="font-size:22px">${pj.projectCode || "—"}</div></div>
@@ -3835,22 +3836,47 @@ function renderProjectDetails() {
     </div>
 
     <div class="card">
-      <div class="label">Project Summary</div>
-      <div class="hr"></div>
-      <div class="formGrid">
-        <div class="field"><label>Project Name</label><div><b>${pj.projectName || ""}</b></div></div>
-        <div class="field"><label>Status</label><div id="projectStatusCell"></div></div>
-        <div class="field">
-  <label>Customer</label>
-  <div>${pj.customer?.name || "—"}</div>
-  <div class="muted" style="margin-top:4px;">
-    Phone: ${pj.customer?.phone || "—"}
+  <div class="label">Project Summary</div>
+  <div class="hr"></div>
+
+  <div class="formGrid" style="
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap:16px;
+  ">
+
+    <div class="field">
+      <label>Project Name</label>
+      <div><b>${pj.projectName || pj.project_name || ""}</b></div>
+    </div>
+
+    <div class="field">
+      <label>Status</label>
+      <div><span class="badge">${pj.status || "OPEN"}</span></div>
+    </div>
+
+    <div class="field">
+      <label>Service Zone</label>
+      <div>${pj.serviceZone || "—"}</div>
+    </div>
+
+    <div class="field">
+      <label>Customer</label>
+      <div>${pj.customer?.name || "—"}</div>
+      <div class="muted">Phone: ${pj.customer?.phone || "—"}</div>
+    </div>
+
+    <div class="field">
+      <label>Site</label>
+      <div>${pj.site?.name || "—"}</div>
+    </div>
+
+    <div class="field" style="grid-column:1/-1">
+      <label>Notes</label>
+      <div class="muted">${pj.notes || "—"}</div>
+    </div>
+
   </div>
 </div>
-        <div class="field"><label>Site</label><div>${pj.site?.name || "—"}</div></div>
-        <div class="field" style="grid-column:1/-1"><label>Notes</label><div class="muted">${pj.notes || "—"}</div></div>
-      </div>
-    </div>
 
     <div class="grid" style="margin-top:14px">
       <div class="card"><div class="label">Not Started</div><div class="kpi" style="font-size:22px">${workflowCounts.notStarted}</div></div>
@@ -3875,8 +3901,6 @@ function renderProjectDetails() {
       <div class="hr"></div>
     </div>
   `;
-
-  root.querySelector("#projectStatusCell").appendChild(badge(pj.status || "OPEN"));
 
   const card = root.querySelector("#projectLiftsCard");
   const wrap = makeScrollableTableWrap(`
@@ -3979,9 +4003,9 @@ console.log("Lift actions", l.liftCode, {
 });
 
 
-  const goToService = () => {
-    location.hash = '#service';
-  };
+  const goToService = async () => {
+  await openProject(pj.id);
+};
 
   if (hasPermission('lifts.edit')) {
   const btnMilestone = smallBtn("Milestones", "secondary");
@@ -4506,7 +4530,7 @@ async function showAddLiftToProjectModal(projectId) {
 
       <div class="field">
         <label>Location</label>
-        <input id="location" placeholder="Thimphu" />
+        <input id="location" placeholder="Lobby" />
       </div>
 
       <div class="field">
@@ -5999,8 +6023,10 @@ async function loadBreakdownList() {
 
     if (breakdownFilter === "open") {
       filtered = rows.filter(j =>
-        ["ASSIGNED", "IN_PROGRESS"].includes(String(j.status || "").toUpperCase())
-      );
+  ["OPEN", "ASSIGNED", "IN_PROGRESS"].includes(
+    String(j.status || "").toUpperCase()
+  )
+);
     } else if (breakdownFilter === "completed") {
       filtered = rows.filter(j =>
         String(j.status || "").toUpperCase() === "DONE"
@@ -6057,8 +6083,15 @@ async function loadBreakdownList() {
                 </td>
 
                 <td>
-                  ${badge(r.status || "ASSIGNED")}
-                  ${r.escalated ? badge("ESCALATED", "bDanger") : ""}
+                  ${badge(r.status || "OPEN")}
+
+${r.manualDispatchRequired
+  ? badge("MANUAL DISPATCH REQUIRED", "bWarn")
+  : ""}
+
+${r.escalated
+  ? badge("ESCALATED", "bDanger")
+  : ""}
                 </td>
 
                 <td>
@@ -6076,8 +6109,10 @@ async function loadBreakdownList() {
                 <td>
                   <div style="display:flex; gap:8px; flex-wrap:wrap;">
                     ${hasPermission("breakdowns.assign") &&
-  String(r.status || "").toUpperCase() === "ASSIGNED"
-    ? `<button class="btn btnSmall" onclick="openBreakdownReassignModal(${Number(r.id)})">Reassign</button>`
+  ["OPEN", "ASSIGNED"].includes(String(r.status || "").toUpperCase())
+    ? `<button class="btn btnSmall" onclick="openBreakdownReassignModal(${Number(r.id)})">
+        ${String(r.status || "").toUpperCase() === "OPEN" ? "Assign" : "Reassign"}
+      </button>`
     : ""}
 
                     ${hasPermission("breakdowns.delete")
@@ -7691,9 +7726,24 @@ function showCreateProjectModal() {
       </div>
 
       <div class="field" style="grid-column:1/-1">
-        <label>Building (Site)</label>
-        <input id="building" placeholder="Building / Site name" />
-      </div>
+  <label>Building (Site)</label>
+  <input id="building" placeholder="Building / Site name" />
+</div>
+
+<div class="field">
+  <label>Service Zone</label>
+
+  <select id="serviceZone">
+    <option value="THIMPHU">THIMPHU</option>
+    <option value="PARO">PARO</option>
+    <option value="PUNAKHA">PUNAKHA</option>
+    <option value="PHUENTSHOLING">PHUENTSHOLING</option>
+    <option value="SOUTHERN">SOUTHERN</option>
+    <option value="CENTRAL">CENTRAL</option>
+    <option value="EASTERN">EASTERN</option>
+    <option value="OTHER">OTHER</option>
+  </select>
+</div>
 
       <div class="field" style="grid-column:1/-1">
         <label>Notes</label>
@@ -7715,6 +7765,7 @@ function showCreateProjectModal() {
         customerName: body.querySelector("#customerName").value.trim(),
         customerPhone: body.querySelector("#customerPhone").value.trim(),
         building: body.querySelector("#building").value.trim(),
+        service_zone: body.querySelector("#serviceZone").value,
         notes: body.querySelector("#notes").value || "",
       };
 
@@ -8797,7 +8848,7 @@ async function showManageTeamModal(jobId, roleLabel = "JOB", options = {}) {
         });
 
         closeModal();
-        await renderServiceDashboard();
+await openProject(state.currentProjectId || state.currentProject?.id);
       } catch (e) {
         alert(e.message || String(e));
       } finally {

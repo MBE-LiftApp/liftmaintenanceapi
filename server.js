@@ -780,6 +780,41 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function getServiceZoneFromLift(lift) {
+  const site = String(lift?.building || "").trim().toUpperCase();
+
+  if (site.includes("THIMPHU")) return "THIMPHU";
+  if (site.includes("PARO")) return "PARO";
+  if (site.includes("PUNAKHA")) return "PUNAKHA";
+  if (site.includes("PHUENTSHOLING")) return "PHUENTSHOLING";
+
+  return site || "REMOTE";
+}
+
+function isPassengerTrapped(complaint) {
+  return String(complaint || "").toUpperCase().includes("PASSENGER TRAPPED");
+}
+
+function isWithinThimphuDispatchHours(now = new Date()) {
+  // Bhutan is UTC+6
+  const bhutanHour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Thimphu",
+      hour: "2-digit",
+      hour12: false,
+    }).format(now)
+  );
+
+  return bhutanHour < 17;
+}
+
+function getNextDayResponseAt(now = new Date()) {
+  const d = new Date(now);
+  d.setDate(d.getDate() + 1);
+  d.setHours(10, 0, 0, 0);
+  return d;
+}
+
 function startOfDay(d) {
   if (!d) return null;
   const dt = d instanceof Date ? d : new Date(d);
@@ -2074,12 +2109,16 @@ async function createBreakdownJobWithPair({
   priority,
   notes,
   pair,
+  serviceZone = 'THIMPHU',
+  dispatchStatus = 'ASSIGNED',
 }) {
   const leadId = Number(pair?.leadTechnicianId || 0);
   const supportId = Number(pair?.supportTechnicianId || 0);
 
-  if (!leadId || !supportId) {
-    throw new Error('Valid technician pair required');
+  const hasPair = !!leadId && !!supportId;
+
+  if (dispatchStatus === 'ASSIGNED' && !hasPair) {
+    throw new Error('Valid technician pair required for assigned breakdown');
   }
 
   const job = await Job.create({
@@ -2090,9 +2129,15 @@ async function createBreakdownJobWithPair({
     title: 'Breakdown Service Call',
     notes: notes || '',
     priority: priority || 'NORMAL',
-    status: 'ASSIGNED',
+    status: hasPair ? 'ASSIGNED' : 'OPEN',
+    service_zone: serviceZone || null,
+    dispatch_status: dispatchStatus,
     created_at: new Date(),
   });
+
+  if (!hasPair) {
+    return job;
+  }
 
   const assignedAt = new Date();
 
@@ -2159,6 +2204,33 @@ async function ensureQrBreakdownSchema() {
 
   await sequelize.query(`
     CREATE INDEX IF NOT EXISTS idx_lifts_qr_token ON "Lifts"(qr_token);
+  `);
+}
+
+async function ensureBreakdownDispatchSchema() {
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS service_zone VARCHAR(50);
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS dispatch_status VARCHAR(40) DEFAULT 'ASSIGNED';
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS expected_response_at TIMESTAMP;
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS customer_contacted_at TIMESTAMP;
+  `);
+
+  await sequelize.query(`
+    ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS customer_eta_notes TEXT;
   `);
 }
 
@@ -8984,6 +9056,11 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
     const customerPhone = String(body.customerPhone || body.customer_phone || body.phone || '').trim();
     const siteName = String(body.building || body.site_name || body.siteName || '').trim();
     const notes = body.notes != null ? String(body.notes).trim() : null;
+const serviceZone = String(
+  body.serviceZone ||
+  body.service_zone ||
+  'THIMPHU'
+).trim().toUpperCase();
 
     if (!projectName) {
       return res.status(400).json({ error: 'Project name is required' });
@@ -9087,9 +9164,9 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
     const [projectRows] = await sequelize.query(
       `
       INSERT INTO projects
-        (project_code, project_name, customer_id, site_id, status, notes)
+        (project_code, project_name, customer_id, site_id, status, notes, service_zone)
       VALUES
-        (:projectCode, :projectName, :customerId, :siteId, :status, :notes)
+        (:projectCode, :projectName, :customerId, :siteId, :status, :notes, :serviceZone)
       RETURNING
         id,
         project_code,
@@ -9107,6 +9184,7 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
           siteId: site ? site.id : null,
           status: 'OPEN',
           notes: notes || null,
+	  serviceZone,
         },
       }
     );
@@ -9118,6 +9196,7 @@ app.post('/api/projects', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR
       projectCode: project.project_code || '',
       projectName: project.project_name || '',
       status: project.status || 'OPEN',
+      serviceZone: project.service_zone || 'THIMPHU',
       customer: {
         id: customer.id,
         name: customer.name,
@@ -9337,6 +9416,7 @@ const amcByProjectLiftId = new Map(
       projectCode: project.project_code || '',
       projectName: project.project_name,
       status: project.status,
+      serviceZone: project.service_zone || 'THIMPHU',
       notes: project.notes || '',
       customer: project.Customer
   ? {
@@ -9908,6 +9988,15 @@ app.post("/api/public/breakdown-from-qr", async (req, res) => {
     }
 
     const projectLiftId = Number(lift.id);
+const serviceZone = getServiceZoneFromLift(lift);
+const emergency = isPassengerTrapped(complaint);
+
+const shouldAutoAssign =
+  emergency ||
+  (serviceZone === "THIMPHU" && isWithinThimphuDispatchHours());
+
+const dispatchStatus = shouldAutoAssign ? "ASSIGNED" : "PLANNING";
+const expectedResponseAt = shouldAutoAssign ? null : getNextDayResponseAt();
 
 const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
 
@@ -9946,13 +10035,17 @@ if (recentSameReporter) {
     jobId: recentSameReporter.id,
   });
 }
-    const pair = await pickBestServicePair();
+    let pair = null;
 
-    if (!pair) {
-      return res.status(400).json({
-        error: "No technician pair available",
-      });
-    }
+if (shouldAutoAssign) {
+  pair = await pickBestServicePair();
+
+  if (!pair) {
+    return res.status(400).json({
+      error: "No technician pair available",
+    });
+  }
+}
 
     const fullNotes = [
       complaint,
@@ -9971,10 +10064,13 @@ if (recentSameReporter) {
     });
 
     await job.update({
-      reported_by_name: reportedByName || null,
-      reported_by_phone: reportedByPhone,
-      reported_via: "QR",
-    });
+  reported_by_name: reportedByName || null,
+  reported_by_phone: reportedByPhone,
+  reported_via: "QR",
+  service_zone: serviceZone,
+  dispatch_status: dispatchStatus,
+  expected_response_at: expectedResponseAt,
+});
 
     res.json({
       success: true,
@@ -10330,11 +10426,35 @@ app.post(
         });
       }
 
-      const pair = await pickBestServicePair();
-      if (!pair) {
-        return res.status(400).json({
-          error: 'No technician pair available',
-        });
+      const [zoneRows] = await sequelize.query(
+        `
+        SELECT p.service_zone
+        FROM project_lifts pl
+        JOIN projects p ON p.id = pl.project_id
+        WHERE pl.id = :projectLiftId
+        LIMIT 1
+        `,
+        {
+          replacements: { projectLiftId },
+        }
+      );
+
+      const serviceZone = String(zoneRows?.[0]?.service_zone || 'THIMPHU')
+        .trim()
+        .toUpperCase();
+
+      const shouldAutoAssign = serviceZone === 'THIMPHU';
+
+      let pair = null;
+
+      if (shouldAutoAssign) {
+        pair = await pickBestServicePair();
+
+        if (!pair) {
+          return res.status(400).json({
+            error: 'No technician pair available',
+          });
+        }
       }
 
       const job = await createBreakdownJobWithPair({
@@ -10343,15 +10463,24 @@ app.post(
         priority,
         notes: complaint,
         pair,
+        serviceZone,
+        dispatchStatus: shouldAutoAssign ? 'ASSIGNED' : 'NEEDS_REVIEW',
       });
 
       res.json({
         ok: true,
         jobId: job.id,
-        pair: {
-          lead: pair.leadTechnician?.name,
-          support: pair.supportTechnician?.name,
-        },
+        serviceZone,
+        dispatchStatus: shouldAutoAssign ? 'ASSIGNED' : 'NEEDS_REVIEW',
+        pair: pair
+          ? {
+              lead: pair.leadTechnician?.name,
+              support: pair.supportTechnician?.name,
+            }
+          : null,
+        message: shouldAutoAssign
+          ? 'Breakdown assigned automatically'
+          : 'Breakdown created for manual dispatch review',
       });
     } catch (err) {
       console.error('Breakdown create error:', err);
@@ -10433,6 +10562,11 @@ const support = team.find(t =>
   complaint: j.notes || '',
   priority: j.priority,
   status: j.status,
+
+  serviceZone: j.service_zone || '',
+  dispatchStatus: j.dispatch_status || '',
+  manualDispatchRequired:
+    String(j.dispatch_status || '').toUpperCase() === 'NEEDS_REVIEW',
 
   lead: lead?.Technician?.name || '',
   support: support?.Technician?.name || '',
@@ -10697,11 +10831,11 @@ app.put('/api/breakdown-calls/:id/team', authUser, requirePermission('breakdowns
       return res.status(404).json({ error: 'Breakdown job not found' });
     }
 
-    const status = String(job.status || '').toUpperCase();
+    const currentStatus = String(job.status || '').toUpperCase();
 
-if (status !== 'ASSIGNED') {
+if (!['OPEN', 'ASSIGNED'].includes(currentStatus)) {
   return res.status(400).json({
-    error: 'Only assigned breakdown jobs can be reassigned',
+    error: 'Only open or assigned breakdown jobs can be assigned',
   });
 }
 
@@ -10756,9 +10890,9 @@ if (status !== 'ASSIGNED') {
     });
 
     await job.update({
-      status: 'ASSIGNED',
-      assigned_at: assignedAt,
-    });
+  status: 'ASSIGNED',
+  dispatch_status: 'ASSIGNED',
+});
 
     res.json({
       ok: true,
@@ -13801,6 +13935,7 @@ await createIndexSafe(
   await addColumnIfMissing('projects', 'customer_id', 'BIGINT');
   await addColumnIfMissing('projects', 'site_id', 'BIGINT');
   await addColumnIfMissing('projects', 'status', `TEXT NOT NULL DEFAULT 'OPEN'`);
+  await addColumnIfMissing('projects', 'service_zone', 'TEXT');
   await addColumnIfMissing('projects', 'notes', 'TEXT');
   await addColumnIfMissing('projects', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
   await addColumnIfMissing('projects', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
@@ -14281,6 +14416,9 @@ async function ensureBreakdownEscalationSchema() {
 
     await ensureBreakdownEscalationSchema();
     console.log('✅ Breakdown escalation schema checked');
+
+    await ensureBreakdownDispatchSchema();
+    console.log('✅ Breakdown dispatch schema checked');
 
     await User.sync();
     await Role.sync();
