@@ -9939,23 +9939,43 @@ app.post("/api/public/breakdown-from-qr", async (req, res) => {
 
     const projectLiftId = Number(lift.id);
 
-    const existing = await Job.findOne({
-      where: {
-        project_lift_id: projectLiftId,
-        job_type: "BREAKDOWN",
-        status: {
-          [Op.in]: ["ASSIGNED", "IN_PROGRESS"],
-        },
-      },
-    });
+const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
 
-    if (existing) {
-      return res.status(409).json({
-        error: "An active breakdown job already exists for this lift",
-        jobId: existing.id,
-      });
-    }
+const existing = await Job.findOne({
+  where: {
+    project_lift_id: projectLiftId,
+    job_type: "BREAKDOWN",
+    status: {
+      [Op.in]: ["ASSIGNED", "IN_PROGRESS"],
+    },
+  },
+});
 
+if (existing) {
+  return res.status(409).json({
+    error: "An active breakdown has already been reported for this lift. Our technician team has been notified.",
+    jobId: existing.id,
+  });
+}
+
+const recentSameReporter = await Job.findOne({
+  where: {
+    project_lift_id: projectLiftId,
+    job_type: "BREAKDOWN",
+    reported_by_phone: reportedByPhone,
+    reported_via: "QR",
+    createdAt: {
+      [Op.gte]: fifteenMinutesAgo,
+    },
+  },
+});
+
+if (recentSameReporter) {
+  return res.status(409).json({
+    error: "A similar complaint was recently submitted from this phone number.",
+    jobId: recentSameReporter.id,
+  });
+}
     const pair = await pickBestServicePair();
 
     if (!pair) {
