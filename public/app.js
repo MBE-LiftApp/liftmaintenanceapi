@@ -6230,14 +6230,15 @@ async function submitBreakdownReassign(jobId) {
   }
 
   try {
-    await API.updateBreakdownTeam(jobId, {
-      leadTechnicianId,
-      supportTechnicianId,
-    });
+    const result = await API.updateBreakdownTeam(jobId, {
+  leadTechnicianId,
+  supportTechnicianId,
+});
 
-    closeBreakdownReassignModal();
-    await loadBreakdownList();
-    alert("Breakdown team reassigned successfully.");
+closeBreakdownReassignModal();
+await loadBreakdownList();
+
+alert(result?.message || "Breakdown team assigned successfully.");
   } catch (err) {
     console.error("submitBreakdownReassign error:", err);
     alert(err.message || "Failed to reassign breakdown team");
