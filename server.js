@@ -10945,13 +10945,7 @@ if (!['OPEN', 'ASSIGNED'].includes(currentStatus)) {
       return res.status(400).json({ error: 'One or more selected technicians are on leave' });
     }
 
-const existingActiveAssignments = await JobAssignment.count({
-  where: {
-    job_id: job.id,
-  },
-});
-
-const isFirstAssignment = existingActiveAssignments === 0;
+const isFirstAssignment = String(job.status || '').toUpperCase() === 'OPEN';
 
     await JobAssignment.destroy({
       where: { job_id: job.id },
