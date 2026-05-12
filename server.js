@@ -9770,12 +9770,6 @@ const liftCode = lift.liftCode || `Lift #${lift.id}`;
       ? `<div><b>Site:</b> ${escapeHtml(lift.building)}</div>`
       : ""
   }
-
-  ${
-    lift.location
-      ? `<div><b>Location:</b> ${escapeHtml(lift.location)}</div>`
-      : ""
-  }
 </div>
 
     <label>Your Name <span style="color:#94a3b8;">(optional)</span></label>
