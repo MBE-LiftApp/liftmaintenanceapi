@@ -2398,6 +2398,113 @@ function renderAmcAssignmentPanel(rows = []) {
     </div>
   `;
 }
+
+function printLiftQrSticker(data) {
+  const w = window.open("", "_blank", "width=420,height=600");
+
+  if (!w) {
+    alert("Popup blocked. Please allow popups to print QR sticker.");
+    return;
+  }
+
+  w.document.write(`
+    <!doctype html>
+    <html>
+    <head>
+      <title>Print QR Sticker</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 20px;
+          font-family: Arial, sans-serif;
+          background: #fff;
+          color: #111827;
+        }
+
+        .sticker {
+          width: 320px;
+          border: 2px solid #111827;
+          border-radius: 16px;
+          padding: 18px;
+          text-align: center;
+        }
+
+        .company {
+          font-size: 16px;
+          font-weight: 900;
+          letter-spacing: 0.5px;
+          margin-bottom: 4px;
+        }
+
+        .subtitle {
+          font-size: 12px;
+          color: #4b5563;
+          margin-bottom: 12px;
+        }
+
+        .lift {
+          font-size: 22px;
+          font-weight: 900;
+          margin-bottom: 12px;
+        }
+
+        img {
+          width: 220px;
+          height: 220px;
+          margin: 8px auto;
+          display: block;
+        }
+
+        .scan {
+          margin-top: 10px;
+          font-size: 15px;
+          font-weight: 800;
+        }
+
+        .small {
+          margin-top: 8px;
+          font-size: 11px;
+          color: #6b7280;
+          word-break: break-all;
+        }
+
+        @media print {
+          body {
+            padding: 0;
+          }
+
+          .sticker {
+            margin: 0;
+            page-break-inside: avoid;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="sticker">
+        <div class="company">MODERN BUILDING SERVICES</div>
+        <div class="subtitle">Lift Breakdown Reporting</div>
+
+        <div class="lift">${escapeHtml(data.liftCode || "Lift")}</div>
+
+        <img src="${data.qrImage}" />
+
+        <div class="scan">Scan to Report Breakdown</div>
+
+        <div class="small">${escapeHtml(data.qrUrl || "")}</div>
+      </div>
+
+      <script>
+        window.onload = function() {
+          window.print();
+        };
+      <\/script>
+    </body>
+    </html>
+  `);
+
+  w.document.close();
+}
 // ---------- Views ----------
 const sidebar = document.querySelector(".side");
 if (sidebar) sidebar.style.display = "none";
@@ -6081,27 +6188,32 @@ async function showLiftQrModal(liftId) {
     `;
 
     const btnOpen = document.createElement("button");
-    btnOpen.className = "btn secondary";
-    btnOpen.textContent = "Open Link";
-    btnOpen.onclick = () => window.open(data.qrUrl, "_blank");
+btnOpen.className = "btn secondary";
+btnOpen.textContent = "Open Link";
+btnOpen.onclick = () => window.open(data.qrUrl, "_blank");
 
-    const btnDownload = document.createElement("button");
-    btnDownload.className = "btn primary";
-    btnDownload.textContent = "Download QR";
-    btnDownload.onclick = () => {
-      const a = document.createElement("a");
-      a.href = data.qrImage;
-      a.download = `${data.liftCode || "lift"}-qr.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    };
+const btnPrint = document.createElement("button");
+btnPrint.className = "btn secondary";
+btnPrint.textContent = "Print Sticker";
+btnPrint.onclick = () => printLiftQrSticker(data);
 
-    openModal({
-      title: "Lift QR Code",
-      bodyNode: wrap,
-      footerNodes: [btnOpen, btnDownload],
-    });
+const btnDownload = document.createElement("button");
+btnDownload.className = "btn primary";
+btnDownload.textContent = "Download QR";
+btnDownload.onclick = () => {
+  const a = document.createElement("a");
+  a.href = data.qrImage;
+  a.download = `${data.liftCode || "lift"}-qr.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+
+openModal({
+  title: "Lift QR Code",
+  bodyNode: wrap,
+  footerNodes: [btnOpen, btnPrint, btnDownload],
+});
   } catch (e) {
     alert(e.message || "Failed to load QR code");
   }
