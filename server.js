@@ -10945,6 +10945,14 @@ if (!['OPEN', 'ASSIGNED'].includes(currentStatus)) {
       return res.status(400).json({ error: 'One or more selected technicians are on leave' });
     }
 
+const existingActiveAssignments = await JobAssignment.count({
+  where: {
+    job_id: job.id,
+  },
+});
+
+const isFirstAssignment = existingActiveAssignments === 0;
+
     await JobAssignment.destroy({
       where: { job_id: job.id },
     });
@@ -10976,7 +10984,9 @@ if (!['OPEN', 'ASSIGNED'].includes(currentStatus)) {
 
     res.json({
       ok: true,
-      message: 'Breakdown team reassigned successfully',
+      message: isFirstAssignment
+  ? 'Breakdown team assigned successfully'
+  : 'Breakdown team reassigned successfully',
       jobId: job.id,
       leadTechnicianId: Number(leadTechnicianId),
       supportTechnicianId: Number(supportTechnicianId),
