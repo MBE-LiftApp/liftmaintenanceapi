@@ -9753,16 +9753,17 @@ const liftCode = lift.liftCode || `Lift #${lift.id}`;
       margin:8px 0 22px;
       font-size:14px;
     }
-    .liftbox {
-      background:#eff6ff;
-      border:1px solid #bfdbfe;
-      color:#1e40af;
-      border-radius:14px;
-      padding:14px;
-      margin-bottom:18px;
-      text-align:center;
-      font-weight:700;
-    }
+    .liftbox{
+  background:#f8fafc;
+  border:1px solid #dbeafe;
+  border-radius:16px;
+  padding:18px 24px;
+  line-height:1.7;
+  text-align:left;
+  margin-bottom:18px;
+  color:#1e293b;
+  font-weight:600;
+}
     label {
       display:block;
       font-size:13px;
