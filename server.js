@@ -795,24 +795,56 @@ function isPassengerTrapped(complaint) {
   return String(complaint || "").toUpperCase().includes("PASSENGER TRAPPED");
 }
 
-function isWithinThimphuDispatchHours(now = new Date()) {
-  // Bhutan is UTC+6
-  const bhutanHour = Number(
-    new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Thimphu",
-      hour: "2-digit",
-      hour12: false,
-    }).format(now)
-  );
+function getBhutanNowParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Thimphu',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
 
-  return bhutanHour < 17;
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+
+  return {
+    weekday: get('weekday'),
+    hour: Number(get('hour')),
+    minute: Number(get('minute')),
+  };
+}
+
+function isWithinThimphuDispatchHours(now = new Date()) {
+  const bhutan = getBhutanNowParts(now);
+
+  // Sunday closed
+  if (bhutan.weekday === 'Sun') return false;
+
+  const minutes = bhutan.hour * 60 + bhutan.minute;
+
+  // Bhutan dispatch window: 09:00 to 17:00
+  return minutes >= 9 * 60 && minutes < 17 * 60;
 }
 
 function getNextDayResponseAt(now = new Date()) {
-  const d = new Date(now);
-  d.setDate(d.getDate() + 1);
-  d.setHours(10, 0, 0, 0);
-  return d;
+  const bhutanDateStr = formatBhutanDate(now);
+  const base = parseDateOnly(bhutanDateStr);
+
+  base.setDate(base.getDate() + 1);
+
+  // Skip Sunday
+  while (base.getDay() === 0) {
+    base.setDate(base.getDate() + 1);
+  }
+
+  // 10:00 Bhutan time = 04:00 UTC
+  return new Date(Date.UTC(
+    base.getFullYear(),
+    base.getMonth(),
+    base.getDate(),
+    4,
+    0,
+    0
+  ));
 }
 
 function startOfDay(d) {
