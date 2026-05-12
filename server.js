@@ -10090,14 +10090,18 @@ if (shouldAutoAssign) {
 });
 
     res.json({
-      success: true,
-      jobId: job.id,
-      liftCode: lift.liftCode,
-      pair: {
+  success: true,
+  jobId: job.id,
+  liftCode: lift.liftCode,
+  serviceZone,
+  dispatchStatus,
+  pair: pair
+    ? {
         lead: pair.leadTechnician?.name || "",
         support: pair.supportTechnician?.name || "",
-      },
-    });
+      }
+    : null,
+});
   } catch (err) {
     console.error("QR BREAKDOWN ERROR:", err);
     res.status(500).json({
