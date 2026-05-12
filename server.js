@@ -9973,13 +9973,24 @@ app.post("/api/public/breakdown-from-qr", async (req, res) => {
     }
 
     const [liftRows] = await sequelize.query(
-      `SELECT id, "liftCode", qr_token, qr_enabled
-       FROM "Lifts"
-       WHERE qr_token = :qrToken
-         AND qr_enabled = TRUE
-       LIMIT 1`,
-      { replacements: { qrToken } }
-    );
+  `
+  SELECT
+    l.id AS lift_id,
+    l."liftCode",
+    l.qr_token,
+    l.qr_enabled,
+    pl.id AS project_lift_id,
+    p.service_zone
+  FROM "Lifts" l
+  JOIN project_lifts pl ON pl.lift_id = l.id
+  JOIN projects p ON p.id = pl.project_id
+  WHERE l.qr_token = :qrToken
+    AND l.qr_enabled = TRUE
+  ORDER BY pl.id DESC
+  LIMIT 1
+  `,
+  { replacements: { qrToken } }
+);
 
     const lift = liftRows[0];
 
@@ -9987,8 +9998,12 @@ app.post("/api/public/breakdown-from-qr", async (req, res) => {
       return res.status(404).json({ error: "Invalid QR code" });
     }
 
-    const projectLiftId = Number(lift.id);
-const serviceZone = getServiceZoneFromLift(lift);
+    const projectLiftId = Number(lift.project_lift_id);
+const liftId = Number(lift.lift_id);
+
+const serviceZone = String(lift.service_zone || 'THIMPHU')
+  .trim()
+  .toUpperCase();
 const emergency = isPassengerTrapped(complaint);
 
 const shouldAutoAssign =
@@ -10056,12 +10071,14 @@ if (shouldAutoAssign) {
     ].filter(Boolean).join("\n");
 
     const job = await createBreakdownJobWithPair({
-      projectLiftId,
-      liftId: null,
-      priority: "HIGH",
-      notes: fullNotes,
-      pair,
-    });
+  projectLiftId,
+  liftId,
+  priority: "HIGH",
+  notes: fullNotes,
+  pair,
+  serviceZone,
+  dispatchStatus,
+});
 
     await job.update({
   reported_by_name: reportedByName || null,
