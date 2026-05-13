@@ -1410,6 +1410,7 @@ function computeProjectLiftWorkflow(projectLift, assignmentsInput = []) {
 async function buildTeamLoadRows() {
   const today = formatLocalDate(new Date());
 
+await refreshTechnicianAvailabilityFromLeave();
   const techs = await Technician.findAll({
     where: {
       isActive: true,
@@ -1504,7 +1505,8 @@ async function buildTeamLoadRows() {
 async function buildJobTeamMap(assignmentIds) {
   const ids = (assignmentIds || []).map(Number).filter(Boolean);
   if (!ids.length) return new Map();
-  const rows = await JobTechnician.findAll({
+  
+const rows = await JobTechnician.findAll({
     where: { assignmentId: { [Op.in]: ids } },
     include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role'] }],
     order: [['id', 'ASC']],
@@ -1767,6 +1769,7 @@ function collapseBestPairs(rows = []) {
 async function getActiveServiceTechnicians() {
   const today = new Date().toISOString().slice(0, 10);
 
+  await refreshTechnicianAvailabilityFromLeave();
   const rows = await Technician.findAll({
     where: {
       isActive: true,
@@ -7064,7 +7067,8 @@ app.put('/api/users/:id/permissions', authUser, requireRoles('ADMIN'), async (re
 // List technicians
 app.get('/api/technicians', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
-    const rows = await Technician.findAll({
+    await refreshTechnicianAvailabilityFromLeave();
+const rows = await Technician.findAll({
       where: { isActive: true },
       order: [['name', 'ASC']],
     });
@@ -7105,7 +7109,7 @@ app.post('/api/technicians', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVI
     }
 
     // 🔥 USE EXISTING ROLE TABLE
-    const role = await Role.findOne({
+const role = await Role.findOne({
       where: { name: 'TECHNICIAN' },
     });
 
@@ -7614,6 +7618,7 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
   try {
     const status = req.query.status ? String(req.query.status).toUpperCase() : null;
     const limit = Math.min(Math.max(Number(req.query.limit || 200), 1), 500);
+
 
     const teamRows = await JobTechnician.findAll({
       where: { technicianId: req.tech.id },
@@ -10935,34 +10940,23 @@ app.get('/api/jobs/:id/reassign-options', async (req, res) => {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    const techs = await Technician.findAll({
-      where: {
-        isActive: true,
-        availability_status: 'AVAILABLE',
-      },
-      order: [['name', 'ASC']],
-    });
+    await refreshTechnicianAvailabilityFromLeave();
 
-    const leaves = await TechnicianLeave.findAll({
-      where: {
-        status: 'APPROVED',
-        from_date: { [Op.lte]: today },
-        to_date: { [Op.gte]: today },
-      },
-      attributes: ['technician_id'],
-    });
+const techs = await Technician.findAll({
+  where: {
+    isActive: true,
+    availability_status: 'AVAILABLE',
+  },
+  order: [['name', 'ASC']],
+});
 
-    const leaveSet = new Set(leaves.map((l) => Number(l.technician_id)));
+const filteredTechs = techs;
 
-    const filteredTechs = techs.filter(
-      (t) => !leaveSet.has(Number(t.id))
-    );
-
-    const suggestions = filteredTechs
-      .filter((t) => technicianHasRequiredSkill(t, role))
-      .map((t) => {
-        const load =
-          loads.find((x) => Number(x.technicianId) === Number(t.id)) || {};
+    const suggestions = techs
+  .filter((t) => technicianHasRequiredSkill(t, role))
+  .map((t) => {
+    const load =
+      loads.find((x) => Number(x.technicianId) === Number(t.id)) || {};
 
         return {
           id: t.id,
@@ -12192,13 +12186,15 @@ app.post('/api/technicians/:id/leaves', authUser, requireRoles('ADMIN', 'MANAGER
     const today = formatLocalDate(new Date());
 
     if (from_date <= today && to_date >= today) {
-      await tech.update({ availability_status: 'ON_LEAVE' });
-    }
+  await tech.update({ availability_status: 'ON_LEAVE' });
+}
 
-    res.json({
-      success: true,
-      leave,
-    });
+await refreshTechnicianAvailabilityFromLeave();
+
+res.json({
+  success: true,
+  leave,
+});
   } catch (err) {
     console.error('POST /api/technicians/:id/leaves error:', err);
     res.status(500).json({ error: err.message || 'Failed to create technician leave' });
@@ -12235,21 +12231,68 @@ app.put('/api/technician-leaves/:id/cancel', authUser, requireRoles('ADMIN', 'MA
     });
 
     if (!activeLeave && technicianId) {
-      await Technician.update(
-        { availability_status: 'AVAILABLE' },
-        { where: { id: technicianId, availability_status: 'ON_LEAVE' } }
-      );
-    }
+  await Technician.update(
+    { availability_status: 'AVAILABLE' },
+    { where: { id: technicianId, availability_status: 'ON_LEAVE' } }
+  );
+}
 
-    res.json({
-      success: true,
-      leave,
-    });
+await refreshTechnicianAvailabilityFromLeave();
+
+res.json({
+  success: true,
+  leave,
+});
   } catch (err) {
     console.error('PUT /api/technician-leaves/:id/cancel error:', err);
     res.status(500).json({ error: err.message || 'Failed to cancel technician leave' });
   }
 });
+
+async function refreshTechnicianAvailabilityFromLeave() {
+  const today = formatLocalDate(new Date());
+
+  // Set technicians to ON_LEAVE if they have approved leave active today
+  await Technician.update(
+    { availability_status: 'ON_LEAVE' },
+    {
+      where: {
+        id: {
+          [Op.in]: sequelize.literal(`
+            (
+              SELECT technician_id
+              FROM technician_leaves
+              WHERE status = 'APPROVED'
+                AND from_date <= '${today}'
+                AND to_date >= '${today}'
+            )
+          `),
+        },
+      },
+    }
+  );
+
+  // Reset technicians to AVAILABLE if their leave has ended or was cancelled
+  await Technician.update(
+    { availability_status: 'AVAILABLE' },
+    {
+      where: {
+        availability_status: 'ON_LEAVE',
+        id: {
+          [Op.notIn]: sequelize.literal(`
+            (
+              SELECT technician_id
+              FROM technician_leaves
+              WHERE status = 'APPROVED'
+                AND from_date <= '${today}'
+                AND to_date >= '${today}'
+            )
+          `),
+        },
+      },
+    }
+  );
+}
 
 app.delete('/api/job-team/:id', async (req, res) => {
   try {
