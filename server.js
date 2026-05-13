@@ -822,7 +822,7 @@ function isWithinThimphuDispatchHours(now = new Date()) {
   const minutes = bhutan.hour * 60 + bhutan.minute;
 
   // Bhutan dispatch window: 09:00 to 17:00
-  return minutes >= 9 * 60 && minutes < 17 * 60;
+  return minutes >= 9 * 60 && minutes < 16 * 60;
 }
 
 function getNextDayResponseAt(now = new Date()) {
@@ -10013,10 +10013,21 @@ app.post("/api/public/breakdown-from-qr", async (req, res) => {
     l.qr_token,
     l.qr_enabled,
     pl.id AS project_lift_id,
-    p.service_zone
+    p.service_zone,
+    pl.warranty_end_date,
+    c.id AS contract_id,
+    c.contract_type,
+    c.status AS contract_status,
+    c.start_date AS contract_start_date,
+    c.end_date AS contract_end_date
   FROM "Lifts" l
   JOIN project_lifts pl ON pl.lift_id = l.id
   JOIN projects p ON p.id = pl.project_id
+  LEFT JOIN contracts c
+    ON c.project_lift_id = pl.id
+   AND c.contract_type = 'AMC'
+   AND c.status = 'ACTIVE'
+   AND CURRENT_DATE BETWEEN c.start_date AND c.end_date
   WHERE l.qr_token = :qrToken
     AND l.qr_enabled = TRUE
   ORDER BY pl.id DESC
@@ -10031,6 +10042,28 @@ app.post("/api/public/breakdown-from-qr", async (req, res) => {
       return res.status(404).json({ error: "Invalid QR code" });
     }
 
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+
+const warrantyEndDate = lift.warranty_end_date
+  ? new Date(lift.warranty_end_date)
+  : null;
+
+if (warrantyEndDate) {
+  warrantyEndDate.setHours(0, 0, 0, 0);
+}
+
+const underWarranty =
+  warrantyEndDate && warrantyEndDate >= today;
+
+const underActiveAmc = Boolean(lift.contract_id);
+
+if (!underWarranty && !underActiveAmc) {
+  return res.status(403).json({
+    error:
+      "The AMC coverage for this lift is currently not active. Please contact our office for breakdown support and service assistance.",
+  });
+}
     const projectLiftId = Number(lift.project_lift_id);
 const liftId = Number(lift.lift_id);
 
