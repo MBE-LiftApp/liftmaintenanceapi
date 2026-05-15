@@ -428,7 +428,7 @@ async function approve(id) {
   const r = await fetch(`/api/supervisor/assignments/${id}/approve`, {
     method: "PUT",
     headers: headers(),
-    body: JSON.stringify({ remarks }),
+    body: JSON.stringify({ remarks: "" }),
   });
 
   const j = await r.json().catch(() => ({}));
