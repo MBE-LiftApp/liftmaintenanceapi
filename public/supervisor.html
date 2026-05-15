@@ -509,7 +509,13 @@ async function loadBreakdowns() {
         </div>
         <div>
           ${j.escalated ? `<span class="badge escalated">ESCALATED</span>` : ""}
-          <span class="badge ${statusClass}">${status || "OPEN"}</span>
+
+${j.acknowledged
+  ? `<span class="badge approved">ACKNOWLEDGED</span>`
+  : `<span class="badge pending">PENDING ACK</span>`
+}
+
+<span class="badge ${statusClass}">${status || "OPEN"}</span>
         </div>
       </div>
 
