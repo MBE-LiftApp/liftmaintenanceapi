@@ -1315,7 +1315,7 @@ async getServiceReport(jobId) {
 async updateJobStatusOffice(id, status) {
   const r = await fetch(`/api/assignments/${id}/status`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: getOfficeAuthHeaders(),
     body: JSON.stringify({ status }),
   });
 
@@ -5808,7 +5808,7 @@ async function renderServiceJobs() {
     if (!r.ok) throw new Error(j?.error || "Approve failed");
 
     alert("Job approved successfully.");
-    await renderJobs();
+    await renderServiceJobs();
 
   } catch (e) {
     b1.disabled = false;
@@ -5847,7 +5847,7 @@ async function renderServiceJobs() {
     if (!r.ok) throw new Error(j?.error || "Reject failed");
 
     alert("Service job returned to In Progress with supervisor remarks.");
-    await renderJobs();
+    await renderServiceJobs();
 
   } catch (e) {
     b2.disabled = false;
@@ -8549,8 +8549,9 @@ async function renderServiceJobsTable(root) {
       b1.onclick = async () => {
         try {
           const r = await fetch(`/api/supervisor/assignments/${a.id}/approve`, {
-            method: "PUT"
-          });
+  method: "PUT",
+  headers: getOfficeAuthHeaders(),
+});
           const j = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(j?.error || "Approve failed");
           alert("Service job approved successfully.");
@@ -8569,10 +8570,10 @@ async function renderServiceJobsTable(root) {
           if (remarks === null) return;
 
           const r = await fetch(`/api/supervisor/assignments/${a.id}/reject`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ remarks })
-          });
+  method: "PUT",
+  headers: getOfficeAuthHeaders(),
+  body: JSON.stringify({ remarks })
+});
 
           const j = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(j?.error || "Reject failed");

@@ -7756,29 +7756,30 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
   const a = row.ProjectLiftAssignment;
   if (!a) continue;
 
-  const statusUpper = String(a.status || '').toUpperCase().trim();
+ const statusUpper = String(a.status || '').toUpperCase().trim();
 
-// 🔍 ADD THIS DEBUG BLOCK HERE
-  console.log('TECH ASSIGNMENT DEBUG:', {
-    id: a.id,
-    role: a.assignment_role,
-    rawStatus: a.status,
-    statusUpper,
-    requestedStatus: status,
-  });
+const normalizedStatus =
+  statusUpper === 'DONE' ? 'COMPLETED' : statusUpper;
 
-  const normalizedStatus =
-    statusUpper === 'DONE' ? 'COMPLETED' : statusUpper;
+const requestedStatus =
+  status === 'DONE' ? 'COMPLETED' : status;
 
-  const requestedStatus =
-    status === 'DONE' ? 'COMPLETED' : status;
+// 🔍 DEBUG BLOCK
+debugLog(DEBUG_BREAKDOWN, "TECH ASSIGNMENT DEBUG:", {
+  id: a.id,
+  role: a.assignment_role,
+  rawStatus: a.status,
+  statusUpper,
+});
 
-  if (requestedStatus && normalizedStatus !== requestedStatus) continue;
+if (requestedStatus && normalizedStatus !== requestedStatus) continue;
 
-  const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
+const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
 
-  const hasStarted = !!a.started_at;
-  const requiresStart = !hasStarted && !['IN_PROGRESS', 'DONE', 'COMPLETED'].includes(statusUpper);
+const hasStarted = !!a.started_at;
+const requiresStart =
+  !hasStarted &&
+  !['IN_PROGRESS', 'DONE', 'COMPLETED'].includes(statusUpper);
 
       let checklistSummary = {
         totalItems: 0,
@@ -9340,23 +9341,17 @@ const amcByProjectLiftId = new Map(
         });
 
         const assignments = rawAssignments.map((a) => {
-  console.log('MAP KEYS:', [...teamMap.keys()]);
-  console.log('CURRENT ASSIGNMENT ID:', a.id, typeof a.id);
-
+  
   const rawTeamRows = teamMap.get(Number(a.id)) || [];
-  console.log('RAW TEAM ROWS:', rawTeamRows);
-
+  
   const normalizedTeam = normalizeJobTeamRows(a, rawTeamRows);
-  console.log('NORMALIZED TEAM:', normalizedTeam);
-
+  
   const leadRow =
     normalizedTeam.find((m) => String(m.teamRole || '').toUpperCase() === 'LEAD') || null;
 
   const supportRows =
     normalizedTeam.filter((m) => String(m.teamRole || '').toUpperCase() === 'SUPPORT');
-
-  console.log('SUPPORT ROWS:', supportRows);
-
+  
   return {
     id: a.id,
     role: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
@@ -10751,13 +10746,17 @@ app.get('/api/tech/breakdown-jobs', authTech, async (req, res) => {
 };
     });
 
-console.log('TECH BREAKDOWN JOBS DEBUG:', out.map(j => ({
-  id: j.id,
-  status: j.status,
-  assignment_role: j.assignment_role,
-  liftCode: j.liftCode,
-  complaint: j.complaint,
-})));
+debugLog(
+  DEBUG_BREAKDOWN,
+  'TECH BREAKDOWN JOBS DEBUG:',
+  out.map(j => ({
+    id: j.id,
+    status: j.status,
+    assignment_role: j.assignment_role,
+    liftCode: j.liftCode,
+    complaint: j.complaint,
+  }))
+);
 
 res.json(out);
   } catch (err) {
@@ -11818,7 +11817,7 @@ app.post('/api/project-lifts/:projectLiftId/assign', async (req, res) => {
       }]
     );
 
-console.log('ASSIGN RESPONSE DEBUG', {
+debugLog(DEBUG_BREAKDOWN, 'ASSIGN RESPONSE DEBUG', {
   assignmentId: a.id,
   role: r,
   leaveWarning,
@@ -12770,7 +12769,11 @@ app.get('/api/jobs', async (req, res) => {
   }
 });
 
-app.put('/api/supervisor/assignments/:id/approve', async (req, res) => {
+app.put(
+  '/api/supervisor/assignments/:id/approve',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
   try {
     const id = Number(req.params.id);
     console.log('APPROVE HIT id =', id);
@@ -12809,31 +12812,413 @@ await a.reload();
   } catch (e) {
     console.error('APPROVE ERROR', e);
     res.status(500).json({ error: e.message });
+    }
   }
-});
+);
 
-app.put('/api/supervisor/assignments/:id/reject', async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const { remarks } = req.body || {};
+app.put(
+  '/api/supervisor/assignments/:id/reject',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const remarks = String(req.body?.remarks || req.body?.supervisorRemarks || '').trim();
 
-    const a = await ProjectLiftAssignment.findByPk(id);
-    if (!a) return res.status(404).json({ error: 'Not found' });
+      const a = await ProjectLiftAssignment.findByPk(id);
+      if (!a) return res.status(404).json({ error: 'Not found' });
 
-    await a.update({
-      supervisor_status: 'REJECTED',
-      supervisor_remarks: remarks || '',
-      supervisor_rejected_at: new Date(),
-      resubmission_required: true,
-      status: 'IN_PROGRESS',
-      supervisor_approved_at: null
-    });
+      await a.update({
+        supervisor_status: 'REJECTED',
+        supervisor_remarks: remarks,
+        supervisor_rejected_at: new Date(),
+        resubmission_required: true,
+        status: 'IN_PROGRESS',
+        supervisor_approved_at: null,
+      });
 
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+      if (remarks) {
+        await AssignmentChecklistNote.create({
+          assignmentId: a.id,
+          technicianId: null,
+          noteText: `Supervisor rejected: ${remarks}`,
+        });
+      }
+
+      res.json({ success: true });
+    } catch (e) {
+      console.error('REJECT ERROR', e);
+      res.status(500).json({ error: e.message });
+    }
   }
-});
+);
+
+app.get(
+  '/api/supervisor/assignments/pending',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const rows = await ProjectLiftAssignment.findAll({
+        where: {
+          status: 'DONE',
+          supervisor_status: 'PENDING',
+        },
+        include: [
+          { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
+          {
+            model: ProjectLift,
+            include: [
+              { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
+              { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            ],
+          },
+        ],
+        order: [['id', 'DESC']],
+      });
+
+      const teamMap = await buildJobTeamMap(rows.map((a) => a.id));
+
+      const out = [];
+
+      for (const a of rows) {
+        const summary = summarizeJobTeam(a, teamMap.get(Number(a.id)) || []);
+        const checklistSummary = await getChecklistSummary(a.id);
+
+        out.push({
+          id: a.id,
+          assignmentRole: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
+          status: a.status,
+          supervisorStatus: a.supervisor_status || 'PENDING',
+          dueDate: a.due_date,
+          assignedAt: a.assigned_at,
+          startedAt: a.started_at,
+          completedAt: a.completed_at,
+          notes: a.notes || '',
+          supervisorRemarks: a.supervisor_remarks || '',
+
+          project: a.ProjectLift?.Project
+            ? {
+                id: a.ProjectLift.Project.id,
+                name: a.ProjectLift.Project.project_name,
+                projectCode: a.ProjectLift.Project.project_code || '',
+              }
+            : null,
+
+          lift: {
+            id: a.ProjectLift?.lift_id || null,
+            liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
+            location: a.ProjectLift?.location_label || a.ProjectLift?.Lift?.location || '',
+          },
+
+          leadTechnician: summary.lead?.technician || a.Technician || null,
+          supportTechnicians: summary.supports.map((x) => x.technician).filter(Boolean),
+          checklistSummary,
+        });
+      }
+
+      res.json(out);
+    } catch (err) {
+      console.error('SUPERVISOR PENDING ERROR:', err);
+      res.status(500).json({ error: err.message || 'Failed to load pending supervisor approvals' });
+    }
+  }
+);
+
+app.get(
+  '/api/supervisor/assignments/:id/detail',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+
+      const a = await ProjectLiftAssignment.findByPk(id, {
+        include: [
+          { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
+          {
+            model: ProjectLift,
+            include: [
+              { model: Project, attributes: ['id', 'project_name', 'project_code', 'status'] },
+              { model: Lift, attributes: ['id', 'liftCode', 'location', 'status'] },
+            ],
+          },
+        ],
+      });
+
+      if (!a) return res.status(404).json({ error: 'Assignment not found' });
+
+      await ensureChecklistForAssignment(a);
+
+      const items = await AssignmentChecklistItem.findAll({
+        where: { assignmentId: id },
+        order: [['sortOrder', 'ASC'], ['id', 'ASC']],
+      });
+
+      const notes = await AssignmentChecklistNote.findAll({
+        where: { assignmentId: id },
+        include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role'] }],
+        order: [['id', 'DESC']],
+      });
+
+      const report = await AssignmentServiceReport.findOne({
+        where: { assignmentId: id },
+        include: [{ model: AssignmentServicePart }],
+      });
+
+      const teamMap = await buildJobTeamMap([id]);
+      const summary = summarizeJobTeam(a, teamMap.get(id) || []);
+      const checklistSummary = await getChecklistSummary(id);
+
+      res.json({
+        id: a.id,
+        role: isAmcServiceAssignment(a) ? 'AMC SERVICE' : a.assignment_role,
+        status: a.status,
+        supervisorStatus: a.supervisor_status || 'PENDING',
+        supervisorRemarks: a.supervisor_remarks || '',
+        dueDate: a.due_date,
+        assignedAt: a.assigned_at,
+        startedAt: a.started_at,
+        completedAt: a.completed_at,
+        notes: a.notes || '',
+
+        project: a.ProjectLift?.Project
+          ? {
+              id: a.ProjectLift.Project.id,
+              projectName: a.ProjectLift.Project.project_name,
+              projectCode: a.ProjectLift.Project.project_code || '',
+            }
+          : null,
+
+        lift: {
+          id: a.ProjectLift?.lift_id || null,
+          liftCode: a.ProjectLift?.lift_code || a.ProjectLift?.Lift?.liftCode || '',
+          location: a.ProjectLift?.location_label || a.ProjectLift?.Lift?.location || '',
+        },
+
+        team: summary.team,
+        leadTechnician: summary.lead?.technician || a.Technician || null,
+        supportTechnicians: summary.supports.map((x) => x.technician).filter(Boolean),
+
+        checklistSummary,
+        checklistItems: items,
+        checklistNotes: notes,
+        serviceReport: report || null,
+      });
+    } catch (err) {
+      console.error('SUPERVISOR DETAIL ERROR:', err);
+      res.status(500).json({ error: err.message || 'Failed to load supervisor detail' });
+    }
+  }
+);
+
+app.get(
+  '/api/supervisor/technicians/available',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      await refreshTechnicianAvailabilityFromLeave();
+
+      const rows = await Technician.findAll({
+        where: {
+          isActive: true,
+          availability_status: 'AVAILABLE',
+        },
+        attributes: ['id', 'name', 'phone', 'role', 'skills', 'availability_status'],
+        order: [['name', 'ASC']],
+      });
+
+      res.json(rows);
+    } catch (err) {
+      console.error('SUPERVISOR AVAILABLE TECH ERROR:', err);
+      res.status(500).json({ error: err.message || 'Failed to load available technicians' });
+    }
+  }
+);
+
+app.put(
+  '/api/supervisor/assignments/:id/reassign',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const leadTechnicianId = Number(req.body?.leadTechnicianId || 0);
+      const supportTechnicianId = Number(req.body?.supportTechnicianId || 0);
+
+      if (!leadTechnicianId || !supportTechnicianId) {
+        return res.status(400).json({ error: 'Lead and support technician are required' });
+      }
+
+      if (leadTechnicianId === supportTechnicianId) {
+        return res.status(400).json({ error: 'Lead and support cannot be the same technician' });
+      }
+
+      const a = await ProjectLiftAssignment.findByPk(id);
+      if (!a) return res.status(404).json({ error: 'Assignment not found' });
+
+      const status = String(a.status || '').toUpperCase();
+
+      if (status !== 'ASSIGNED') {
+        return res.status(400).json({
+          error: 'Reassignment is allowed only before the job has started.',
+        });
+      }
+
+      const techs = await Technician.findAll({
+        where: {
+          id: { [Op.in]: [leadTechnicianId, supportTechnicianId] },
+          isActive: true,
+          availability_status: 'AVAILABLE',
+        },
+      });
+
+      if (techs.length !== 2) {
+        return res.status(400).json({ error: 'Both technicians must be active and available' });
+      }
+
+      await a.update({
+        technician_id: leadTechnicianId,
+      });
+
+      await JobTechnician.destroy({ where: { assignmentId: id } });
+
+      await JobTechnician.bulkCreate([
+        {
+          assignmentId: id,
+          technicianId: leadTechnicianId,
+          teamRole: 'LEAD',
+          assignedAt: new Date(),
+        },
+        {
+          assignmentId: id,
+          technicianId: supportTechnicianId,
+          teamRole: 'SUPPORT',
+          assignedAt: new Date(),
+        },
+      ]);
+
+      await AssignmentChecklistNote.create({
+        assignmentId: id,
+        technicianId: null,
+        noteText: `Supervisor reassigned team. Lead technician ID: ${leadTechnicianId}, Support technician ID: ${supportTechnicianId}`,
+      });
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('SUPERVISOR REASSIGN ERROR:', err);
+      res.status(500).json({ error: err.message || 'Failed to reassign team' });
+    }
+  }
+);
+
+app.get(
+  '/api/supervisor/breakdowns',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const rows = await Job.findAll({
+        where: {
+          job_type: 'BREAKDOWN',
+          status: { [Op.in]: ['OPEN', 'ASSIGNED', 'IN_PROGRESS'] },
+        },
+        include: [
+          {
+            model: JobAssignment,
+            include: [{ model: Technician, attributes: ['id', 'name', 'phone', 'role'] }],
+          },
+          {
+            model: Lift,
+            attributes: ['id', 'liftCode', 'location', 'building'],
+          },
+        ],
+        order: [['id', 'DESC']],
+      });
+
+      const out = rows.map((job) => {
+        const assignments = job.JobAssignments || [];
+
+        const lead = assignments.find(
+          (x) => String(x.assignment_role || '').toUpperCase() === 'LEAD'
+        );
+
+        const support = assignments.find(
+          (x) => String(x.assignment_role || '').toUpperCase() === 'SUPPORT'
+        );
+
+        const escalated = assignments.some(
+          (x) => String(x.escalation_status || '').toUpperCase() === 'ESCALATED'
+        );
+
+        const acknowledged = assignments.some(
+          (x) => String(x.technician_response_status || '').toUpperCase() === 'ACKNOWLEDGED'
+        );
+
+        return {
+          id: job.id,
+          status: job.status,
+          complaint: job.complaint || job.title || '',
+          notes: job.notes || '',
+          serviceZone: job.service_zone || '',
+          dispatchStatus: job.dispatch_status || '',
+          expectedResponseAt: job.expected_response_at || null,
+          customerContactedAt: job.customer_contacted_at || null,
+          customerEtaNotes: job.customer_eta_notes || '',
+          reportedByName: job.reported_by_name || '',
+          reportedByPhone: job.reported_by_phone || '',
+          reportedVia: job.reported_via || '',
+          escalated,
+          acknowledged,
+
+          lift: job.Lift
+            ? {
+                id: job.Lift.id,
+                liftCode: job.Lift.liftCode,
+                location: job.Lift.location || job.Lift.building || '',
+              }
+            : null,
+
+          leadTechnician: lead?.Technician || null,
+          supportTechnician: support?.Technician || null,
+        };
+      });
+
+      res.json(out);
+    } catch (err) {
+      console.error('SUPERVISOR BREAKDOWNS ERROR:', err);
+      res.status(500).json({ error: err.message || 'Failed to load breakdowns' });
+    }
+  }
+);
+
+app.put(
+  '/api/supervisor/breakdowns/:id/customer-contact',
+  authUser,
+  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const notes = String(req.body?.notes || '').trim();
+
+      const job = await Job.findByPk(id);
+      if (!job || job.job_type !== 'BREAKDOWN') {
+        return res.status(404).json({ error: 'Breakdown job not found' });
+      }
+
+      await job.update({
+        customer_contacted_at: new Date(),
+        customer_eta_notes: notes,
+      });
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('SUPERVISOR CUSTOMER CONTACT ERROR:', err);
+      res.status(500).json({ error: err.message || 'Failed to update customer contact' });
+    }
+  }
+);
 
 // Alias: some UI versions call /api/assignments
 app.get('/api/assignments', async (req, res) => {

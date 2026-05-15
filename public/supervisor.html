@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Supervisor Mobile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f4f6f8;
+    color: #111827;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #0f172a;
+    color: white;
+    padding: 14px 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.15);
+  }
+
+  .topbar h2 {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  .topbar small {
+    color: #cbd5e1;
+  }
+
+  .page {
+    padding: 14px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  .login-card,
+  .card {
+    background: white;
+    border-radius: 16px;
+    padding: 14px;
+    margin: 12px 0;
+    box-shadow: 0 6px 18px rgba(15,23,42,.08);
+    border: 1px solid #e5e7eb;
+  }
+
+  input, select, textarea {
+    width: 100%;
+    padding: 11px;
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+    margin: 6px 0 12px;
+    font-size: 14px;
+  }
+
+  button {
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-weight: 700;
+    background: #e5e7eb;
+    color: #111827;
+    cursor: pointer;
+  }
+
+  button.primary {
+    background: #2563eb;
+    color: white;
+  }
+
+  button.danger {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  button.warn {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 12px 0;
+  }
+
+  .tabs button.active {
+    background: #0f172a;
+    color: white;
+  }
+
+  .card-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+
+  .card-title b {
+    font-size: 16px;
+  }
+
+  .muted {
+    color: #6b7280;
+    font-size: 13px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 8px;
+    margin: 5px 0;
+    font-size: 14px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .badge.pending { background:#fef3c7; color:#92400e; }
+  .badge.approved { background:#dcfce7; color:#166534; }
+  .badge.rejected { background:#fee2e2; color:#991b1b; }
+  .badge.escalated { background:#fee2e2; color:#991b1b; }
+  .badge.assigned { background:#dbeafe; color:#1e40af; }
+  .badge.progress { background:#ede9fe; color:#5b21b6; }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 16px;
+  }
+
+  .modal {
+    background: white;
+    width: 100%;
+    max-width: 440px;
+    max-height: 86vh;
+    overflow: auto;
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 20px 45px rgba(0,0,0,.25);
+  }
+
+  .modal h3 {
+    margin-top: 0;
+  }
+</style>
+
+</head>
+<body>
+  <div class="topbar">
+    <h2>Supervisor Mobile</h2>
+    <small>Field approval and breakdown control</small>
+  </div>
+
+  <div class="page">
+    <div id="loginBox" class="login-card">
+      <h3>Login</h3>
+      <input id="email" placeholder="Email" />
+      <input id="password" type="password" placeholder="Password" />
+      <button class="primary" onclick="login()">Login</button>
+    </div>
+
+    <div id="appBox" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <h3 id="screenTitle" style="margin:0;">Pending Approvals</h3>
+        <button onclick="logout()">Logout</button>
+      </div>
+
+      <div class="tabs">
+        <button id="tabApprovals" class="active" onclick="setTab('approvals')">Approvals</button>
+        <button id="tabBreakdowns" onclick="setTab('breakdowns')">Breakdowns</button>
+      </div>
+
+      <div id="list">Loading...</div>
+    </div>
+  </div>
+
+<script>
+const LS_USER_TOKEN = "liftapp.user.token";
+const LS_USER = "liftapp.user.profile";
+
+let token = localStorage.getItem(LS_USER_TOKEN) || sessionStorage.getItem(LS_USER_TOKEN);
+
+function headers() {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+async function login() {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+
+  const r = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const j = await r.json();
+  if (!r.ok) return alert(j.error || "Login failed");
+
+  token = j.token;
+  localStorage.setItem(LS_USER_TOKEN, j.token);
+  localStorage.setItem(LS_USER, JSON.stringify(j.user));
+
+  boot();
+}
+
+function logout() {
+  localStorage.removeItem(LS_USER_TOKEN);
+  localStorage.removeItem(LS_USER);
+  sessionStorage.removeItem(LS_USER_TOKEN);
+  sessionStorage.removeItem(LS_USER);
+  token = null;
+  boot();
+}
+
+async function loadPending() {
+  const box = document.getElementById("list");
+  box.innerHTML = "Loading...";
+
+  try {
+    const r = await fetch("/api/supervisor/assignments/pending", {
+      headers: headers(),
+    });
+
+    const rows = await r.json();
+    if (!r.ok) throw new Error(rows.error || "Failed to load");
+
+    if (!rows.length) {
+      box.innerHTML = "<p>No pending approvals.</p>";
+      return;
+    }
+
+    box.innerHTML = rows.map(a => {
+  const sup = String(a.supervisorStatus || "PENDING").toUpperCase();
+  const status = String(a.status || "").toUpperCase();
+
+  const supClass =
+    sup === "APPROVED" ? "approved" :
+    sup === "REJECTED" ? "rejected" :
+    "pending";
+
+  return `
+    <div class="card">
+      <div class="card-title">
+        <div>
+          <b>A-${a.id} · ${a.assignmentRole || "JOB"}</b>
+          <div class="muted">${a.project?.name || "No project"} · ${a.lift?.liftCode || "No lift"}</div>
+        </div>
+        <span class="badge ${supClass}">${sup}</span>
+      </div>
+
+      <div class="row"><div class="muted">Lead</div><div>${a.leadTechnician?.name || "—"}</div></div>
+      <div class="row"><div class="muted">Completed</div><div>${a.completedAt ? new Date(a.completedAt).toLocaleString() : "—"}</div></div>
+      <div class="row"><div class="muted">Status</div><div>${a.status || "—"}</div></div>
+
+      ${a.supervisorRemarks
+        ? `<div class="row"><div class="muted">Remarks</div><div>${a.supervisorRemarks}</div></div>`
+        : ""}
+
+      <div class="actions">
+        <button onclick="openDetail(${a.id})">View</button>
+
+        ${status === "ASSIGNED"
+          ? `<button class="warn" onclick="openReassign(${a.id})">Reassign</button>`
+          : ""}
+
+        <button class="primary" onclick="approve(${a.id})">Approve</button>
+        <button class="danger" onclick="rejectJob(${a.id})">Reject</button>
+      </div>
+    </div>
+  `;
+}).join("");
+
+  } catch (e) {
+    box.innerHTML = `<p style="color:red">${e.message}</p>`;
+  }
+}
+
+async function openDetail(id) {
+  const r = await fetch(`/api/supervisor/assignments/${id}/detail`, {
+    headers: headers(),
+  });
+
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(d.error || "Failed to load details");
+
+  alert(
+    `Job: A-${d.id}\n` +
+    `Type: ${d.role}\n` +
+    `Project: ${d.project?.projectName || "—"}\n` +
+    `Lift: ${d.lift?.liftCode || "—"}\n` +
+    `Checklist: ${d.checklistSummary?.doneRequired || 0}/${d.checklistSummary?.totalRequired || 0}\n` +
+    `Notes: ${d.checklistNotes?.map(n => n.noteText).join(" | ") || "—"}`
+  );
+}
+
+async function openReassign(id) {
+  const detailRes = await fetch(`/api/supervisor/assignments/${id}/detail`, {
+    headers: headers(),
+  });
+
+  const detail = await detailRes.json().catch(() => ({}));
+  if (!detailRes.ok) return alert(detail.error || "Failed to load job detail");
+
+  if (String(detail.status || "").toUpperCase() !== "ASSIGNED") {
+    return alert("Reassignment is allowed only before the job has started.");
+  }
+
+  const techRes = await fetch("/api/supervisor/technicians/available", {
+    headers: headers(),
+  });
+
+  const techs = await techRes.json().catch(() => []);
+  if (!techRes.ok) return alert(techs.error || "Failed to load technicians");
+
+  const options = techs
+    .map(t => `<option value="${t.id}">${t.name} - ${t.skills || t.role || ""}</option>`)
+    .join("");
+
+  const html = `
+    <div id="reassignModal" style="
+      position:fixed; inset:0; background:rgba(0,0,0,.45);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+      padding:16px;
+    ">
+      <div style="
+        background:white; width:100%; max-width:420px; border-radius:14px;
+        padding:16px; box-shadow:0 20px 40px rgba(0,0,0,.25);
+      ">
+        <h3 style="margin-top:0">Reassign Team</h3>
+
+        <div style="margin-bottom:10px">
+          <b>Job:</b> A-${detail.id}<br>
+          <b>Type:</b> ${detail.role || ""}<br>
+          <b>Lift:</b> ${detail.lift?.liftCode || "—"}
+        </div>
+
+        <label>Lead Technician</label>
+        <select id="newLeadTech" style="width:100%; padding:10px; margin:6px 0 12px">
+          <option value="">Select Lead</option>
+          ${options}
+        </select>
+
+        <label>Support Technician</label>
+        <select id="newSupportTech" style="width:100%; padding:10px; margin:6px 0 16px">
+          <option value="">Select Support</option>
+          ${options}
+        </select>
+
+        <div style="display:flex; gap:8px; justify-content:flex-end">
+          <button onclick="closeReassignModal()">Cancel</button>
+          <button onclick="submitReassign(${id})">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", html);
+}
+
+function closeReassignModal() {
+  document.getElementById("reassignModal")?.remove();
+}
+
+async function submitReassign(id) {
+  const leadTechnicianId = Number(document.getElementById("newLeadTech")?.value || 0);
+  const supportTechnicianId = Number(document.getElementById("newSupportTech")?.value || 0);
+
+  if (!leadTechnicianId || !supportTechnicianId) {
+    return alert("Please select both lead and support technician.");
+  }
+
+  if (leadTechnicianId === supportTechnicianId) {
+    return alert("Lead and support cannot be the same technician.");
+  }
+
+  const r = await fetch(`/api/supervisor/assignments/${id}/reassign`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify({ leadTechnicianId, supportTechnicianId }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.error || "Reassign failed");
+
+  closeReassignModal();
+  alert("Team reassigned successfully.");
+  loadPending();
+}
+
+async function approve(id) {
+  if (!confirm("Approve this job?")) return;
+
+  const r = await fetch(`/api/supervisor/assignments/${id}/approve`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify({ remarks }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.error || "Approval failed");
+
+  loadPending();
+}
+
+async function rejectJob(id) {
+  const remarks = prompt("Enter rejection remarks:");
+  if (!remarks) return;
+
+  const r = await fetch(`/api/supervisor/assignments/${id}/reject`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify({ supervisorRemarks: remarks }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.error || "Reject failed");
+
+  loadPending();
+}
+
+let activeTab = "approvals";
+
+function setTab(tab) {
+  activeTab = tab;
+
+  document.getElementById("tabApprovals")?.classList.toggle("active", tab === "approvals");
+  document.getElementById("tabBreakdowns")?.classList.toggle("active", tab === "breakdowns");
+
+  const title = document.getElementById("screenTitle");
+
+  if (tab === "approvals") {
+    title.textContent = "Pending Approvals";
+    loadPending();
+  }
+
+  if (tab === "breakdowns") {
+    title.textContent = "Breakdown Calls";
+    loadBreakdowns();
+  }
+}
+
+async function loadBreakdowns() {
+  const box = document.getElementById("list");
+  box.innerHTML = "Loading breakdowns...";
+
+  try {
+    const r = await fetch("/api/supervisor/breakdowns", {
+      headers: headers(),
+    });
+
+    const rows = await r.json();
+    if (!r.ok) throw new Error(rows.error || "Failed to load breakdowns");
+
+    if (!rows.length) {
+      box.innerHTML = "<p>No active breakdown calls.</p>";
+      return;
+    }
+
+    box.innerHTML = rows.map(j => {
+  const status = String(j.status || "").toUpperCase();
+  const canReassign = ["OPEN", "ASSIGNED"].includes(status);
+
+  const statusClass =
+    status === "IN_PROGRESS" ? "progress" :
+    status === "ASSIGNED" ? "assigned" :
+    "pending";
+
+  return `
+    <div class="card">
+      <div class="card-title">
+        <div>
+          <b>B-${j.id} · Breakdown</b>
+          <div class="muted">${j.lift?.liftCode || "No lift"} · ${j.complaint || "No complaint"}</div>
+        </div>
+        <div>
+          ${j.escalated ? `<span class="badge escalated">ESCALATED</span>` : ""}
+          <span class="badge ${statusClass}">${status || "OPEN"}</span>
+        </div>
+      </div>
+
+      <div class="row"><div class="muted">Lead</div><div>${j.leadTechnician?.name || "—"}</div></div>
+      <div class="row"><div class="muted">Support</div><div>${j.supportTechnician?.name || "—"}</div></div>
+      <div class="row"><div class="muted">Customer</div><div>${j.reportedByName || "—"} ${j.reportedByPhone ? `(${j.reportedByPhone})` : ""}</div></div>
+      <div class="row"><div class="muted">ETA Notes</div><div>${j.customerEtaNotes || "—"}</div></div>
+
+      <div class="actions">
+        ${canReassign
+          ? `<button class="warn" onclick="openBreakdownReassign(${j.id})">Reassign</button>`
+          : ""}
+
+        <button class="primary" onclick="openCustomerContact(${j.id})">Customer Contact</button>
+      </div>
+    </div>
+  `;
+}).join("");
+
+  } catch (e) {
+    box.innerHTML = `<p style="color:red">${e.message}</p>`;
+  }
+}
+async function openBreakdownReassign(id) {
+  const techRes = await fetch("/api/supervisor/technicians/available", {
+    headers: headers(),
+  });
+
+  const techs = await techRes.json().catch(() => []);
+  if (!techRes.ok) return alert(techs.error || "Failed to load technicians");
+
+  const options = techs
+    .map(t => `<option value="${t.id}">${t.name} - ${t.skills || t.role || ""}</option>`)
+    .join("");
+
+  const html = `
+    <div id="bdReassignModal" style="
+      position:fixed; inset:0; background:rgba(0,0,0,.45);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+      padding:16px;
+    ">
+      <div style="background:white; width:100%; max-width:420px; border-radius:14px; padding:16px;">
+        <h3 style="margin-top:0">Reassign Breakdown Team</h3>
+
+        <label>Lead Technician</label>
+        <select id="bdLeadTech" style="width:100%; padding:10px; margin:6px 0 12px">
+          <option value="">Select Lead</option>
+          ${options}
+        </select>
+
+        <label>Support Technician</label>
+        <select id="bdSupportTech" style="width:100%; padding:10px; margin:6px 0 16px">
+          <option value="">Select Support</option>
+          ${options}
+        </select>
+
+        <div style="display:flex; gap:8px; justify-content:flex-end">
+          <button onclick="closeBreakdownReassignModal()">Cancel</button>
+          <button onclick="submitBreakdownReassign(${id})">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", html);
+}
+
+function closeBreakdownReassignModal() {
+  document.getElementById("bdReassignModal")?.remove();
+}
+
+async function submitBreakdownReassign(id) {
+  const leadTechnicianId = Number(document.getElementById("bdLeadTech")?.value || 0);
+  const supportTechnicianId = Number(document.getElementById("bdSupportTech")?.value || 0);
+
+  if (!leadTechnicianId || !supportTechnicianId) {
+    return alert("Please select both lead and support technician.");
+  }
+
+  if (leadTechnicianId === supportTechnicianId) {
+    return alert("Lead and support cannot be the same technician.");
+  }
+
+  const r = await fetch(`/api/breakdown-calls/${id}/team`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify({ leadTechnicianId, supportTechnicianId }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.error || "Breakdown reassignment failed");
+
+  closeBreakdownReassignModal();
+  alert("Breakdown team reassigned.");
+  loadBreakdowns();
+}
+
+function openCustomerContact(id) {
+  const html = `
+    <div id="customerContactModal" style="
+      position:fixed; inset:0; background:rgba(0,0,0,.45);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+      padding:16px;
+    ">
+      <div style="background:white; width:100%; max-width:420px; border-radius:14px; padding:16px;">
+        <h3 style="margin-top:0">Customer Contact Notes</h3>
+
+        <textarea id="customerEtaNotes"
+          placeholder="Example: Customer informed. Technician expected within 30 minutes."
+          style="width:100%; min-height:110px; padding:10px;"></textarea>
+
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px">
+          <button onclick="closeCustomerContactModal()">Cancel</button>
+          <button onclick="submitCustomerContact(${id})">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", html);
+}
+
+function closeCustomerContactModal() {
+  document.getElementById("customerContactModal")?.remove();
+}
+
+async function submitCustomerContact(id) {
+  const notes = String(document.getElementById("customerEtaNotes")?.value || "").trim();
+
+  if (!notes) {
+    return alert("Please enter customer contact or ETA notes.");
+  }
+
+  const r = await fetch(`/api/supervisor/breakdowns/${id}/customer-contact`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify({ notes }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.error || "Failed to save customer contact notes");
+
+  closeCustomerContactModal();
+  alert("Customer contact updated.");
+  loadBreakdowns();
+}
+
+function boot() {
+  token = localStorage.getItem(LS_USER_TOKEN) || sessionStorage.getItem(LS_USER_TOKEN);
+
+  document.getElementById("loginBox").style.display = token ? "none" : "block";
+  document.getElementById("appBox").style.display = token ? "block" : "none";
+
+  if (token) loadPending();
+}
+
+boot();
+</script>
+</body>
+</html>
