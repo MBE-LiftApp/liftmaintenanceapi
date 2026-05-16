@@ -783,7 +783,11 @@ function showModalShell(title, bodyNode) {
 
 function showServiceHistoryModal(lift) {
   const service = lift?.service || {};
-  const history = Array.isArray(service.history) ? service.history : [];
+  const history = Array.isArray(service.allHistory)
+  ? service.allHistory
+  : Array.isArray(service.history)
+  ? service.history
+  : [];
   const dueStatus = service?.dueStatus || 'NO HISTORY';
 
   const wrap = document.createElement('div');
@@ -842,7 +846,18 @@ function showServiceHistoryModal(lift) {
         <td>${escapeHtml(fmtDate(row.date))}</td>
         <td>${escapeHtml(row.role || '—')}</td>
         <td><span class="badge ok">${escapeHtml(statusText)}</span></td>
-        <td>${escapeHtml(row.remarks || '—')}</td>
+        <td>
+  ${escapeHtml(row.remarks || row.complaint || '—')}
+  ${
+    Array.isArray(row.parts) && row.parts.length
+      ? `<div class="muted" style="margin-top:4px;">
+          Parts: ${row.parts
+            .map(p => `${escapeHtml(p.name || '')} × ${escapeHtml(String(p.qty || 1))}`)
+            .join(', ')}
+        </div>`
+      : ''
+  }
+</td>
       `;
       tb.appendChild(tr);
     });

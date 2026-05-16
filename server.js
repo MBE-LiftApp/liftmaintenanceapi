@@ -476,7 +476,7 @@ function addMonthsSafe(dateValue, months) {
   return Number.isNaN(out.getTime()) ? null : out;
 }
 
-async function buildServiceHistoryForLift(pl, rawAssignments, { today, warrantyInfo, amcInfo }) {
+async function buildServiceHistoryForLift(pl, rawAssignments, rawBreakdownJobs = [], { today, warrantyInfo, amcInfo }) {
   const allHistory = [];
 
   for (const a of rawAssignments || []) {
@@ -498,6 +498,41 @@ async function buildServiceHistoryForLift(pl, rawAssignments, { today, warrantyI
       assignmentId: a.id,
     });
   }
+
+for (const job of rawBreakdownJobs || []) {
+  const status = String(job.status || '').toUpperCase();
+
+  if (!['DONE', 'COMPLETED', 'CLOSED', 'RESOLVED'].includes(status)) continue;
+
+  const serviceDate =
+    job.completed_at ||
+    job.resolved_at ||
+    job.closed_at ||
+    job.updated_at ||
+    job.created_at ||
+    null;
+
+  if (!serviceDate) continue;
+
+  allHistory.push({
+    date: serviceDate,
+    displayDate: formatBhutanDate(serviceDate),
+
+    role: 'BREAKDOWN',
+    status,
+
+    complaint: job.complaint || '',
+    remarks: job.notes || job.description || '',
+
+    jobId: job.id,
+
+    parts: (job.parts || job.BreakdownJobParts || []).map(p => ({
+      name: p.item_name || '',
+      qty: p.qty || 1,
+      remarks: p.remarks || '',
+    })),
+  });
+}
 
   // Sort all history (latest first)
   allHistory.sort((a, b) => {
@@ -9334,11 +9369,31 @@ const amcByProjectLiftId = new Map(
   }
 );
 
-        const serviceHistory = await buildServiceHistoryForLift(pl, rawAssignments, {
-          today,
-          warrantyInfo,
-          amcInfo,
-        });
+        const rawBreakdownJobs = await Job.findAll({
+  where: {
+    project_lift_id: pl.id,
+    job_type: 'BREAKDOWN',
+  },
+  include: [
+    {
+      model: BreakdownJobPart,
+      as: 'parts',
+      required: false,
+    },
+  ],
+  order: [['created_at', 'DESC']],
+});
+
+const serviceHistory = await buildServiceHistoryForLift(
+  pl,
+  rawAssignments,
+  rawBreakdownJobs,
+  {
+    today,
+    warrantyInfo,
+    amcInfo,
+  }
+);
 
         const assignments = rawAssignments.map((a) => {
   
@@ -9426,11 +9481,14 @@ const amcByProjectLiftId = new Map(
             (a) => String(a.status || '').toUpperCase() === 'DONE'
           ).length,
           service: {
-            history: serviceHistory.history,
-            lastServiceDate: serviceHistory.lastServiceDate,
-            nextDue: serviceHistory.nextDue,
-            dueStatus: serviceHistory.dueStatus,
-          },
+  history: serviceHistory.history,
+  allHistory: serviceHistory.allHistory,
+  warrantyHistory: serviceHistory.warrantyHistory,
+  amcHistory: serviceHistory.amcHistory,
+  lastServiceDate: serviceHistory.lastServiceDate,
+  nextDue: serviceHistory.nextDue,
+  dueStatus: serviceHistory.dueStatus,
+},
           amc: amcInfo,
           canCreateAmc,
           assignments,
