@@ -996,6 +996,18 @@ function isServiceJobBlockingNewCreation(a) {
   return false;
 }
 
+function requireSupervisorAccess(req, res, next) {
+  const role = String(req.user?.role || req.user?.Role || "").toUpperCase();
+
+  if (role === "SUPERVISOR" || role === "ADMIN") {
+    return next();
+  }
+
+  return res.status(403).json({
+    error: "Supervisor access only",
+  });
+}
+
 function computeAmcStatus(amcStartDate, amcEndDate, today) {
   const start = parseDateOnly(amcStartDate);
   const end = parseDateOnly(amcEndDate);
@@ -8212,35 +8224,6 @@ app.get('/api/tech/assignments/:id/service-report', authTech, async (req, res) =
 });
 
 app.get(
-  '/api/tech/assignments/:id/service-report',
-  authTech,
-  async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-
-      const report = await AssignmentServiceReport.findOne({
-        where: { assignmentId: id },
-      });
-
-      const parts = report
-        ? await AssignmentServicePart.findAll({
-            where: { reportId: report.id },
-            order: [['id', 'ASC']],
-          })
-        : [];
-
-      res.json({
-        report: report || null,
-        parts,
-      });
-    } catch (err) {
-      console.error('GET /api/tech/assignments/:id/service-report failed', err);
-      res.status(500).json({ error: err.message || 'Failed to load service report' });
-    }
-  }
-);
-
-app.get(
   '/api/assignments/:id/service-report',
   authUser,
   requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
@@ -12830,46 +12813,35 @@ app.get('/api/jobs', async (req, res) => {
 app.put(
   '/api/supervisor/assignments/:id/approve',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    console.log('APPROVE HIT id =', id);
+    try {
+      const id = Number(req.params.id);
 
-    const a = await ProjectLiftAssignment.findByPk(id);
-    if (!a) {
-      console.log('APPROVE NOT FOUND id =', id);
-      return res.status(404).json({ error: 'Not found' });
-    }
+      const a = await ProjectLiftAssignment.findByPk(id);
 
-    console.log('BEFORE APPROVE', {
-      id: a.id,
-      status: a.status,
-      supervisor_status: a.supervisor_status,
-      supervisor_approved_at: a.supervisor_approved_at
-    });
+      if (!a) {
+        return res.status(404).json({ error: 'Not found' });
+      }
 
-    await a.update({
-  supervisor_status: 'APPROVED',
-  supervisor_approved_at: new Date()
-});
+      await a.update({
+        supervisor_status: 'APPROVED',
+        supervisor_approved_at: new Date()
+      });
 
-// 🔥 ADD THIS LINE
-await handleServiceCompletion(a);
+      await handleServiceCompletion(a);
 
-await a.reload();
+      await a.reload();
 
-    console.log('AFTER APPROVE', {
-      id: a.id,
-      status: a.status,
-      supervisor_status: a.supervisor_status,
-      supervisor_approved_at: a.supervisor_approved_at
-    });
+      res.json({
+        success: true,
+        id: a.id,
+        supervisorStatus: a.supervisor_status
+      });
 
-    res.json({ success: true, id: a.id, supervisorStatus: a.supervisor_status });
-  } catch (e) {
-    console.error('APPROVE ERROR', e);
-    res.status(500).json({ error: e.message });
+    } catch (e) {
+      console.error('APPROVE ERROR', e);
+      res.status(500).json({ error: e.message });
     }
   }
 );
@@ -12877,7 +12849,7 @@ await a.reload();
 app.put(
   '/api/supervisor/assignments/:id/reject',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -12914,7 +12886,7 @@ app.put(
 app.get(
   '/api/supervisor/assignments/pending',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
     try {
       const rows = await ProjectLiftAssignment.findAll({
@@ -12986,7 +12958,7 @@ app.get(
 app.get(
   '/api/supervisor/assignments/:id/detail',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -13073,7 +13045,7 @@ app.get(
 app.get(
   '/api/supervisor/technicians/available',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
     try {
       await refreshTechnicianAvailabilityFromLeave();
@@ -13098,7 +13070,7 @@ app.get(
 app.put(
   '/api/supervisor/assignments/:id/reassign',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -13174,7 +13146,7 @@ app.put(
 app.get(
   '/api/supervisor/breakdowns',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
     try {
       const rows = await Job.findAll({
@@ -13254,7 +13226,7 @@ app.get(
 app.put(
   '/api/supervisor/breakdowns/:id/customer-contact',
   authUser,
-  requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'),
+  requireSupervisorAccess,
   async (req, res) => {
     try {
       const id = Number(req.params.id);

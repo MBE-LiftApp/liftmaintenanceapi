@@ -232,11 +232,18 @@ async function login() {
   const j = await r.json();
   if (!r.ok) return alert(j.error || "Login failed");
 
-  token = j.token;
-  localStorage.setItem(LS_USER_TOKEN, j.token);
-  localStorage.setItem(LS_USER, JSON.stringify(j.user));
+  const role = String(j.user?.role || "").toUpperCase();
 
-  boot();
+if (!["SUPERVISOR", "ADMIN"].includes(role)) {
+  alert("Supervisor access only. Please login with a Supervisor account.");
+  return;
+}
+
+token = j.token;
+localStorage.setItem(LS_USER_TOKEN, j.token);
+localStorage.setItem(LS_USER, JSON.stringify(j.user));
+
+boot();
 }
 
 function logout() {
