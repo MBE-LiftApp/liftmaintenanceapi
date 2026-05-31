@@ -1762,6 +1762,13 @@ getJobs: async (view = "open") => {
   return r.json();
 },
 
+getServiceJobs: async (view = "open") => {
+  const r = await fetch(
+    `/api/service/jobs?view=${encodeURIComponent(view)}`
+  );
+  return r.json();
+},
+
   async addJobTeamMember(jobId, payload) {
   const r = await fetch(`/api/jobs/${jobId}/team`, {
     method: "POST",
@@ -2047,6 +2054,12 @@ function showEditTechnicianModal(tech) {
     .map((x) => x.trim().toUpperCase())
     .filter(Boolean);
 
+const currentTeamCode = String(tech.team_code || "").trim().toUpperCase();
+const currentTeamRole = String(tech.team_role || "").trim().toUpperCase();
+const currentAvailability = String(
+  tech.availability_status || "AVAILABLE"
+).trim().toUpperCase();
+
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="formGrid">
@@ -2074,6 +2087,42 @@ function showEditTechnicianModal(tech) {
         </select>
       </div>
 
+<div class="field">
+  <label>Team Code</label>
+  <input id="editTechTeamCode" value="${currentTeamCode}" placeholder="TEAM_A" />
+</div>
+
+<div class="field">
+  <label>Team Role</label>
+  <select id="editTechTeamRole">
+    <option value="" ${!currentTeamRole ? "selected" : ""}>None</option>
+    <option value="LEAD" ${currentTeamRole === "LEAD" ? "selected" : ""}>Lead</option>
+    <option value="SUPPORT" ${currentTeamRole === "SUPPORT" ? "selected" : ""}>Support</option>
+  </select>
+</div>
+
+<div class="field">
+  <label>Availability</label>
+  <select id="editTechAvailabilityStatus">
+    <option value="AVAILABLE" ${currentAvailability === "AVAILABLE" ? "selected" : ""}>Available</option>
+    <option value="OFF_DUTY" ${currentAvailability === "OFF_DUTY" ? "selected" : ""}>Off Duty</option>
+    <option value="ON_LEAVE" ${currentAvailability === "ON_LEAVE" ? "selected" : ""}>On Leave</option>
+    <option value="SUSPENDED" ${currentAvailability === "SUSPENDED" ? "selected" : ""}>Suspended</option>
+  </select>
+</div>
+
+<div class="field">
+  <label>Auto Assignment</label>
+  <label style="display:flex;gap:8px;align-items:center;font-weight:500;">
+    <input
+      id="editTechAutoAssignEnabled"
+      type="checkbox"
+      ${(tech.auto_assign_enabled ?? tech.autoAssignEnabled) === false ? "" : "checked"}
+    />
+    Eligible for auto-assignment
+  </label>
+</div>
+
       <div class="field" style="grid-column:1/-1">
         <div class="muted" style="font-size:12px">
           Hold Ctrl (or Cmd on Mac) to select multiple skills.
@@ -2097,19 +2146,41 @@ function showEditTechnicianModal(tech) {
       const phone = body.querySelector("#editTechPhone").value.trim();
       const email = body.querySelector("#editTechEmail").value.trim();
       const skills = Array.from(body.querySelector("#editTechSkills").selectedOptions)
+
         .map((o) => o.value)
         .join(",");
+
+const team_code = body
+  .querySelector("#editTechTeamCode")
+  .value.trim()
+  .toUpperCase();
+
+const team_role =
+  body.querySelector("#editTechTeamRole").value;
+
+const availability_status =
+  body.querySelector("#editTechAvailabilityStatus").value ||
+  "AVAILABLE";
+
+const autoAssignEnabled =
+  body.querySelector("#editTechAutoAssignEnabled")?.checked !== false;
+
       const pin = body.querySelector("#editTechPin").value.trim();
 
       if (!name) throw new Error("Technician name is required");
       if (!skills) throw new Error("At least one skill is required");
 
       await API.updateTechnician(tech.id, {
-        name,
-        phone,
-        email,
-        skills,
-      });
+  name,
+  phone,
+  email,
+  skills,
+  team_code: team_code || null,
+  team_role: team_role || null,
+  availability_status,
+  autoAssignEnabled,
+  auto_assign_enabled: autoAssignEnabled,
+});
 
       if (pin) {
         if (!/^[0-9]{4,8}$/.test(pin)) {
@@ -5616,7 +5687,7 @@ async function renderServiceJobs() {
   try {
     const view = serviceJobsView;
 
-    const data = await API.getJobs(view);
+    const data = await API.getServiceJobs(view);
     const allRows = Array.isArray(data?.rows) ? data.rows : [];
     const rows = allRows.filter((a) => isServiceJobRole(a.role));
 
@@ -6453,8 +6524,11 @@ async function renderTechnicians() {
             <th>Phone</th>
             <th>Email</th>
             <th>Skills</th>
-            <th>Availability</th>
-            <th style="width:160px;">Actions</th>
+<th>Team</th>
+<th>Team Role</th>
+<th>Availability</th>
+<th>Auto Assign</th>
+<th style="width:160px;">Actions</th>
           </tr>
         </thead>
         <tbody id="tBody"></tbody>
@@ -6468,7 +6542,7 @@ async function renderTechnicians() {
     if (!rows || rows.length === 0) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td colspan="6" class="muted" style="text-align:center;padding:20px;">
+        <td colspan="9" class="muted" style="text-align:center;padding:20px;">
           No technicians found.
         </td>
       `;
@@ -6487,13 +6561,24 @@ async function renderTechnicians() {
 
       const availability = String(t.availability_status || "AVAILABLE").toUpperCase();
 
+const teamCode = String(t.team_code || "").trim().toUpperCase();
+const teamRole = String(t.team_role || "").trim().toUpperCase();
+
       tr.innerHTML = `
         <td>${escapeHtml(t.name || "")}</td>
         <td>${escapeHtml(t.phone || "")}</td>
         <td>${escapeHtml(t.email || "—")}</td>
         <td>${escapeHtml(skills || "—")}</td>
-        <td>${escapeHtml(availability)}</td>
-        <td>
+<td>${escapeHtml(teamCode || "—")}</td>
+<td>${escapeHtml(teamRole || "—")}</td>
+<td>${escapeHtml(availability)}</td>
+<td>
+  ${t.autoAssignEnabled === false
+    ? '<span class="badge">Manual Only</span>'
+    : '<span class="badge success">Auto</span>'
+  }
+</td>
+<td>
           <div style="display:flex;gap:6px;flex-direction:column;">
             <button class="btn secondary btnEditTech">Edit</button>
             <button class="btn secondary btnLeaveTech">Leave</button>
@@ -7831,6 +7916,37 @@ function showCreateTechnicianModal() {
   </select>
 </div>
 
+<div class="field">
+  <label>Team Code</label>
+  <input id="techTeamCode" placeholder="TEAM_A" />
+</div>
+
+<div class="field">
+  <label>Team Role</label>
+  <select id="techTeamRole">
+    <option value="">None</option>
+    <option value="LEAD">Lead</option>
+    <option value="SUPPORT">Support</option>
+  </select>
+</div>
+
+<div class="field">
+  <label>Availability</label>
+  <select id="techAvailabilityStatus">
+    <option value="AVAILABLE">Available</option>
+    <option value="OFF_DUTY">Off Duty</option>
+    <option value="ON_LEAVE">On Leave</option>
+    <option value="SUSPENDED">Suspended</option>
+  </select>
+</div>
+
+<div class="field">
+  <label>Auto Assignment</label>
+  <label style="display:flex;gap:8px;align-items:center;font-weight:500;">
+    <input id="techAutoAssignEnabled" type="checkbox" checked />
+    Eligible for auto-assignment
+  </label>
+</div>
       <div class="field">
         <label>PIN</label>
         <input id="techPin" placeholder="4 to 8 digits" />
@@ -7870,14 +7986,28 @@ function showCreateTechnicianModal() {
       if (!/^[0-9]{4,8}$/.test(pin)) {
         return alert("PIN must be 4 to 8 digits.");
       }
+const team_code = body.querySelector("#techTeamCode").value.trim().toUpperCase();
+const team_role = body.querySelector("#techTeamRole").value;
+const availability_status = body.querySelector("#techAvailabilityStatus").value || "AVAILABLE";
+
+if (team_code && !team_role) {
+  return alert("Please select Team Role when Team Code is entered.");
+}
+
+const autoAssignEnabled =
+  body.querySelector("#techAutoAssignEnabled")?.checked !== false;
 
       await API.createTechnician({
-        name,
-        phone,
-        email,
-        skills,
-        pin,
-      });
+  name,
+  phone,
+  email,
+  skills,
+  pin,
+  team_code: team_code || null,
+  team_role: team_role || null,
+  availability_status,
+  autoAssignEnabled,
+});
 
       closeModal();
       alert("Technician created successfully");
@@ -8140,7 +8270,7 @@ setToolbar([btnCreateAllDue]);
     const amcExpired = rows.filter(l => l.amcStatus === "AMC EXPIRED");
 
     const warrantyDue = rows.filter(l =>
-  ["WARRANTY ACTIVE", "WARRANTY EXPIRED"].includes(l.warrantyStatus) &&
+  l.warrantyStatus === "WARRANTY ACTIVE" &&
   !l.warrantyActiveServiceAssignment &&
   l.warrantyIsDueNow
 );
@@ -8384,7 +8514,7 @@ root.querySelectorAll("[data-action='create-amc']").forEach((btn) => {
 async function renderServiceJobsTable(root) {
   const view = serviceJobsView;
 
-  const data = await API.getJobs(view);
+  const data = await API.getServiceJobs(view)
   const allRows = Array.isArray(data?.rows) ? data.rows : [];
   const rows = allRows.filter((a) => isServiceJobRole(a.role));
 

@@ -17,10 +17,27 @@ module.exports = (sequelize, DataTypes) => {
         field: 'role_id',
       },
 
+team_code: {
+  type: DataTypes.STRING,
+  allowNull: true,
+},
+
+team_role: {
+  type: DataTypes.STRING,
+  allowNull: true,
+},
+
 availability_status: {
   type: DataTypes.ENUM("AVAILABLE", "OFF_DUTY", "ON_LEAVE", "SUSPENDED"),
   allowNull: false,
   defaultValue: "AVAILABLE",
+},
+
+autoAssignEnabled: {
+  type: DataTypes.BOOLEAN,
+  allowNull: false,
+  defaultValue: true,
+  field: 'auto_assign_enabled',
 },
       skills: { type: DataTypes.TEXT, allowNull: true },
 

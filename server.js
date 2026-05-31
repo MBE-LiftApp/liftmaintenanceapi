@@ -1,8 +1,16 @@
 require('dotenv').config();
 
-const DEBUG_ESCALATION = String(process.env.DEBUG_ESCALATION || '').toLowerCase() === 'true';
-const DEBUG_BREAKDOWN = String(process.env.DEBUG_BREAKDOWN || '').toLowerCase() === 'true';
-const DEBUG_AUTH = String(process.env.DEBUG_AUTH || '').toLowerCase() === 'true';
+const DEBUG_SERVICE =
+  String(process.env.DEBUG_SERVICE || '').toLowerCase() === 'true';
+
+const DEBUG_ESCALATION =
+  String(process.env.DEBUG_ESCALATION || '').toLowerCase() === 'true';
+
+const DEBUG_BREAKDOWN =
+  String(process.env.DEBUG_BREAKDOWN || '').toLowerCase() === 'true';
+
+const DEBUG_AUTH =
+  String(process.env.DEBUG_AUTH || '').toLowerCase() === 'true';
 
 function debugLog(flag, ...args) {
   if (flag) console.log(...args);
@@ -700,15 +708,16 @@ async function getDueAmcProjectLifts() {
     !l.amcActiveServiceAssignment
   );
 
-  console.log(
-    'DUE AMC PROJECT LIFTS FINAL',
-    result.map((x) => ({
-      lift: x.liftCode,
-      amcStatus: x.amcStatus,
-      amcIsDueNow: x.amcIsDueNow,
-      activeStatus: x.amcActiveServiceAssignment?.status || null,
-    }))
-  );
+  debugLog(
+  DEBUG_SERVICE,
+  'DUE AMC PROJECT LIFTS FINAL',
+  result.map((x) => ({
+    lift: x.liftCode,
+    amcStatus: x.amcStatus,
+    amcIsDueNow: x.amcIsDueNow,
+    activeStatus: x.amcActiveServiceAssignment?.status || null,
+  }))
+);
 
   return result;
 }
@@ -717,18 +726,18 @@ async function getDueWarrantyProjectLifts() {
   const data = await buildServiceDashboardData();
   const rows = data.rows || [];
 
-  console.log("==== WARRANTY DEBUG ====");
+debugLog(DEBUG_SERVICE, '==== WARRANTY DEBUG ====');
 
-  rows.forEach((l) => {
-    console.log({
-      lift: l.liftCode,
-      status: l.warrantyStatus,
-      isDueNow: l.warrantyIsDueNow,
-      nextDue: l.warrantyNextServiceDue,
-      createFrom: l.warrantyCreateJobFromDate,
-      active: l.warrantyActiveServiceAssignment,
-    });
+rows.forEach((l) => {
+  debugLog(DEBUG_SERVICE, {
+    lift: l.liftCode,
+    status: l.warrantyStatus,
+    isDueNow: l.warrantyIsDueNow,
+    nextDue: l.warrantyNextServiceDue,
+    createFrom: l.warrantyCreateJobFromDate,
+    active: l.warrantyActiveServiceAssignment,
   });
+});
 
   return rows.filter((l) =>
     l.warrantyStatus === "WARRANTY ACTIVE" &&
@@ -1208,7 +1217,7 @@ function getNextVisitState(visitDates = [], completedCount = 0, today = startOfD
 function buildWarrantyInfo(projectLift, assignments = [], today = startOfDay(new Date())) {
   const startDate = projectLift?.handover_actual_date || projectLift?.warranty_start_date || null;
   const endDate = projectLift?.warranty_end_date || null;
-  const visitCount = getWarrantyServiceVisitCount(projectLift, 5);
+  const visitCount = getWarrantyServiceVisitCount(projectLift, 4);
 
   if (!startDate || !endDate) {
     return {
@@ -1792,6 +1801,7 @@ async function getExistingTechnicianPairs() {
               'skills',
               'isActive',
               'availability_status',
+	      'autoAssignEnabled',
             ],
           },
         ],
@@ -1812,7 +1822,11 @@ async function getExistingTechnicianPairs() {
               m.Technician.availability_status || 'AVAILABLE'
             ).toUpperCase();
 
-            return m.Technician.isActive !== false && status === 'AVAILABLE';
+            return (
+  m.Technician.isActive !== false &&
+  m.Technician.autoAssignEnabled !== false &&
+  status === 'AVAILABLE'
+);
           })
           .map((m) => ({
             technicianId: Number(m.technicianId),
@@ -1886,9 +1900,10 @@ async function getActiveServiceTechnicians() {
   await refreshTechnicianAvailabilityFromLeave();
   const rows = await Technician.findAll({
     where: {
-      isActive: true,
-      availability_status: 'AVAILABLE',
-    },
+  isActive: true,
+  availability_status: 'AVAILABLE',
+  autoAssignEnabled: true,
+},
     order: [['name', 'ASC']],
   });
 
@@ -1981,7 +1996,6 @@ async function pickBestServicePair(targetDueDate = null) {
   const existingPairs = collapseBestPairs(existingPairsRaw);
 
   const serviceTechs = await getActiveServiceTechnicians();
-  const fallbackPairs = buildFallbackPairs(serviceTechs);
 
   const leaveRows = await TechnicianLeave.findAll({
     where: {
@@ -1994,14 +2008,67 @@ async function pickBestServicePair(targetDueDate = null) {
 
   const leaveSet = new Set(leaveRows.map((l) => Number(l.technician_id)));
 
+  const teamEnabledTechs = serviceTechs.filter((t) => {
+    return (
+      t.autoAssignEnabled !== false &&
+      String(t.availability_status || 'AVAILABLE').toUpperCase() === 'AVAILABLE' &&
+      !leaveSet.has(Number(t.id))
+    );
+  });
+
+  const teams = new Map();
+
+  for (const tech of teamEnabledTechs) {
+    const teamCode = String(tech.team_code || '').trim().toUpperCase();
+    const teamRole = String(tech.team_role || '').trim().toUpperCase();
+
+    if (!teamCode || !teamRole) continue;
+
+    if (!teams.has(teamCode)) {
+      teams.set(teamCode, {
+        lead: null,
+        support: null,
+      });
+    }
+
+    const team = teams.get(teamCode);
+
+    if (teamRole === 'LEAD') {
+      team.lead = tech;
+    }
+
+    if (teamRole === 'SUPPORT') {
+      team.support = tech;
+    }
+  }
+
+  const teamPairs = [];
+
+  for (const [teamCode, team] of teams.entries()) {
+    if (!team.lead || !team.support) continue;
+
+    const leadId = Number(team.lead.id);
+    const supportId = Number(team.support.id);
+
+    if (!leadId || !supportId) continue;
+    if (leadId === supportId) continue;
+
+    teamPairs.push({
+      pairKey: `TEAM_${teamCode}`,
+      leadTechnicianId: leadId,
+      supportTechnicianId: supportId,
+      leadTechnician: team.lead,
+      supportTechnician: team.support,
+      teamBased: true,
+    });
+  }
+
+  const fallbackPairs = buildFallbackPairs(serviceTechs);
+
   const allByKey = new Map();
 
-  for (const p of existingPairs) {
-    const leadId = Number(p.leadTechnicianId || 0);
-    const supportId = Number(p.supportTechnicianId || 0);
-
-    if (leaveSet.has(leadId) || leaveSet.has(supportId)) continue;
-
+  // 1. Prefer explicitly defined teams
+  for (const p of teamPairs) {
     if (
       technicianCanDoService(p.leadTechnician) &&
       technicianCanDoService(p.supportTechnician)
@@ -2010,14 +2077,31 @@ async function pickBestServicePair(targetDueDate = null) {
     }
   }
 
-  for (const p of fallbackPairs) {
-    const leadId = Number(p.leadTechnicianId || 0);
-    const supportId = Number(p.supportTechnicianId || 0);
+  // 2. If no teams are defined yet, keep old historical pairing logic
+  if (!allByKey.size) {
+    for (const p of existingPairs) {
+      const leadId = Number(p.leadTechnicianId || 0);
+      const supportId = Number(p.supportTechnicianId || 0);
 
-    if (leaveSet.has(leadId) || leaveSet.has(supportId)) continue;
+      if (leaveSet.has(leadId) || leaveSet.has(supportId)) continue;
 
-    if (!allByKey.has(p.pairKey)) {
-      allByKey.set(p.pairKey, p);
+      if (
+        technicianCanDoService(p.leadTechnician) &&
+        technicianCanDoService(p.supportTechnician)
+      ) {
+        allByKey.set(p.pairKey, p);
+      }
+    }
+
+    for (const p of fallbackPairs) {
+      const leadId = Number(p.leadTechnicianId || 0);
+      const supportId = Number(p.supportTechnicianId || 0);
+
+      if (leaveSet.has(leadId) || leaveSet.has(supportId)) continue;
+
+      if (!allByKey.has(p.pairKey)) {
+        allByKey.set(p.pairKey, p);
+      }
     }
   }
 
@@ -2033,13 +2117,8 @@ async function pickBestServicePair(targetDueDate = null) {
     const sx = scorePair(x, openCountMap, lastAssignedMap, sameDayMap, inProgressMap);
     const sy = scorePair(y, openCountMap, lastAssignedMap, sameDayMap, inProgressMap);
 
-    if (sx.score !== sy.score) {
-      return sx.score - sy.score;
-    }
-
-    if (sx.lastRecent !== sy.lastRecent) {
-      return sx.lastRecent - sy.lastRecent;
-    }
+    if (sx.score !== sy.score) return sx.score - sy.score;
+    if (sx.lastRecent !== sy.lastRecent) return sx.lastRecent - sy.lastRecent;
 
     return String(x.pairKey).localeCompare(String(y.pairKey));
   });
@@ -2082,16 +2161,16 @@ async function createServiceAssignmentWithPair({
     throw new Error('One or more selected technicians are on leave');
   }
 
-  console.log('PAIR DEBUG', {
-    projectLiftId,
-    role,
-    dueDate: dueDate || null,
-    pairKey: pair?.pairKey || null,
-    leadTechnicianId: leadId,
-    supportTechnicianId: supportId,
-    leadSkills: pair?.leadTechnician?.skills || '',
-    supportSkills: pair?.supportTechnician?.skills || '',
-  });
+  debugLog(DEBUG_SERVICE, 'PAIR DEBUG', {
+  projectLiftId,
+  role,
+  dueDate: dueDate || null,
+  pairKey: pair?.pairKey || null,
+  leadTechnicianId: leadId,
+  supportTechnicianId: supportId,
+  leadSkills: pair?.leadTechnician?.skills || '',
+  supportSkills: pair?.supportTechnician?.skills || '',
+});
 
   let a;
 
@@ -2105,20 +2184,31 @@ async function createServiceAssignmentWithPair({
   notes: notes ? String(notes).trim() : null,
   assigned_at: new Date(),
 });
-    console.log('ASSIGNMENT CREATE OK', { assignmentId: a.id, role, projectLiftId });
-  } catch (err) {
-    console.error('ASSIGNMENT CREATE FAILED', {
-      message: err.message,
-      name: err.name,
-      details: err.errors?.map((e) => ({
-        message: e.message,
-        path: e.path,
-        value: e.value,
-      })) || [],
-      stack: err.stack,
-    });
-    throw err;
+    debugLog(
+  DEBUG_SERVICE,
+  'ASSIGNMENT CREATE OK',
+  {
+    assignmentId: a.id,
+    role,
+    projectLiftId,
   }
+);
+
+} catch (err) {
+
+  console.error('ASSIGNMENT CREATE FAILED', {
+    message: err.message,
+    name: err.name,
+    details: err.errors?.map((e) => ({
+      message: e.message,
+      path: e.path,
+      value: e.value,
+    })) || [],
+    stack: err.stack,
+  });
+
+  throw err;
+}
 
   try {
     await JobTechnician.findOrCreate({
@@ -2143,43 +2233,61 @@ async function createServiceAssignmentWithPair({
       },
     });
 
-    console.log('JOB TEAM CREATE OK', {
-      assignmentId: a.id,
-      leadId,
-      supportId,
-    });
-  } catch (err) {
-    console.error('JOB TEAM CREATE FAILED', {
-      message: err.message,
-      name: err.name,
-      details: err.errors?.map((e) => ({
-        message: e.message,
-        path: e.path,
-        value: e.value,
-      })) || [],
-      stack: err.stack,
-    });
-    throw err;
+    debugLog(
+  DEBUG_SERVICE,
+  'JOB TEAM CREATE OK',
+  {
+    assignmentId: a.id,
+    leadId,
+    supportId,
   }
+);
+
+} catch (err) {
+
+  console.error('JOB TEAM CREATE FAILED', {
+    message: err.message,
+    name: err.name,
+    details: err.errors?.map((e) => ({
+      message: e.message,
+      path: e.path,
+      value: e.value,
+    })) || [],
+    stack: err.stack,
+  });
+
+  throw err;
+}
 
   try {
     await ensureChecklistForAssignment(a);
     const checklistSummary = await getChecklistSummary(a.id);
-    console.log('CHECKLIST CREATE OK', { assignmentId: a.id, checklistSummary });
-    return { assignment: a, checklistSummary };
-  } catch (err) {
-    console.error('CHECKLIST CREATE FAILED', {
-      message: err.message,
-      name: err.name,
-      details: err.errors?.map((e) => ({
-        message: e.message,
-        path: e.path,
-        value: e.value,
-      })) || [],
-      stack: err.stack,
-    });
-    throw err;
+    debugLog(
+  DEBUG_SERVICE,
+  'CHECKLIST CREATE OK',
+  {
+    assignmentId: a.id,
+    checklistSummary,
   }
+);
+
+return { assignment: a, checklistSummary };
+
+} catch (err) {
+
+  console.error('CHECKLIST CREATE FAILED', {
+    message: err.message,
+    name: err.name,
+    details: err.errors?.map((e) => ({
+      message: e.message,
+      path: e.path,
+      value: e.value,
+    })) || [],
+    stack: err.stack,
+  });
+
+  throw err;
+}
 }
 
 async function createBreakdownJobWithPair({
@@ -7229,18 +7337,25 @@ const rows = await Technician.findAll({
         const plain = t.toJSON();
 
         return {
-          id: plain.id,
-          name: plain.name,
-          phone: plain.phone,
-          email: plain.email,
-          role: plain.role || '',
-          skills: plain.skills || '',
-          isActive: plain.isActive !== false,
-          availability_status:
-            plain.availability_status ||
-            plain.availabilityStatus ||
-            'AVAILABLE',
-        };
+  id: plain.id,
+  name: plain.name,
+  phone: plain.phone,
+  email: plain.email,
+  role: plain.role || '',
+  skills: plain.skills || '',
+  isActive: plain.isActive !== false,
+
+  team_code: plain.team_code || '',
+  team_role: plain.team_role || '',
+
+  autoAssignEnabled:
+    plain.autoAssignEnabled !== false,
+
+  availability_status:
+    plain.availability_status ||
+    plain.availabilityStatus ||
+    'AVAILABLE',
+};
       })
     );
   } catch (err) {
@@ -7253,7 +7368,16 @@ const rows = await Technician.findAll({
 // CREATE TECHNICIAN
 app.post('/api/technicians', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
-    const { name, phone, email, skills, pin } = req.body || {};
+    const {
+  name,
+  phone,
+  email,
+  skills,
+  pin,
+  team_code,
+  team_role,
+  availability_status,
+} = req.body || {};
 
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Technician name is required' });
@@ -7296,19 +7420,30 @@ const role = await Role.findOne({
       // 🔥 CRITICAL FIX
       role_id: role.id,
 
+team_code: team_code ? String(team_code).trim().toUpperCase() : null,
+team_role: team_role ? String(team_role).trim().toUpperCase() : null,
+availability_status: availability_status
+  ? String(availability_status).trim().toUpperCase()
+  : 'AVAILABLE',
+
       isActive: true,
       pinHash,
       mustChangePin,
     });
 
     res.json({
-      id: tech.id,
-      name: tech.name,
-      phone: tech.phone,
-      email: tech.email,
-      skills: tech.skills || '',
-      mustChangePin: tech.mustChangePin,
-    });
+  id: tech.id,
+  name: tech.name,
+  phone: tech.phone,
+  email: tech.email,
+  skills: tech.skills || '',
+  team_code: tech.team_code,
+  team_role: tech.team_role,
+  availability_status: tech.availability_status,
+  autoAssignEnabled: tech.autoAssignEnabled,
+  auto_assign_enabled: tech.autoAssignEnabled,
+  mustChangePin: tech.mustChangePin,
+});
 
   } catch (err) {
     console.error('CREATE TECHNICIAN FAILED', err);
@@ -7321,7 +7456,15 @@ const role = await Role.findOne({
 app.put('/api/technicians/:id', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { name, phone, email, skills } = req.body || {};
+    const {
+  name,
+  phone,
+  email,
+  skills,
+  team_code,
+  team_role,
+  availability_status,
+} = req.body || {};
 
     const tech = await Technician.findByPk(id);
     if (!tech) return res.status(404).json({ error: 'Technician not found' });
@@ -7332,20 +7475,52 @@ app.put('/api/technicians/:id', authUser, requireRoles('ADMIN', 'MANAGER', 'SUPE
       .filter(Boolean)
       .join(',');
 
-    await tech.update({
-      name: name != null ? String(name).trim() : tech.name,
-      phone: phone != null ? String(phone).trim() : tech.phone,
-      email: email != null ? String(email).trim() : tech.email,
-      skills: cleanSkills,
-    });
+    const rawAutoAssign =
+      req.body.autoAssignEnabled ??
+      req.body.auto_assign_enabled;
+
+    const updateData = {
+  name: name != null ? String(name).trim() : tech.name,
+  phone: phone != null ? String(phone).trim() : tech.phone,
+  email: email != null ? String(email).trim() : tech.email,
+  skills: cleanSkills,
+
+  team_code:
+    team_code !== undefined
+      ? (team_code ? String(team_code).trim().toUpperCase() : null)
+      : tech.team_code,
+
+  team_role:
+    team_role !== undefined
+      ? (team_role ? String(team_role).trim().toUpperCase() : null)
+      : tech.team_role,
+
+  availability_status:
+    availability_status !== undefined
+      ? String(availability_status || 'AVAILABLE').trim().toUpperCase()
+      : tech.availability_status,
+};
+
+    if (typeof rawAutoAssign !== 'undefined') {
+      updateData.autoAssignEnabled =
+        rawAutoAssign === true || rawAutoAssign === 'true';
+    }
+
+    await tech.update(updateData);
+    await tech.reload();
 
     res.json({
-      id: tech.id,
-      name: tech.name,
-      phone: tech.phone,
-      email: tech.email,
-      skills: tech.skills || '',
-    });
+  id: tech.id,
+  name: tech.name,
+  phone: tech.phone,
+  email: tech.email,
+  skills: tech.skills || '',
+  team_code: tech.team_code,
+  team_role: tech.team_role,
+  availability_status: tech.availability_status,
+  autoAssignEnabled: tech.autoAssignEnabled,
+  auto_assign_enabled: tech.autoAssignEnabled,
+});
 
   } catch (err) {
     console.error('UPDATE TECHNICIAN FAILED', err);
@@ -9629,8 +9804,17 @@ app.post('/api/projects/:projectId/lifts', authUser, requireRoles('ADMIN', 'MANA
         passenger_capacity: passengerCapacity || null,
         lift_type: liftType || null,
         number_of_floors: numberOfFloors || null,
-        warranty_months: Number(warrantyMonths || 12),
-        warrantyServiceVisits: Number(warrantyServiceVisits || 5),
+        warranty_months:
+  warrantyMonths === undefined || warrantyMonths === null || warrantyMonths === ''
+    ? 12
+    : Number(warrantyMonths),
+
+warrantyServiceVisits:
+  warrantyServiceVisits === undefined ||
+  warrantyServiceVisits === null ||
+  warrantyServiceVisits === ''
+    ? 4
+    : Number(warrantyServiceVisits),
         notes: notes || '',
       },
       { transaction: t }
@@ -12655,8 +12839,13 @@ app.get('/api/jobs', async (req, res) => {
     const status = (req.query.status ? String(req.query.status) : '').toUpperCase().trim();
     const view = String(req.query.view || 'open').toLowerCase().trim();
 
-    const where = {};
-    if (status) where.status = status;
+    const where = {
+  assignment_role: {
+    [Op.in]: ['INSTALL', 'TEST'],
+  },
+};
+
+if (status) where.status = status;
 
     const limit = Math.min(Math.max(Number(req.query.limit || 200), 1), 500);
 
@@ -13713,10 +13902,29 @@ app.get('/api/service/jobs', async (req, res) => {
     const rawView = String(req.query.view || 'open').toLowerCase().trim();
     const limit = Math.min(Math.max(Number(req.query.limit || 300), 1), 1000);
 
-    const rows = await ProjectLiftAssignment.findAll({
-      where: {
-        assignment_role: ['WARRANTY SERVICE', 'AMC SERVICE'],
-      },
+    const where = {
+  assignment_role: ['WARRANTY SERVICE', 'AMC SERVICE'],
+};
+
+if (rawView === 'open') {
+  where[Op.or] = [
+    { status: 'ASSIGNED' },
+    { status: 'IN_PROGRESS' },
+    {
+      status: 'DONE',
+      supervisor_status: 'PENDING',
+    },
+  ];
+} else if (rawView === 'pending') {
+  where.status = 'DONE';
+  where.supervisor_status = 'PENDING';
+} else if (rawView === 'completed') {
+  where.status = 'DONE';
+  where.supervisor_status = 'APPROVED';
+}
+
+const rows = await ProjectLiftAssignment.findAll({
+  where,
       include: [
         { model: Technician, attributes: ['id', 'name', 'phone', 'role'] },
         {
@@ -14370,9 +14578,16 @@ async function ensureSchema() {
   await addColumnIfMissing('technicians', 'role', 'TEXT');
   await addColumnIfMissing('technicians', 'skills', 'TEXT');
   await addColumnIfMissing('technicians', 'is_active', 'BOOLEAN NOT NULL DEFAULT TRUE');
+await addColumnIfMissing(
+  'technicians',
+  'auto_assign_enabled',
+  'BOOLEAN NOT NULL DEFAULT TRUE'
+);
   await addColumnIfMissing('technicians', 'pin_salt', 'TEXT');
   await addColumnIfMissing('technicians', 'pin_hash', 'TEXT');
   await addColumnIfMissing('technicians', 'must_change_pin', 'BOOLEAN NOT NULL DEFAULT TRUE');
+  await addColumnIfMissing('technicians', 'team_code', 'VARCHAR(50)');
+  await addColumnIfMissing('technicians', 'team_role', 'VARCHAR(20)');
   await addColumnIfMissing('technicians', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
   await addColumnIfMissing('technicians', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
 
@@ -14495,7 +14710,7 @@ await createIndexSafe(
       handover_date DATE,
       handover_actual_date DATE,
       warranty_months INTEGER NOT NULL DEFAULT 12,
-      warranty_service_visits INTEGER NOT NULL DEFAULT 5,
+      warranty_service_visits INTEGER NOT NULL DEFAULT 4,
       warranty_start_date DATE,
       warranty_end_date DATE,
       notes TEXT,
