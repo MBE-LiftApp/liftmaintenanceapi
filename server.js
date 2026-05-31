@@ -2007,6 +2007,7 @@ async function pickBestServicePair(targetDueDate = null) {
   });
 
   const leaveSet = new Set(leaveRows.map((l) => Number(l.technician_id)));
+  const activeBreakdownSet = await buildActiveBreakdownTechnicianSet();
 
   const teamEnabledTechs = serviceTechs.filter((t) => {
     return (
@@ -2049,6 +2050,9 @@ async function pickBestServicePair(targetDueDate = null) {
 
     const leadId = Number(team.lead.id);
     const supportId = Number(team.support.id);
+
+    if (activeBreakdownSet.has(leadId)) continue;
+    if (activeBreakdownSet.has(supportId)) continue;
 
     if (!leadId || !supportId) continue;
     if (leadId === supportId) continue;
@@ -2361,6 +2365,30 @@ async function ensureBreakdownJobPartsTable() {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);
+}
+
+async function buildActiveBreakdownTechnicianSet() {
+  const rows = await JobAssignment.findAll({
+    include: [
+      {
+        model: Job,
+        required: true,
+        where: {
+          job_type: 'BREAKDOWN',
+          status: {
+            [Op.in]: ['ASSIGNED', 'IN_PROGRESS'],
+          },
+        },
+      },
+    ],
+    attributes: ['technician_id'],
+  });
+
+  return new Set(
+    rows
+      .map((r) => Number(r.technician_id))
+      .filter(Boolean)
+  );
 }
 
 async function ensureQrBreakdownSchema() {
