@@ -14408,14 +14408,9 @@ app.get('/api/dashboard/workflow-readiness', async (req, res) => {
         };
 
         if (hasActualHandover) {
-          handedOver++;
-          rows.push({
-            ...baseRow,
-            workflowStatus: 'HANDED OVER',
-            actionHint: 'Track service lifecycle',
-          });
-          continue;
-        }
+  handedOver++;
+  continue;
+}
 
         if (hasTestApproved) {
           readyForHandover++;
