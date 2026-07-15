@@ -1,4 +1,24 @@
 require('dotenv').config();
+const SYSTEM_GO_LIVE_DATE_RAW =
+  String(process.env.SYSTEM_GO_LIVE_DATE || '').trim();
+
+const SYSTEM_GO_LIVE_DATE = /^\d{4}-\d{2}-\d{2}$/.test(
+  SYSTEM_GO_LIVE_DATE_RAW
+)
+  ? SYSTEM_GO_LIVE_DATE_RAW
+  : null;
+
+if (SYSTEM_GO_LIVE_DATE_RAW && !SYSTEM_GO_LIVE_DATE) {
+  console.warn(
+    '⚠️ Invalid SYSTEM_GO_LIVE_DATE. Expected YYYY-MM-DD but received:',
+    SYSTEM_GO_LIVE_DATE_RAW
+  );
+}
+
+console.log(
+  'Service scheduling go-live date:',
+  SYSTEM_GO_LIVE_DATE || 'Not configured'
+);
 
 const DEBUG_SERVICE =
   String(process.env.DEBUG_SERVICE || '').toLowerCase() === 'true';
@@ -1164,28 +1184,78 @@ function findActiveVisitAssignment(assignments = [], role) {
   }) || null;
 }
 
-function getNextVisitState(visitDates = [], completedCount = 0, today = startOfDay(new Date())) {
+function getNextVisitState(
+  visitDates = [],
+  completedCount = 0,
+  today = startOfDay(new Date()),
+  notBeforeDate = null
+) {
   const totalVisits = visitDates.length;
-  const done = Math.max(0, Math.min(completedCount, totalVisits));
 
-  if (done >= totalVisits) {
+  // Actual completed visits recorded in the database.
+  const actualCompleted = Math.max(
+    0,
+    Math.min(Number(completedCount || 0), totalVisits)
+  );
+
+  const cutoff = parseDateOnly(notBeforeDate);
+
+  /*
+   * Visits before go-live are historical schedule slots.
+   * They are skipped for scheduling purposes but are not falsely counted
+   * as physically completed services.
+   */
+  const historicalVisitsSkipped = cutoff
+    ? visitDates.filter((dateValue) => {
+        const visitDate = parseDateOnly(dateValue);
+        return visitDate && visitDate < cutoff;
+      }).length
+    : 0;
+
+  /*
+   * Continue after whichever is later:
+   * 1. the number actually completed; or
+   * 2. the number of historical pre-go-live schedule slots.
+   */
+  const schedulingPosition = Math.max(
+    actualCompleted,
+    Math.min(historicalVisitsSkipped, totalVisits)
+  );
+
+  if (schedulingPosition >= totalVisits) {
     return {
       totalVisits,
-      completedVisits: done,
-      pendingVisits: 0,
+      completedVisits: actualCompleted,
+      historicalVisitsSkipped,
+      pendingVisits: Math.max(totalVisits - schedulingPosition, 0),
       nextVisitNumber: null,
       nextVisitDate: null,
       createJobFromDate: null,
       isDueNow: false,
       isOverdue: false,
       overdueDays: 0,
-      allCompleted: true,
+      allCompleted: actualCompleted >= totalVisits,
+      historicalScheduleClosed:
+        actualCompleted < totalVisits && schedulingPosition >= totalVisits,
     };
   }
 
-  const nextVisitNumber = done + 1;
-  const nextVisitDate = visitDates[done] || null;
-  const createJobFromDate = nextVisitDate ? formatDateOnly(addDays(nextVisitDate, -7)) : null;
+  const nextVisitNumber = schedulingPosition + 1;
+  const nextVisitDate = visitDates[schedulingPosition] || null;
+
+  let createJobFromDate = nextVisitDate
+    ? formatDateOnly(addDays(nextVisitDate, -7))
+    : null;
+
+  /*
+   * Even where the normal seven-day opening window starts earlier,
+   * creation cannot begin before the system go-live date.
+   */
+  const normalOpenFrom = parseDateOnly(createJobFromDate);
+
+  if (cutoff && (!normalOpenFrom || normalOpenFrom < cutoff)) {
+    createJobFromDate = formatDateOnly(cutoff);
+  }
 
   let isDueNow = false;
   let isOverdue = false;
@@ -1200,17 +1270,29 @@ function getNextVisitState(visitDates = [], completedCount = 0, today = startOfD
     overdueDays = isOverdue ? dateDiffDays(due, today) : 0;
   }
 
+  /*
+   * Absolute protection: no service becomes due before go-live,
+   * even if another calculation accidentally produces an earlier date.
+   */
+  if (cutoff && today < cutoff) {
+    isDueNow = false;
+    isOverdue = false;
+    overdueDays = 0;
+  }
+
   return {
     totalVisits,
-    completedVisits: done,
-    pendingVisits: totalVisits - done,
+    completedVisits: actualCompleted,
+    historicalVisitsSkipped,
+    pendingVisits: totalVisits - schedulingPosition,
     nextVisitNumber,
     nextVisitDate,
     createJobFromDate,
     isDueNow,
     isOverdue,
     overdueDays,
-    allCompleted: false,
+    allCompleted: actualCompleted >= totalVisits,
+    historicalScheduleClosed: false,
   };
 }
 
@@ -1220,28 +1302,34 @@ function buildWarrantyInfo(projectLift, assignments = [], today = startOfDay(new
   const visitCount = getWarrantyServiceVisitCount(projectLift, 4);
 
   if (!startDate || !endDate) {
-    return {
-      status: 'NO WARRANTY',
-      startDate: null,
-      endDate: null,
-      serviceVisitCount: visitCount,
-      visitDates: [],
-      completedVisits: 0,
-      nextVisitNumber: null,
-      nextServiceDue: null,
-      createJobFromDate: null,
-      isDueNow: false,
-      isOverdue: false,
-      overdueDays: 0,
-      allCompleted: false,
-      activeServiceAssignment: null,
-    };
-  }
+  return {
+    status: 'NO WARRANTY',
+    startDate: null,
+    endDate: null,
+    serviceVisitCount: visitCount,
+    visitDates: [],
+    completedVisits: 0,
+    historicalVisitsSkipped: 0,
+    nextVisitNumber: null,
+    nextServiceDue: null,
+    createJobFromDate: null,
+    isDueNow: false,
+    isOverdue: false,
+    overdueDays: 0,
+    allCompleted: false,
+    activeServiceAssignment: null,
+  };
+}
 
   const visitDates = buildEvenlySpacedDates(startDate, endDate, visitCount);
   const completedVisits = countCompletedVisits(assignments, 'WARRANTY SERVICE');
   const active = findActiveVisitAssignment(assignments, 'WARRANTY SERVICE');
-  const next = getNextVisitState(visitDates, completedVisits, today);
+  const next = getNextVisitState(
+  visitDates,
+  completedVisits,
+  today,
+  SYSTEM_GO_LIVE_DATE
+);
 
   const warrantyEnd = parseDateOnly(endDate);
 
@@ -1257,6 +1345,7 @@ function buildWarrantyInfo(projectLift, assignments = [], today = startOfDay(new
     serviceVisitCount: visitCount,
     visitDates,
     completedVisits,
+    historicalVisitsSkipped: next.historicalVisitsSkipped || 0,
     nextVisitNumber: next.nextVisitNumber,
     nextServiceDue: next.nextVisitDate,
     createJobFromDate: next.createJobFromDate,
@@ -1291,6 +1380,7 @@ function buildAmcInfo(contract, today = startOfDay(new Date()), options = {}) {
       serviceIntervalMonths: 3,
       visitDates: [],
       completedVisits: 0,
+      historicalVisitsSkipped: 0,
       nextVisitNumber: null,
       nextServiceDue: null,
       createJobFromDate: null,
@@ -1343,14 +1433,74 @@ function buildAmcInfo(contract, today = startOfDay(new Date()), options = {}) {
     : null;
 
   const baseDate = lastServiceDate || startDate || null;
+const goLiveDate = parseDateOnly(SYSTEM_GO_LIVE_DATE);
+const contractEndDate = parseDateOnly(endDate);
 
-  const nextServiceDue = baseDate
-    ? formatDateOnly(addMonths(baseDate, serviceIntervalMonths))
-    : null;
+let nextServiceDueDate = baseDate
+  ? startOfDay(addMonths(baseDate, serviceIntervalMonths))
+  : null;
 
-  const createJobFromDate = nextServiceDue
-    ? formatDateOnly(addDays(nextServiceDue, -7))
-    : null;
+let historicalVisitsSkipped = 0;
+
+/*
+ * Advance an old AMC due date interval-by-interval until the first
+ * scheduled service on or after the system go-live date is reached.
+ */
+if (nextServiceDueDate && goLiveDate) {
+  let safetyCounter = 0;
+
+  while (
+    nextServiceDueDate < goLiveDate &&
+    safetyCounter < 200
+  ) {
+    nextServiceDueDate = startOfDay(
+      addMonths(nextServiceDueDate, serviceIntervalMonths)
+    );
+
+    historicalVisitsSkipped += 1;
+    safetyCounter += 1;
+  }
+
+  if (safetyCounter >= 200) {
+    console.warn(
+      'AMC schedule advancement stopped by safety limit:',
+      contract.id
+    );
+  }
+}
+
+/*
+ * Do not schedule an AMC service outside the contract period.
+ */
+if (
+  nextServiceDueDate &&
+  contractEndDate &&
+  nextServiceDueDate > contractEndDate
+) {
+  nextServiceDueDate = null;
+}
+
+const nextServiceDue = nextServiceDueDate
+  ? formatDateOnly(nextServiceDueDate)
+  : null;
+
+let createJobFromDate = nextServiceDueDate
+  ? formatDateOnly(addDays(nextServiceDueDate, -7))
+  : null;
+
+/*
+ * The seven-day creation window must never begin before go-live.
+ */
+const calculatedOpenFrom = parseDateOnly(createJobFromDate);
+
+if (
+  goLiveDate &&
+  createJobFromDate &&
+  calculatedOpenFrom &&
+  calculatedOpenFrom < goLiveDate
+) {
+  createJobFromDate = formatDateOnly(goLiveDate);
+}
 
   let isDueNow = false;
   let isOverdue = false;
@@ -1376,6 +1526,18 @@ function buildAmcInfo(contract, today = startOfDay(new Date()), options = {}) {
     }
   }
 
+/*
+ * No AMC service may appear due or overdue before system go-live.
+ */
+if (goLiveDate && today < goLiveDate) {
+  isDueNow = false;
+  isOverdue = false;
+  overdueDays = 0;
+
+  if (nextServiceDue) {
+    dueStatus = 'NOT DUE';
+  }
+}
   let status = 'NO AMC';
 
 if (startDate) {
@@ -1412,7 +1574,10 @@ return {
   serviceIntervalMonths,
   visitDates,
   completedVisits,
-  nextVisitNumber: nextServiceDue ? completedVisits + 1 : null,
+  historicalVisitsSkipped,
+  nextVisitNumber: nextServiceDue
+  ? completedVisits + historicalVisitsSkipped + 1
+  : null,
   nextServiceDue,
   createJobFromDate,
   billingCycle: contract.billingCycle || contract.billing_cycle || null,
