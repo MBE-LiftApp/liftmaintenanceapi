@@ -667,6 +667,7 @@ h1 {
 
   <div id="toast" class="toast"></div>
 
+<script src="/html5-qrcode.min.js"></script>
 <script>
  
 let alertAudio = null;
@@ -718,6 +719,8 @@ const API_BASE = location.origin;
   let hasOlderCompletedJobs = false;
   const verifiedJobTokens = new Map();
   let qrMediaStream = null;
+  let html5QrScanner = null;
+  let qrScanResolved = false;
 
   function byId(id){ return document.getElementById(id); }
 
@@ -888,6 +891,16 @@ function getTechAuthHeaders() {
   }
 
   function stopQrScanner(){
+    qrScanResolved = true;
+    if (html5QrScanner) {
+      const scanner = html5QrScanner;
+      html5QrScanner = null;
+      Promise.resolve(scanner.stop())
+        .catch(() => {})
+        .finally(() => {
+          try { scanner.clear(); } catch (_) {}
+        });
+    }
     if (qrMediaStream) {
       qrMediaStream.getTracks().forEach(track => track.stop());
       qrMediaStream = null;
@@ -965,8 +978,9 @@ function getTechAuthHeaders() {
   }
 
   async function scanLiftQr(expectedJob = null){
+    qrScanResolved = false;
     openModal('Scan Lift QR Code', `
-      <video id="qrVideo" playsinline style="width:100%;max-height:360px;background:#111;border-radius:12px;"></video>
+      <div id="qrReader" style="width:100%;min-height:280px;background:#111;border-radius:12px;overflow:hidden;"></div>
       <div class="muted" style="margin-top:10px;">Point the camera at the QR label fixed on the lift.</div>
       <div class="field" style="margin-top:12px;">
         <label>Camera unavailable? Paste the QR link or token</label>
@@ -980,26 +994,40 @@ function getTechAuthHeaders() {
       catch (e) { alert(e.message || String(e)); }
     };
 
-    if (!('BarcodeDetector' in window)) return;
     try {
-      const video = byId('qrVideo');
-      qrMediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      video.srcObject = qrMediaStream;
-      await video.play();
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-      const detect = async () => {
-        if (!qrMediaStream || !byId('qrVideo')) return;
-        try {
-          const codes = await detector.detect(video);
-          if (codes.length) {
-            await verifyScannedLift(codes[0].rawValue, expectedJob);
-            return;
+      if (typeof Html5Qrcode !== 'function') {
+        throw new Error('QR scanner library did not load.');
+      }
+
+      const scanner = new Html5Qrcode('qrReader');
+      html5QrScanner = scanner;
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1 },
+        async (decodedText) => {
+          if (qrScanResolved) return;
+          qrScanResolved = true;
+          html5QrScanner = null;
+          try { await scanner.stop(); } catch (_) {}
+          try { scanner.clear(); } catch (_) {}
+          try {
+            await verifyScannedLift(decodedText, expectedJob);
+          } catch (e) {
+            qrScanResolved = false;
+            alert(e.message || String(e));
           }
-        } catch (_) {}
-        requestAnimationFrame(detect);
-      };
-      detect();
+        },
+        () => {}
+      );
     } catch (e) {
+      if (html5QrScanner) {
+        const scanner = html5QrScanner;
+        html5QrScanner = null;
+        try {
+          await scanner.stop();
+        } catch (_) {}
+        try { scanner.clear(); } catch (_) {}
+      }
       showToast('Camera could not be opened. Paste the QR link instead.', 'warn');
     }
   }
