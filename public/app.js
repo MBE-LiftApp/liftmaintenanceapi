@@ -5310,8 +5310,11 @@ async function renderAMC() {
     const data = await API.getServiceDashboard();
     const rows = Array.isArray(data?.rows) ? data.rows : [];
 
-    const amcRows = rows.filter(
-      (r) => String(r.amcStatus || "").toUpperCase() !== "NO AMC"
+    // AMC Management is an operational view. Historical/expired and future
+    // contracts remain in the database and reports, but are not listed here.
+    const activeAmcStatuses = new Set(['AMC ACTIVE', 'AMC EXPIRING SOON']);
+    const amcRows = rows.filter((r) =>
+      activeAmcStatuses.has(String(r.amcStatus || '').toUpperCase().trim())
     );
 
     root.innerHTML = `
@@ -5321,7 +5324,7 @@ async function renderAMC() {
 
         ${
           !amcRows.length
-            ? `<div class="muted">No AMC records found.</div>`
+            ? `<div class="muted">No active AMC records found.</div>`
             : `
               <div class="tableWrap">
                 <table>
@@ -8205,6 +8208,20 @@ function showCreateAmcModal(lift, options = {}) {
 
       if (payload.durationMonths < 1) {
         throw new Error('AMC Duration must be at least 1 month');
+      }
+
+      const start = new Date(`${payload.startDate}T00:00:00`);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + payload.durationMonths);
+      end.setDate(end.getDate() - 1);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (end < today) {
+        throw new Error(
+          'Cannot create an AMC whose contract period has already expired. Please enter a current contract period.'
+        );
       }
 
       if (!lift?.projectLiftId) {

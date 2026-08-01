@@ -11644,22 +11644,35 @@ app.post('/api/project-lifts/:projectLiftId/amc', async (req, res) => {
       return res.status(400).json({ error: 'AMC Service Visits must be at least 1' });
     }
 
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + months);
+    end.setDate(end.getDate() - 1);
+
+    // A backdated AMC may still be valid (for example, when it is entered
+    // after the signed start date), but do not allow a newly created contract
+    // whose complete coverage period has already expired.
+    const today = startOfDay(new Date());
+    if (end < today) {
+      return res.status(400).json({
+        error: 'Cannot create an AMC whose contract period has already expired. Please enter a current contract period.',
+      });
+    }
+
+    // Expired contracts are retained as history even when their stored status
+    // is ACTIVE. Only a current or future AMC should block a new contract.
     const existingActive = await Contract.findOne({
       where: {
         projectLiftId,
         contractType: 'AMC',
         status: 'ACTIVE',
+        endDate: { [Op.gte]: formatLocalDate(today) },
       },
       order: [['id', 'DESC']],
     });
 
     if (existingActive) {
-      return res.status(400).json({ error: 'AMC already exists for this lift' });
+      return res.status(400).json({ error: 'A current or future AMC already exists for this lift' });
     }
-
-    const end = new Date(start);
-    end.setMonth(end.getMonth() + months);
-    end.setDate(end.getDate() - 1);
 
     const contract = await Contract.create({
       projectLiftId,
