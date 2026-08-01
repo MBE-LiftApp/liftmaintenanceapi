@@ -323,8 +323,16 @@ function updateDueDateGuidance(messageEl, lift, jobType, dueDate) {
 
 function getLeadName(job) {
   const team = Array.isArray(job?.team) ? job.team : [];
-  const lead = team.find((m) => String(m.teamRole || '').toUpperCase() === 'LEAD');
-  return lead?.technician?.name || job?.technician?.name || '—';
+  const lead = team.find(
+    (m) => String(m.teamRole || '').toUpperCase() === 'LEAD'
+  );
+
+  return (
+    lead?.technician?.name ||
+    job?.leadTechnician?.name ||
+    job?.technician?.name ||
+    '—'
+  );
 }
 
 function getSupportNames(job) {
