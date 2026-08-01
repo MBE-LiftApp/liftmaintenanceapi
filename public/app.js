@@ -7658,7 +7658,7 @@ async function renderTechDashboard() {
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
           <div>
             <div class="label">My Jobs</div>
-            <div class="muted">${techJobsView === "completed" ? "Approved completed jobs" : "Current and actionable jobs"}</div>
+            <div class="muted">${techJobsView === "completed" ? "Completed jobs" : "Current and actionable jobs"}</div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <span class="muted" style="font-weight:600;">Show</span>

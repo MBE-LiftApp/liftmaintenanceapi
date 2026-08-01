@@ -817,7 +817,15 @@ app.use(express.json());
 
 // Serve frontend
 const PUBLIC_DIR = path.join(__dirname, 'public');
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders: (res, filePath) => {
+    // HTML shells must not remain stale after a deployment. Static assets can
+    // still use normal browser caching, but pages should always revalidate.
+    if (String(filePath || '').toLowerCase().endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    }
+  },
+}));
 app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
 
 // --------------------
@@ -8300,7 +8308,6 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
     if (view === 'completed') {
       assignmentWhere = {
         status: 'DONE',
-        supervisor_status: 'APPROVED',
       };
     } else if (view === 'current') {
       assignmentWhere = {
