@@ -11388,6 +11388,93 @@ res.json(out);
   }
 });
 
+// Supervisor QR lookup is read-only: it identifies the lift and returns its
+// completed service/breakdown history without creating a technician proof.
+app.get(
+  '/api/supervisor/qr-lift/:token',
+  authUser,
+  requireRoles('ADMIN', 'SUPERVISOR'),
+  async (req, res) => {
+    try {
+      const qrToken = String(req.params.token || '').trim();
+      if (!qrToken) return res.status(400).json({ error: 'QR token missing' });
+
+      const [liftRows] = await sequelize.query(`
+        SELECT
+          l.id AS "liftId",
+          l."liftCode" AS "liftCode",
+          l.building,
+          l.location,
+          pl.id AS "projectLiftId",
+          pl.location_label AS "locationLabel",
+          pl.warranty_start_date AS "warrantyStartDate",
+          pl.warranty_end_date AS "warrantyEndDate",
+          p.project_code AS "projectCode",
+          p.project_name AS "projectName",
+          c.name AS "customerName",
+          s.name AS "siteName"
+        FROM "Lifts" l
+        JOIN project_lifts pl ON pl.lift_id = l.id
+        JOIN projects p ON p.id = pl.project_id
+        LEFT JOIN customers c ON c.id = p.customer_id
+        LEFT JOIN sites s ON s.id = p.site_id
+        WHERE l.qr_token = :qrToken
+          AND l.qr_enabled = TRUE
+        ORDER BY pl.id DESC
+        LIMIT 1
+      `, { replacements: { qrToken } });
+
+      const lift = liftRows[0];
+      if (!lift) return res.status(404).json({ error: 'Invalid or inactive lift QR code' });
+
+      const [serviceRows] = await sequelize.query(`
+        SELECT
+          pla.id AS "jobId",
+          pla.assignment_role AS role,
+          pla.status,
+          pla.due_date AS "dueDate",
+          pla.completed_at AS "completedAt",
+          pla.notes,
+          sr.overall_condition AS "overallCondition",
+          sr.faults_observed AS "faultsObserved",
+          sr.action_taken AS "actionTaken",
+          sr.recommendations,
+          sr.technician_remarks AS "technicianRemarks"
+        FROM project_lift_assignments pla
+        LEFT JOIN assignment_service_reports sr ON sr.assignment_id = pla.id
+        WHERE pla.project_lift_id = :projectLiftId
+          AND pla.status = 'DONE'
+        ORDER BY pla.completed_at DESC NULLS LAST, pla.id DESC
+        LIMIT 50
+      `, { replacements: { projectLiftId: lift.projectLiftId } });
+
+      const [breakdownRows] = await sequelize.query(`
+        SELECT
+          j.id AS "jobId",
+          'BREAKDOWN' AS role,
+          j.status,
+          j.completed_at AS "completedAt",
+          j.notes
+        FROM jobs j
+        WHERE j.project_lift_id = :projectLiftId
+          AND j.job_type = 'BREAKDOWN'
+          AND j.status IN ('DONE', 'COMPLETED', 'CLOSED', 'RESOLVED')
+        ORDER BY j.completed_at DESC NULLS LAST, j.id DESC
+        LIMIT 50
+      `, { replacements: { projectLiftId: lift.projectLiftId } });
+
+      const history = [...serviceRows, ...breakdownRows]
+        .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0))
+        .slice(0, 50);
+
+      res.json({ ok: true, lift, history });
+    } catch (err) {
+      console.error('GET /api/supervisor/qr-lift/:token error:', err);
+      res.status(500).json({ error: err.message || 'Failed to load lift history' });
+    }
+  }
+);
+
 // Technician-only QR verification and lift history. The printed QR remains
 // public for customers, but maintenance history is returned only after tech auth.
 app.get('/api/tech/qr-lift/:token', authTech, async (req, res) => {

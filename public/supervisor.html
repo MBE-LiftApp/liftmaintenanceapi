@@ -3,6 +3,12 @@
 <head>
   <title>Supervisor Mobile</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="manifest" href="/supervisor-manifest.webmanifest" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Supervisor App" />
+  <link rel="apple-touch-icon" href="/icons/supervisor-192.png" />
 
 <style>
   * { box-sizing: border-box; }
@@ -191,10 +197,13 @@
     </div>
 
     <div id="appBox" style="display:none">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
         <h3 id="screenTitle" style="margin:0;">Pending Approvals</h3>
-        <button onclick="refreshCurrentTab()">Refresh</button>
-	<button onclick="logout()">Logout</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="primary" onclick="scanLiftQr()">Scan Lift QR</button>
+          <button onclick="refreshCurrentTab()">Refresh</button>
+          <button onclick="logout()">Logout</button>
+        </div>
       </div>
 
       <div class="tabs">
@@ -206,11 +215,143 @@
     </div>
   </div>
 
+<script src="/html5-qrcode.min.js"></script>
 <script>
 const LS_USER_TOKEN = "liftapp.user.token";
 const LS_USER = "liftapp.user.profile";
 
 let token = localStorage.getItem(LS_USER_TOKEN) || sessionStorage.getItem(LS_USER_TOKEN);
+let html5QrScanner = null;
+let qrScanResolved = false;
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function extractQrToken(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value, location.origin);
+    const match = url.pathname.match(/\/qr\/([^/?#]+)/i);
+    if (match) return decodeURIComponent(match[1]);
+  } catch (_) {}
+  return value.replace(/^.*\/qr\//i, "").split(/[?#]/)[0].trim();
+}
+
+function stopQrScanner() {
+  qrScanResolved = true;
+  if (!html5QrScanner) return;
+  const scanner = html5QrScanner;
+  html5QrScanner = null;
+  Promise.resolve(scanner.stop()).catch(() => {}).finally(() => {
+    try { scanner.clear(); } catch (_) {}
+  });
+}
+
+function closeQrModal() {
+  stopQrScanner();
+  document.getElementById("qrScanModal")?.remove();
+}
+
+function showLiftHistory(data) {
+  stopQrScanner();
+  const lift = data?.lift || {};
+  const history = Array.isArray(data?.history) ? data.history : [];
+  const historyHtml = history.length
+    ? history.map(h => `
+        <div class="card" style="box-shadow:none;margin:8px 0;">
+          <div style="display:flex;justify-content:space-between;gap:8px;">
+            <b>${escapeHtml(h.role || "JOB")}</b>
+            <span class="muted">${escapeHtml(h.completedAt ? new Date(h.completedAt).toLocaleDateString() : "—")}</span>
+          </div>
+          ${h.faultsObserved ? `<div class="muted" style="margin-top:6px;"><b>Observed:</b> ${escapeHtml(h.faultsObserved)}</div>` : ""}
+          ${h.actionTaken ? `<div class="muted" style="margin-top:4px;"><b>Action:</b> ${escapeHtml(h.actionTaken)}</div>` : ""}
+          ${h.recommendations ? `<div class="muted" style="margin-top:4px;"><b>Recommendation:</b> ${escapeHtml(h.recommendations)}</div>` : ""}
+          ${h.notes ? `<div class="muted" style="margin-top:4px;">${escapeHtml(h.notes)}</div>` : ""}
+        </div>`).join("")
+    : '<p class="muted">No completed maintenance history found for this lift.</p>';
+
+  document.getElementById("qrScanModal")?.remove();
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="qrScanModal" class="modal-backdrop">
+      <div class="modal">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+          <h3 style="margin:0;">Lift ${escapeHtml(lift.liftCode || "")}</h3>
+          <button onclick="closeQrModal()">Close</button>
+        </div>
+        <div class="card" style="box-shadow:none;">
+          <b>${escapeHtml(lift.projectCode || "")} — ${escapeHtml(lift.projectName || "")}</b>
+          <div class="muted">${escapeHtml(lift.customerName || "")}${lift.siteName ? " · " + escapeHtml(lift.siteName) : ""}</div>
+          <div class="muted">${escapeHtml(lift.locationLabel || lift.location || lift.building || "")}</div>
+          <div class="muted" style="margin-top:6px;">Warranty: ${escapeHtml(lift.warrantyStartDate || "—")} to ${escapeHtml(lift.warrantyEndDate || "—")}</div>
+        </div>
+        <h3>Service History</h3>
+        ${historyHtml}
+      </div>
+    </div>`);
+}
+
+async function verifySupervisorQr(rawValue) {
+  const qrToken = extractQrToken(rawValue);
+  if (!qrToken) throw new Error("The QR code does not contain a lift token.");
+  const r = await fetch(`/api/supervisor/qr-lift/${encodeURIComponent(qrToken)}`, { headers: headers() });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || "Failed to load lift history");
+  showLiftHistory(data);
+}
+
+async function scanLiftQr() {
+  qrScanResolved = false;
+  document.getElementById("qrScanModal")?.remove();
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="qrScanModal" class="modal-backdrop">
+      <div class="modal">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+          <h3 style="margin:0;">Scan Lift QR Code</h3>
+          <button onclick="closeQrModal()">Close</button>
+        </div>
+        <div id="qrReader" style="width:100%;min-height:280px;background:#111;border-radius:12px;overflow:hidden;margin-top:14px;"></div>
+        <p class="muted">Point the camera at the QR label fixed on the lift.</p>
+        <label>Camera unavailable? Paste the QR link or token</label>
+        <input id="manualQrValue" />
+        <div style="display:flex;justify-content:flex-end;"><button class="primary" id="verifyManualQr">Verify</button></div>
+      </div>
+    </div>`);
+
+  document.getElementById("verifyManualQr").onclick = async () => {
+    try { await verifySupervisorQr(document.getElementById("manualQrValue").value); }
+    catch (e) { alert(e.message || String(e)); }
+  };
+
+  try {
+    if (typeof Html5Qrcode !== "function") throw new Error("QR scanner library did not load.");
+    const scanner = new Html5Qrcode("qrReader");
+    html5QrScanner = scanner;
+    await scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1 },
+      async decodedText => {
+        if (qrScanResolved) return;
+        qrScanResolved = true;
+        html5QrScanner = null;
+        try { await scanner.stop(); } catch (_) {}
+        try { scanner.clear(); } catch (_) {}
+        try { await verifySupervisorQr(decodedText); }
+        catch (e) { alert(e.message || String(e)); closeQrModal(); }
+      },
+      () => {}
+    );
+  } catch (e) {
+    stopQrScanner();
+    alert("Camera could not be opened. You can paste the QR link instead.");
+  }
+}
 
 function headers() {
   return {
