@@ -11361,6 +11361,7 @@ app.get('/api/tech/breakdown-jobs', authTech, async (req, res) => {
   liftCode: j.ProjectLift?.lift_code || '',
   projectCode: j.ProjectLift?.Project?.project_code || '',
   projectName: j.ProjectLift?.Project?.project_name || '',
+  projectLiftId: j.project_lift_id || j.ProjectLift?.id || null,
   assignedAt: r.assigned_at,
   completedAt: j.completed_at || null,
   technicianResponseStatus: r.technician_response_status,
@@ -11387,10 +11388,103 @@ res.json(out);
   }
 });
 
+// Technician-only QR verification and lift history. The printed QR remains
+// public for customers, but maintenance history is returned only after tech auth.
+app.get('/api/tech/qr-lift/:token', authTech, async (req, res) => {
+  try {
+    const token = String(req.params.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'QR token missing' });
+
+    const [liftRows] = await sequelize.query(`
+      SELECT
+        l.id AS "liftId",
+        l."liftCode" AS "liftCode",
+        l.building,
+        l.location,
+        pl.id AS "projectLiftId",
+        pl.location_label AS "locationLabel",
+        pl.warranty_start_date AS "warrantyStartDate",
+        pl.warranty_end_date AS "warrantyEndDate",
+        p.project_code AS "projectCode",
+        p.project_name AS "projectName",
+        c.name AS "customerName",
+        s.name AS "siteName"
+      FROM "Lifts" l
+      JOIN project_lifts pl ON pl.lift_id = l.id
+      JOIN projects p ON p.id = pl.project_id
+      LEFT JOIN customers c ON c.id = p.customer_id
+      LEFT JOIN sites s ON s.id = p.site_id
+      WHERE l.qr_token = :token
+        AND l.qr_enabled = TRUE
+      ORDER BY pl.id DESC
+      LIMIT 1
+    `, { replacements: { token } });
+
+    const lift = liftRows[0];
+    if (!lift) return res.status(404).json({ error: 'Invalid or inactive lift QR code' });
+
+    const [serviceRows] = await sequelize.query(`
+      SELECT
+        pla.id AS "jobId",
+        pla.assignment_role AS role,
+        pla.status,
+        pla.due_date AS "dueDate",
+        pla.completed_at AS "completedAt",
+        pla.notes,
+        sr.overall_condition AS "overallCondition",
+        sr.faults_observed AS "faultsObserved",
+        sr.action_taken AS "actionTaken",
+        sr.recommendations,
+        sr.technician_remarks AS "technicianRemarks"
+      FROM project_lift_assignments pla
+      LEFT JOIN assignment_service_reports sr ON sr.assignment_id = pla.id
+      WHERE pla.project_lift_id = :projectLiftId
+        AND pla.status = 'DONE'
+      ORDER BY pla.completed_at DESC NULLS LAST, pla.id DESC
+      LIMIT 50
+    `, { replacements: { projectLiftId: lift.projectLiftId } });
+
+    const [breakdownRows] = await sequelize.query(`
+      SELECT
+        j.id AS "jobId",
+        'BREAKDOWN' AS role,
+        j.status,
+        j.completed_at AS "completedAt",
+        j.notes
+      FROM jobs j
+      WHERE j.project_lift_id = :projectLiftId
+        AND j.job_type = 'BREAKDOWN'
+        AND j.status IN ('DONE', 'COMPLETED', 'CLOSED', 'RESOLVED')
+      ORDER BY j.completed_at DESC NULLS LAST, j.id DESC
+      LIMIT 50
+    `, { replacements: { projectLiftId: lift.projectLiftId } });
+
+    const history = [...serviceRows, ...breakdownRows]
+      .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0))
+      .slice(0, 50);
+
+    const verificationToken = jwt.sign(
+      {
+        purpose: 'LIFT_QR_VERIFY',
+        technicianId: Number(req.tech.id),
+        projectLiftId: Number(lift.projectLiftId),
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    res.json({ ok: true, lift, history, verificationToken });
+  } catch (err) {
+    console.error('GET /api/tech/qr-lift/:token error:', err);
+    res.status(500).json({ error: err.message || 'Failed to verify lift QR code' });
+  }
+});
+
 app.put('/api/tech/breakdown-jobs/:id/status', authTech, async (req, res) => {
   try {
     const jobId = Number(req.params.id);
     const status = String(req.body?.status || '').toUpperCase();
+    const qrVerificationToken = String(req.body?.qrVerificationToken || '');
 
     if (!['IN_PROGRESS', 'DONE'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
@@ -11417,6 +11511,20 @@ app.put('/api/tech/breakdown-jobs/:id/status', authTech, async (req, res) => {
 
     if (job.job_type !== 'BREAKDOWN') {
       return res.status(400).json({ error: 'Not a breakdown job' });
+    }
+
+    if (status === 'IN_PROGRESS') {
+      let proof;
+      try { proof = jwt.verify(qrVerificationToken, process.env.JWT_SECRET); }
+      catch (_) { return res.status(400).json({ error: 'Scan and verify the lift QR code before starting this job' }); }
+
+      if (
+        proof?.purpose !== 'LIFT_QR_VERIFY' ||
+        Number(proof.technicianId) !== Number(req.tech.id) ||
+        Number(proof.projectLiftId) !== Number(job.project_lift_id)
+      ) {
+        return res.status(400).json({ error: 'The scanned QR code does not match this breakdown job' });
+      }
     }
 
     if (status === 'IN_PROGRESS') {
@@ -12946,7 +13054,7 @@ app.post('/api/jobs/:jobId/team', async (req, res) => {
 app.put('/api/tech/assignments/:id/status', authTech, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { status } = req.body || {};
+    const { status, qrVerificationToken } = req.body || {};
     const s = String(status || '').toUpperCase().trim();
 
     if (!['ASSIGNED', 'IN_PROGRESS', 'DONE', 'CANCELLED'].includes(s)) {
@@ -12955,6 +13063,20 @@ app.put('/api/tech/assignments/:id/status', authTech, async (req, res) => {
 
     const a = await ProjectLiftAssignment.findByPk(id);
     if (!a) return res.status(404).json({ error: 'Assignment not found' });
+
+    if (s === 'IN_PROGRESS') {
+      let proof;
+      try { proof = jwt.verify(String(qrVerificationToken || ''), process.env.JWT_SECRET); }
+      catch (_) { return res.status(400).json({ error: 'Scan and verify the lift QR code before starting this job' }); }
+
+      if (
+        proof?.purpose !== 'LIFT_QR_VERIFY' ||
+        Number(proof.technicianId) !== Number(req.tech.id) ||
+        Number(proof.projectLiftId) !== Number(a.project_lift_id)
+      ) {
+        return res.status(400).json({ error: 'The scanned QR code does not match this assigned job' });
+      }
+    }
 
     const member = await JobTechnician.findOne({
       where: { assignmentId: id, technicianId: req.tech.id }

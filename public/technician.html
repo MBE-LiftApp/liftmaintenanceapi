@@ -716,6 +716,8 @@ const API_BASE = location.origin;
   let jobsView = 'current';
   let completedOffset = 0;
   let hasOlderCompletedJobs = false;
+  const verifiedJobTokens = new Map();
+  let qrMediaStream = null;
 
   function byId(id){ return document.getElementById(id); }
 
@@ -878,10 +880,128 @@ function getTechAuthHeaders() {
   }
 
   function closeModal(){
+    stopQrScanner();
     byId('modalBack').style.display = 'none';
     byId('modalTitle').textContent = '';
     byId('modalBody').innerHTML = '';
     byId('modalFoot').innerHTML = '';
+  }
+
+  function stopQrScanner(){
+    if (qrMediaStream) {
+      qrMediaStream.getTracks().forEach(track => track.stop());
+      qrMediaStream = null;
+    }
+  }
+
+  function jobVerificationKey(job){
+    return `${job?.isBreakdown ? 'B' : 'A'}-${job?.id}`;
+  }
+
+  function extractQrToken(raw){
+    const value = String(raw || '').trim();
+    if (!value) return '';
+    try {
+      const url = new URL(value, location.origin);
+      const match = url.pathname.match(/\/qr\/([^/?#]+)/i);
+      if (match) return decodeURIComponent(match[1]);
+    } catch (_) {}
+    return value.replace(/^.*\/qr\//i, '').split(/[?#]/)[0].trim();
+  }
+
+  async function verifyScannedLift(rawValue, expectedJob){
+    const token = extractQrToken(rawValue);
+    if (!token) throw new Error('The scanned QR code does not contain a lift token.');
+
+    const data = await apiFetch(`/api/tech/qr-lift/${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': 'Bearer ' + getToken() }
+    }, 'Failed to verify lift QR code');
+
+    const expectedProjectLiftId = Number(expectedJob?.projectLiftId || 0);
+    const scannedProjectLiftId = Number(data?.lift?.projectLiftId || 0);
+    const matches = !expectedProjectLiftId || expectedProjectLiftId === scannedProjectLiftId;
+
+    if (expectedJob && matches) {
+      verifiedJobTokens.set(jobVerificationKey(expectedJob), data.verificationToken || '');
+    }
+    showLiftHistory(data, expectedJob, matches);
+    renderJobCards();
+  }
+
+  function showLiftHistory(data, expectedJob, matches){
+    stopQrScanner();
+    const lift = data?.lift || {};
+    const history = Array.isArray(data?.history) ? data.history : [];
+    const verification = expectedJob
+      ? (matches
+          ? `<div class="summaryBox" style="border-color:#86efac;background:#f0fdf4;color:#166534;font-weight:800;">✓ Correct lift verified for this job</div>`
+          : `<div class="summaryBox" style="border-color:#fca5a5;background:#fef2f2;color:#991b1b;font-weight:800;">✕ Wrong lift. Expected ${escapeHtml(expectedJob.lift?.liftCode || '')}, scanned ${escapeHtml(lift.liftCode || '')}.</div>`)
+      : '';
+
+    const historyHtml = history.length
+      ? history.map(h => `
+          <div class="summaryBox">
+            <div style="display:flex;justify-content:space-between;gap:8px;">
+              <b>${escapeHtml(h.role || 'JOB')}</b>
+              <span>${escapeHtml(formatDate(h.completedAt))}</span>
+            </div>
+            ${h.faultsObserved ? `<div class="muted" style="margin-top:6px;"><b>Observed:</b> ${escapeHtml(h.faultsObserved)}</div>` : ''}
+            ${h.actionTaken ? `<div class="muted" style="margin-top:4px;"><b>Action:</b> ${escapeHtml(h.actionTaken)}</div>` : ''}
+            ${h.notes ? `<div class="muted" style="margin-top:4px;">${escapeHtml(h.notes)}</div>` : ''}
+          </div>`).join('')
+      : '<div class="muted">No completed maintenance history found for this lift.</div>';
+
+    openModal(
+      `Lift ${lift.liftCode || ''}`,
+      `${verification}
+       <div class="summaryBox">
+         <div><b>${escapeHtml(lift.projectCode || '')} — ${escapeHtml(lift.projectName || '')}</b></div>
+         <div class="muted">${escapeHtml(lift.customerName || '')}${lift.siteName ? ' • ' + escapeHtml(lift.siteName) : ''}</div>
+         <div class="muted">${escapeHtml(lift.locationLabel || lift.location || lift.building || '')}</div>
+         <div class="muted" style="margin-top:6px;">Warranty: ${escapeHtml(lift.warrantyStartDate || '—')} to ${escapeHtml(lift.warrantyEndDate || '—')}</div>
+       </div>
+       <h3>Lift History</h3>${historyHtml}`
+    );
+  }
+
+  async function scanLiftQr(expectedJob = null){
+    openModal('Scan Lift QR Code', `
+      <video id="qrVideo" playsinline style="width:100%;max-height:360px;background:#111;border-radius:12px;"></video>
+      <div class="muted" style="margin-top:10px;">Point the camera at the QR label fixed on the lift.</div>
+      <div class="field" style="margin-top:12px;">
+        <label>Camera unavailable? Paste the QR link or token</label>
+        <input id="manualQrValue" />
+      </div>`,
+      '<button class="btn btnPrimary" id="verifyManualQr">Verify</button>'
+    );
+
+    byId('verifyManualQr').onclick = async () => {
+      try { await verifyScannedLift(byId('manualQrValue').value, expectedJob); }
+      catch (e) { alert(e.message || String(e)); }
+    };
+
+    if (!('BarcodeDetector' in window)) return;
+    try {
+      const video = byId('qrVideo');
+      qrMediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = qrMediaStream;
+      await video.play();
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const detect = async () => {
+        if (!qrMediaStream || !byId('qrVideo')) return;
+        try {
+          const codes = await detector.detect(video);
+          if (codes.length) {
+            await verifyScannedLift(codes[0].rawValue, expectedJob);
+            return;
+          }
+        } catch (_) {}
+        requestAnimationFrame(detect);
+      };
+      detect();
+    } catch (e) {
+      showToast('Camera could not be opened. Paste the QR link instead.', 'warn');
+    }
   }
 
   byId('modalBack').addEventListener('click', (e) => {
@@ -998,11 +1118,12 @@ console.log('RAW BREAKDOWNS FROM API:', JSON.stringify(breakdowns, null, 2));
     location: ''
   },
   project: {
-    projectName: b.project || b.projectName || '',
+  projectName: b.project || b.projectName || '',
     projectCode: b.projectCode || ''
   },
   notes: b.complaint || '',
   priority: b.priority || 'NORMAL',
+  projectLiftId: b.projectLiftId || null,
   completedAt: b.completedAt || null,
   isBreakdown: true
 }));
@@ -1157,7 +1278,8 @@ console.log('FILTERED ROWS:', JSON.stringify(filterJobs(jobsCache).map(j => ({
       const totalRequired = Number(a.checklistSummary?.totalRequired || 0);
       const doneRequired = Number(a.checklistSummary?.doneRequired || 0);
       const checklistComplete = totalRequired > 0 && doneRequired >= totalRequired;
-      const canStart = isLead(a) && String(a.status || '').toUpperCase() === 'ASSIGNED';
+      const isQrVerified = verifiedJobTokens.has(jobVerificationKey(a));
+      const canStart = isLead(a) && String(a.status || '').toUpperCase() === 'ASSIGNED' && isQrVerified;
       const canComplete =
   isLead(a) &&
   String(a.status || '').toUpperCase() === 'IN_PROGRESS' &&
@@ -1232,7 +1354,9 @@ if (a.isBreakdown) {
 
   ${a.isBreakdown ? '' : `<button class="btn btnSmall" data-act="checklist">Checklist</button>`}
 
-  <button class="btn btnSmall" data-act="start" ${canStart ? '' : 'disabled'}>Start</button>
+  <button class="btn btnSmall" data-act="scan">${isQrVerified ? '✓ Lift Verified' : 'Scan Lift QR'}</button>
+
+  <button class="btn btnSmall" data-act="start" ${canStart ? '' : 'disabled'} title="${isQrVerified ? '' : 'Scan and verify the lift QR code first'}">Start</button>
   <button class="btn btnSmall" data-act="done" ${canComplete ? '' : 'disabled'} title="${escapeHtml(completeTitle)}">Complete</button>
 </div>
       `;
@@ -1243,6 +1367,8 @@ const checklistBtn = card.querySelector('[data-act="checklist"]');
 if (checklistBtn) {
   checklistBtn.onclick = () => showTechChecklistModal(a.id, a.role || 'JOB');
 }
+
+card.querySelector('[data-act="scan"]').onclick = () => scanLiftQr(a);
 
 card.querySelector('[data-act="start"]').onclick = async () => {
   try {
@@ -1318,7 +1444,10 @@ list.appendChild(card);
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({
+        status,
+        qrVerificationToken: verifiedJobTokens.get(jobVerificationKey(job)) || ''
+      }),
     });
 
     const data = await r.json().catch(() => ({}));
