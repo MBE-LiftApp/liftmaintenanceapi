@@ -4,7 +4,7 @@
   "short_name": "Supervisor",
   "description": "Lift maintenance supervisor field application",
   "start_url": "/supervisor.html",
-  "scope": "/",
+  "scope": "/supervisor.html",
   "display": "standalone",
   "background_color": "#f4f6f8",
   "theme_color": "#0f172a",
