@@ -650,6 +650,7 @@ h1 {
 
       <div id="list" class="grid"></div>
       <div id="empty" class="muted" style="margin-top:14px; display:none;">No assignments found.</div>
+      <div id="historyPager" style="display:none; justify-content:flex-end; gap:8px; margin-top:14px;"></div>
     </div>
   </div>
 
@@ -712,6 +713,9 @@ const API_BASE = location.origin;
   let filterStatus = 'ALL';
   let jobsCache = [];
   let activeJobId = null;
+  let jobsView = 'current';
+  let completedOffset = 0;
+  let hasOlderCompletedJobs = false;
 
   function byId(id){ return document.getElementById(id); }
 
@@ -740,13 +744,20 @@ const API_BASE = location.origin;
     document.body.style.cursor = on ? 'wait' : 'default';
   }
 
-  function setFilter(chip){
+  async function setFilter(chip){
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
   chip.classList.add('active');
 
   filterStatus = chip.getAttribute('data-filter') || 'ALL';
 
-  console.log('FILTER CHANGED TO:', filterStatus); // 👈 ADD THIS
+  const requestedView = filterStatus === 'DONE' ? 'completed' : 'current';
+
+  if (jobsView !== requestedView) {
+    jobsView = requestedView;
+    completedOffset = 0;
+    await refreshJobs();
+    return;
+  }
 
   renderJobCards();
 }
@@ -936,17 +947,39 @@ function getTechAuthHeaders() {
 
   setBusy(true);
   try {
-    const assignments = await apiFetch('/api/tech/assignments', {
+    const completedPageSizePerSource = 10;
+    const requestLimit = jobsView === 'completed'
+      ? completedPageSizePerSource + 1
+      : 100;
+    const requestOffset = jobsView === 'completed' ? completedOffset : 0;
+    const query = `?view=${encodeURIComponent(jobsView)}&limit=${requestLimit}&offset=${requestOffset}`;
+
+    const assignmentsRaw = await apiFetch('/api/tech/assignments' + query, {
       headers:{ 'Authorization':'Bearer ' + token }
     }, 'Failed to load assignments');
 
-    const breakdowns = await apiFetch('/api/tech/breakdown-jobs', {
+    const breakdownsRaw = await apiFetch('/api/tech/breakdown-jobs' + query, {
   headers:{ 'Authorization':'Bearer ' + token }
 }, 'Failed to load breakdown jobs');
 
+    const assignments = Array.isArray(assignmentsRaw) ? assignmentsRaw : [];
+    const breakdowns = Array.isArray(breakdownsRaw) ? breakdownsRaw : [];
+
+    hasOlderCompletedJobs = jobsView === 'completed' && (
+      assignments.length > completedPageSizePerSource ||
+      breakdowns.length > completedPageSizePerSource
+    );
+
+    const visibleAssignments = jobsView === 'completed'
+      ? assignments.slice(0, completedPageSizePerSource)
+      : assignments;
+    const visibleBreakdowns = jobsView === 'completed'
+      ? breakdowns.slice(0, completedPageSizePerSource)
+      : breakdowns;
+
 console.log('RAW BREAKDOWNS FROM API:', JSON.stringify(breakdowns, null, 2));
 
-    const mappedBreakdowns = (Array.isArray(breakdowns) ? breakdowns : []).map(b => ({
+    const mappedBreakdowns = visibleBreakdowns.map(b => ({
   id: b.id,
   assignmentId: b.assignmentId,
   technicianResponseStatus: b.technicianResponseStatus,
@@ -970,13 +1003,18 @@ console.log('RAW BREAKDOWNS FROM API:', JSON.stringify(breakdowns, null, 2));
   },
   notes: b.complaint || '',
   priority: b.priority || 'NORMAL',
+  completedAt: b.completedAt || null,
   isBreakdown: true
 }));
 
     jobsCache = [
-      ...(Array.isArray(assignments) ? assignments : []),
+      ...visibleAssignments,
       ...mappedBreakdowns
-    ];
+    ].sort((a, b) => {
+      const aTime = new Date(a.completedAt || a.assignedAt || a.dueDate || 0).getTime() || 0;
+      const bTime = new Date(b.completedAt || b.assignedAt || b.dueDate || 0).getTime() || 0;
+      return bTime - aTime;
+    });
 
     const currentBreakdownIds = new Set(
       mappedBreakdowns
@@ -1003,6 +1041,7 @@ console.log('RAW BREAKDOWNS FROM API:', JSON.stringify(breakdowns, null, 2));
 
     renderChips();
     renderJobCards();
+    renderHistoryPager();
 
   } catch (e) {
     alert(e.message || 'Failed to load jobs');
@@ -1010,6 +1049,38 @@ console.log('RAW BREAKDOWNS FROM API:', JSON.stringify(breakdowns, null, 2));
     setBusy(false);
   }
 }
+
+  function renderHistoryPager(){
+    const pager = byId('historyPager');
+    if (!pager) return;
+
+    pager.innerHTML = '';
+    pager.style.display = jobsView === 'completed' ? 'flex' : 'none';
+
+    if (jobsView !== 'completed') return;
+
+    if (completedOffset > 0) {
+      const newer = document.createElement('button');
+      newer.className = 'btn';
+      newer.textContent = 'Newer Jobs';
+      newer.onclick = async () => {
+        completedOffset = Math.max(0, completedOffset - 10);
+        await refreshJobs();
+      };
+      pager.appendChild(newer);
+    }
+
+    if (hasOlderCompletedJobs) {
+      const older = document.createElement('button');
+      older.className = 'btn';
+      older.textContent = 'Older Jobs';
+      older.onclick = async () => {
+        completedOffset += 10;
+        await refreshJobs();
+      };
+      pager.appendChild(older);
+    }
+  }
 
   function renderChips() {
     const container = byId('chips');
@@ -1020,7 +1091,7 @@ console.log('RAW BREAKDOWNS FROM API:', JSON.stringify(breakdowns, null, 2));
     }
 
     container.innerHTML = `
-      <div class="chip ${filterStatus === 'ALL' ? 'active' : ''}" data-filter="ALL" onclick="setFilter(this)">All</div>
+      <div class="chip ${filterStatus === 'ALL' ? 'active' : ''}" data-filter="ALL" onclick="setFilter(this)">Current</div>
       <div class="chip ${filterStatus === 'ASSIGNED' ? 'active' : ''}" data-filter="ASSIGNED" onclick="setFilter(this)">Assigned</div>
       <div class="chip ${filterStatus === 'IN_PROGRESS' ? 'active' : ''}" data-filter="IN_PROGRESS" onclick="setFilter(this)">In Progress</div>
       <div class="chip ${filterStatus === 'DONE' ? 'active' : ''}" data-filter="DONE" onclick="setFilter(this)">Done</div>

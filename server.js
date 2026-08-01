@@ -8290,7 +8290,35 @@ app.put(
 app.get('/api/tech/assignments', authTech, async (req, res) => {
   try {
     const status = req.query.status ? String(req.query.status).toUpperCase() : null;
-    const limit = Math.min(Math.max(Number(req.query.limit || 200), 1), 500);
+    const view = String(req.query.view || 'current').toLowerCase().trim();
+    const defaultLimit = view === 'completed' ? 20 : 100;
+    const limit = Math.min(Math.max(Number(req.query.limit || defaultLimit), 1), 100);
+    const offset = Math.max(Number(req.query.offset || 0), 0);
+
+    let assignmentWhere = {};
+
+    if (view === 'completed') {
+      assignmentWhere = {
+        status: 'DONE',
+        supervisor_status: 'APPROVED',
+      };
+    } else if (view === 'current') {
+      assignmentWhere = {
+        [Op.or]: [
+          { status: { [Op.in]: ['ASSIGNED', 'IN_PROGRESS'] } },
+          {
+            status: 'DONE',
+            supervisor_status: { [Op.in]: ['PENDING', 'REJECTED'] },
+          },
+          {
+            status: 'DONE',
+            supervisor_status: null,
+          },
+        ],
+      };
+    } else if (status) {
+      assignmentWhere.status = status === 'COMPLETED' ? 'DONE' : status;
+    }
 
 
     const teamRows = await JobTechnician.findAll({
@@ -8298,6 +8326,8 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
       include: [
         {
           model: ProjectLiftAssignment,
+          required: true,
+          where: assignmentWhere,
           include: [
             {
               model: ProjectLift,
@@ -8311,6 +8341,7 @@ app.get('/api/tech/assignments', authTech, async (req, res) => {
       ],
       order: [['id', 'DESC']],
       limit,
+      offset,
     });
 
     const assignmentIds = teamRows
@@ -11272,6 +11303,15 @@ supportEscalationStatus: support?.escalation_status || 'NONE',
 
 app.get('/api/tech/breakdown-jobs', authTech, async (req, res) => {
   try {
+    const view = String(req.query.view || 'current').toLowerCase().trim();
+    const defaultLimit = view === 'completed' ? 20 : 100;
+    const limit = Math.min(Math.max(Number(req.query.limit || defaultLimit), 1), 100);
+    const offset = Math.max(Number(req.query.offset || 0), 0);
+
+    const breakdownStatuses = view === 'completed'
+      ? ['DONE', 'COMPLETED', 'CLOSED', 'RESOLVED']
+      : ['ASSIGNED', 'IN_PROGRESS'];
+
     const rows = await JobAssignment.findAll({
       where: {
         technician_id: req.tech.id,
@@ -11283,7 +11323,7 @@ app.get('/api/tech/breakdown-jobs', authTech, async (req, res) => {
           where: {
   job_type: 'BREAKDOWN',
   status: {
-    [Op.in]: ['ASSIGNED', 'IN_PROGRESS', 'DONE', 'COMPLETED', 'CLOSED', 'RESOLVED'],
+    [Op.in]: breakdownStatuses,
   },
 },
           include: [
@@ -11295,6 +11335,8 @@ app.get('/api/tech/breakdown-jobs', authTech, async (req, res) => {
         },
       ],
       order: [['id', 'DESC']],
+      limit,
+      offset,
     });
 
     const out = rows.map((r) => {
@@ -11313,6 +11355,7 @@ app.get('/api/tech/breakdown-jobs', authTech, async (req, res) => {
   projectCode: j.ProjectLift?.Project?.project_code || '',
   projectName: j.ProjectLift?.Project?.project_name || '',
   assignedAt: r.assigned_at,
+  completedAt: j.completed_at || null,
   technicianResponseStatus: r.technician_response_status,
   escalationStatus: r.escalation_status,
 };

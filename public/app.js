@@ -118,6 +118,8 @@ const state = {
 
 let serviceJobsView = "open";
 let projectJobsView = "open";
+let techJobsView = "current";
+let techCompletedOffset = 0;
 
 const el = (id) => document.getElementById(id);
 function setActiveNav(view) {
@@ -1382,9 +1384,13 @@ async updateJobStatusOffice(id, status) {
     return data;
   },
 
-  async techMyJobs(status = "") {
-    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-    const r = await fetch(`/api/tech/assignments${qs}`, {
+  async techMyJobs({ view = "current", limit = 100, offset = 0 } = {}) {
+    const qs = new URLSearchParams({
+      view,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const r = await fetch(`/api/tech/assignments?${qs.toString()}`, {
       headers: { Authorization: `Bearer ${state.techToken}` },
     });
     const j = await r.json();
@@ -7637,16 +7643,43 @@ async function renderTechDashboard() {
   root.innerHTML = `<div class="card"><div class="label">Loading...</div></div>`;
 
   try {
-    const rows = await API.techMyJobs("");
+    const pageSize = 20;
+    const fetchLimit = techJobsView === "completed" ? pageSize + 1 : 100;
+    const rows = await API.techMyJobs({
+      view: techJobsView,
+      limit: fetchLimit,
+      offset: techJobsView === "completed" ? techCompletedOffset : 0,
+    });
+    const hasOlderCompleted = techJobsView === "completed" && rows.length > pageSize;
+    const visibleRows = techJobsView === "completed" ? rows.slice(0, pageSize) : rows;
 
     root.innerHTML = `
       <div class="card">
-        <div class="label">Assigned Jobs</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+          <div>
+            <div class="label">My Jobs</div>
+            <div class="muted">${techJobsView === "completed" ? "Approved completed jobs" : "Current and actionable jobs"}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="muted" style="font-weight:600;">Show</span>
+            <select id="techJobsViewFilter" style="height:34px; border-radius:8px; padding:0 8px;">
+              <option value="current">Current Jobs</option>
+              <option value="completed">Completed Jobs</option>
+            </select>
+          </div>
+        </div>
         <div class="hr"></div>
       </div>
     `;
 
     const card = root.querySelector(".card");
+    const viewFilter = root.querySelector("#techJobsViewFilter");
+    viewFilter.value = techJobsView;
+    viewFilter.onchange = () => {
+      techJobsView = viewFilter.value;
+      techCompletedOffset = 0;
+      renderTechDashboard();
+    };
     const wrap = makeScrollableTableWrap(`
       <table>
         <thead>
@@ -7670,18 +7703,18 @@ async function renderTechDashboard() {
 
     const tb = wrap.querySelector("#techBody");
 
-    if (!rows || rows.length === 0) {
+    if (!visibleRows || visibleRows.length === 0) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td colspan="9" class="muted">
-          No jobs assigned to you right now.
+          ${techJobsView === "completed" ? "No completed jobs found." : "No current jobs assigned to you right now."}
         </td>
       `;
       tb.appendChild(tr);
       return;
     }
 
-    (rows || []).forEach((a) => {
+    (visibleRows || []).forEach((a) => {
       const leadName = getLeadName(a);
       const supportNames = getSupportNames(a);
       const supportCount = supportNames.length;
@@ -7803,6 +7836,34 @@ if (isLead && a.status === "IN_PROGRESS") {
 
       tb.appendChild(tr);
     });
+
+    if (techJobsView === "completed") {
+      const pager = document.createElement("div");
+      pager.style.display = "flex";
+      pager.style.justifyContent = "flex-end";
+      pager.style.gap = "8px";
+      pager.style.marginTop = "12px";
+
+      if (techCompletedOffset > 0) {
+        const newerBtn = smallBtn("Newer Jobs", "secondary");
+        newerBtn.onclick = () => {
+          techCompletedOffset = Math.max(0, techCompletedOffset - pageSize);
+          renderTechDashboard();
+        };
+        pager.appendChild(newerBtn);
+      }
+
+      if (hasOlderCompleted) {
+        const olderBtn = smallBtn("Older Jobs", "secondary");
+        olderBtn.onclick = () => {
+          techCompletedOffset += pageSize;
+          renderTechDashboard();
+        };
+        pager.appendChild(olderBtn);
+      }
+
+      card.appendChild(pager);
+    }
   } catch (e) {
     console.error(e);
     root.innerHTML = `
