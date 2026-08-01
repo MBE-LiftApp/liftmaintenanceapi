@@ -2649,8 +2649,39 @@ function fmtProjectCode(n) {
 }
 
 async function nextProjectCode() {
-  // sequence was created/reset by you; also ensured by ensureSchema() below
-  const [rows] = await sequelize.query("SELECT nextval('public.project_code_seq') AS seq");
+  // Keep the dedicated code sequence aligned with imported/restored projects.
+  // This is intentionally checked at allocation time so a CSV import cannot
+  // leave the sequence at 1 while PRJ-xxxx records already exist.
+  await sequelize.query(`
+    WITH highest_existing AS (
+      SELECT COALESCE(
+        MAX(
+          CASE
+            WHEN project_code ~ '^PRJ-[0-9]+$'
+            THEN SUBSTRING(project_code FROM '[0-9]+$')::BIGINT
+            ELSE 0
+          END
+        ),
+        0
+      ) AS max_no
+      FROM projects
+    )
+    SELECT setval(
+      'public.project_code_seq',
+      GREATEST(
+        (SELECT max_no FROM highest_existing),
+        (SELECT last_value FROM public.project_code_seq)
+      ),
+      (
+        (SELECT max_no FROM highest_existing) > 0
+        OR (SELECT is_called FROM public.project_code_seq)
+      )
+    );
+  `);
+
+  const [rows] = await sequelize.query(
+    "SELECT nextval('public.project_code_seq') AS seq"
+  );
   const nextNo = Number(rows[0].seq);
   return fmtProjectCode(nextNo);
 }
@@ -15016,6 +15047,15 @@ await createIndexSafe(
   await addColumnIfMissing('projects', 'notes', 'TEXT');
   await addColumnIfMissing('projects', 'created_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
   await addColumnIfMissing('projects', 'updated_at', 'TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+
+  // Permanent safeguard for both current and newly recreated databases.
+  // Project-code allocation is synchronized separately by nextProjectCode().
+  await createUniqueIndexSafe(
+    'uq_projects_project_code',
+    'projects',
+    '(project_code)',
+    'WHERE project_code IS NOT NULL'
+  );
 
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS project_lifts (
