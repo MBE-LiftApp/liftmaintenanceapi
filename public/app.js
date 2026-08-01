@@ -3439,6 +3439,19 @@ async function renderProjects() {
 
     const card = root.querySelector(".card");
 
+    const searchBar = document.createElement("div");
+    searchBar.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;";
+    searchBar.innerHTML = `
+      <input id="projectSearchInput" type="search"
+        placeholder="Search code, project, customer, site or status"
+        aria-label="Search projects"
+        style="flex:1;min-width:240px;" />
+      <button id="projectSearchBtn" class="btn primary" type="button">Search</button>
+      <button id="projectSearchClearBtn" class="btn secondary" type="button">Clear</button>
+      <span id="projectSearchCount" class="muted" style="font-size:12px;"></span>
+    `;
+    card.appendChild(searchBar);
+
     const wrap = document.createElement("div");
     wrap.className = "tableContainer";
     wrap.style.maxHeight = "420px";
@@ -3474,7 +3487,19 @@ async function renderProjects() {
       return;
     }
 
-    rows.forEach((p) => {
+    const renderProjectRows = (projects) => {
+      tb.innerHTML = "";
+
+      if (!projects.length) {
+        tb.innerHTML = `
+          <tr>
+            <td colspan="7" class="muted text-center">No matching projects found.</td>
+          </tr>
+        `;
+        return;
+      }
+
+      projects.forEach((p) => {
       const tr = document.createElement("tr");
 
       tr.innerHTML = `
@@ -3525,7 +3550,39 @@ if (hasPermission("projects.delete")) {
 }
 
       tb.appendChild(tr);
+      });
+    };
+
+    const searchInput = card.querySelector("#projectSearchInput");
+    const searchCount = card.querySelector("#projectSearchCount");
+
+    const applyProjectSearch = () => {
+      const query = String(searchInput.value || "").trim().toLowerCase();
+      const filteredRows = !query
+        ? rows
+        : rows.filter((p) => [
+            p.projectCode,
+            p.projectName,
+            p.customer?.name,
+            p.site?.name,
+            p.status,
+          ].some((value) => String(value || "").toLowerCase().includes(query)));
+
+      renderProjectRows(filteredRows);
+      searchCount.textContent = query ? `${filteredRows.length} of ${rows.length} shown` : `${rows.length} project${rows.length === 1 ? "" : "s"}`;
+    };
+
+    card.querySelector("#projectSearchBtn").onclick = applyProjectSearch;
+    card.querySelector("#projectSearchClearBtn").onclick = () => {
+      searchInput.value = "";
+      applyProjectSearch();
+      searchInput.focus();
+    };
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") applyProjectSearch();
     });
+
+    applyProjectSearch();
   } catch (e) {
     root.innerHTML = `
       <div class="card">
@@ -4917,6 +4974,19 @@ setToolbar(toolbar);
 
     const card = root.querySelector(".card");
 
+    const searchBar = document.createElement("div");
+    searchBar.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;";
+    searchBar.innerHTML = `
+      <input id="liftSearchInput" type="search"
+        placeholder="Search lift code, customer, location, warranty or AMC status"
+        aria-label="Search lifts"
+        style="flex:1;min-width:240px;" />
+      <button id="liftSearchBtn" class="btn primary" type="button">Search</button>
+      <button id="liftSearchClearBtn" class="btn secondary" type="button">Clear</button>
+      <span id="liftSearchCount" class="muted" style="font-size:12px;"></span>
+    `;
+    card.appendChild(searchBar);
+
     const wrap = document.createElement("div");
     wrap.className = "tableContainer";
     wrap.style.maxHeight = "420px";
@@ -4952,7 +5022,19 @@ setToolbar(toolbar);
       return;
     }
 
-    (rows || []).forEach((l) => {
+    const renderLiftRows = (lifts) => {
+      tb.innerHTML = "";
+
+      if (!lifts.length) {
+        tb.innerHTML = `
+          <tr>
+            <td colspan="7" class="muted text-center">No matching lifts found.</td>
+          </tr>
+        `;
+        return;
+      }
+
+      lifts.forEach((l) => {
       const tr = document.createElement("tr");
 
       const warrantyStatus = normalizeWarrantyStatus(l.warrantyStatus);
@@ -4988,7 +5070,40 @@ btnQr.onclick = () => showLiftQrModal(l.id);
 actionsCell.appendChild(btnQr);
 
       tb.appendChild(tr);
+      });
+    };
+
+    const searchInput = card.querySelector("#liftSearchInput");
+    const searchCount = card.querySelector("#liftSearchCount");
+
+    const applyLiftSearch = () => {
+      const query = String(searchInput.value || "").trim().toLowerCase();
+      const filteredRows = !query
+        ? rows
+        : rows.filter((l) => [
+            l.liftCode,
+            l.customerName,
+            l.liftPosition,
+            l.location,
+            normalizeWarrantyStatus(l.warrantyStatus),
+            normalizeAmcStatus(l.amcStatus),
+          ].some((value) => String(value || "").toLowerCase().includes(query)));
+
+      renderLiftRows(filteredRows);
+      searchCount.textContent = query ? `${filteredRows.length} of ${rows.length} shown` : `${rows.length} lift${rows.length === 1 ? "" : "s"}`;
+    };
+
+    card.querySelector("#liftSearchBtn").onclick = applyLiftSearch;
+    card.querySelector("#liftSearchClearBtn").onclick = () => {
+      searchInput.value = "";
+      applyLiftSearch();
+      searchInput.focus();
+    };
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") applyLiftSearch();
     });
+
+    applyLiftSearch();
   } catch (e) {
     root.innerHTML = `
       <div class="card">
